@@ -48,15 +48,13 @@ landed.)
 - Or: the routine config grows an env-var injection mechanism that
   lets us pass a fine-grained PAT for milestones only.
 
-## When we hit the first real PR that needs reviewing
-- **Upgrade `review.yml` from option (a) to option (b).** Currently the
-  Reviewer workflow posts an `@claude` mention on PR open and relies on the
-  installed Claude GitHub App to respond using the comment's prompt as
-  guidance. This works but is generic. The upgrade: switch to
-  `anthropics/claude-code-action@v1` with `ANTHROPIC_API_KEY` in repo
-  secrets and the Reviewer agent definition baked into the action's prompt.
-  Gives reliable, dedicated Reviewer behavior every time and labels PRs
-  consistently (`reviewed:clean` / `reviewed:findings` / `reviewed:blocking`).
+## ~~When we hit the first real PR that needs reviewing~~ Done 2026-05-23
+- ~~Upgrade `review.yml` from option (a) to option (b).~~ Shipped. Both
+  `review.yml` and `developer.yml` now use `anthropics/claude-code-action@v1`
+  with `ANTHROPIC_API_KEY` in repo secrets. Reviewer runs Haiku; Developer
+  runs Sonnet. The action handles branch management (prefix `feat/`) and
+  the workflow's final step opens a PR from the action's `branch_name`
+  output if one doesn't exist yet.
 
 ## When we start spawning Developers via GH Actions
 - ~~**Add `developer.yml` workflow.**~~ Done in c11eccc (option (a) with
