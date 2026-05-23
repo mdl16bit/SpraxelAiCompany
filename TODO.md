@@ -52,15 +52,15 @@ the framework matures.
   is to actually create the workflow.
 
 ## When SpraxelAiCompany grows or stabilizes enough
-- **De-vendor `sync_work_md.py`.** Currently the script is vendored at
-  `infiltrators/.factory/scripts/sync_work_md.py` with a header note
-  reminding us to refresh on framework updates. Options to remove the
-  vendoring:
-  - Make SpraxelAiCompany public — then `git clone` in workflows works
-    without auth.
-  - Or publish it as a small Python package on PyPI and `pip install` in CI.
-  - Or use a fine-grained cross-repo deploy key / GH App with read access
-    to SpraxelAiCompany.
+- **De-vendor `sync_work_md.py`.** SpraxelAiCompany is **public** (CEO
+  decision 2026-05-23), so the cross-repo blocker is gone. The sync
+  workflow on each game repo can switch from `python3
+  .factory/scripts/sync_work_md.py` to `git clone --depth=1
+  https://github.com/mdl16bit/SpraxelAiCompany /tmp/spraxel-framework &&
+  python3 /tmp/spraxel-framework/scripts/sync_work_md.py`. After that,
+  refreshing the script across N game repos is a no-op (each next
+  workflow run picks up the new version automatically). Pinning to a
+  specific tag would be even safer once we tag releases.
 
 ## When release-day automation lands
 - **Build `--release-cut` mode into `sync_work_md.py`.** PM's release-day
