@@ -275,7 +275,8 @@ def _existing_intake_titles(intake_path: Path) -> set[str]:
         if not raw.startswith("- "):
             continue
         body = raw[2:]
-        m = re.match(r"\(line \d+\)\s*(\[[^\]]+\])?\s*(.*)", body)
+        # Strip an optional leading `[meta]` chunk like `[p2]` or `[p1,bug]`
+        m = re.match(r"\s*(\[[^\]]+\])?\s*(.*)", body)
         if m:
             titles.add(m.group(2).strip())
         else:
@@ -300,8 +301,8 @@ def append_to_intake(intake_path: Path, lines: list[WorkLine], apply: bool) -> N
             meta.append(wl.priority)
         if wl.kind != "feature":
             meta.append(wl.kind)
-        meta_str = f" [{','.join(meta)}]" if meta else ""
-        body.append(f"- (line {wl.line_no}){meta_str} {wl.title}")
+        meta_str = f"[{','.join(meta)}] " if meta else ""
+        body.append(f"- {meta_str}{wl.title}")
         for d in wl.details:
             if d.strip():
                 body.append(d)

@@ -4,24 +4,33 @@ Items that are deliberately deferred from Phase 1, with the trigger that should
 prompt the upgrade. Each entry is one work item; we add (or remove) items as
 the framework matures.
 
-## Defects found during Step 1.13 smoke test (2026-05-23)
+## Defects found during Step 1.13 / 1.14 smoke tests (2026-05-23)
 
-- **PM doesn't actually create milestones.** Trigger-run on the wall-knock
-  smoke test issue: PM commented `_PM: ready for Developer pickup. Milestone:
-  v0.1 (target 2026-06-08)._` but no milestone was created on the repo
-  (`gh api repos/.../milestones` returned empty), and the issue's
-  `milestone` field stayed null. Tighten the PM agent prompt: milestone
-  creation via `gh api repos/:owner/:repo/milestones -X POST` is a
-  REQUIRED step before attaching, and the issue MUST be attached via
-  `gh issue edit N --milestone "v0.X"`. Also have PM verify the milestone
-  exists by reading `gh api repos/:owner/:repo/milestones` before claiming
-  one in the comment.
-- **PM didn't append to `.factory/inbox/today.md`.** Agent definition says
-  to add a one-liner; PM skipped it. The prompt may be ambiguous about
-  whether the line is mandatory or optional. Make it explicit: every PM
-  run that does ANY work (milestone, spawn, GUPP-unstick) MUST append a
-  one-line summary to today.md and `git push`. No-op runs (nothing-to-do
-  exit) skip the commit.
+### Fixed in 73ed4de + routine update
+- **PM didn't append to `.factory/inbox/today.md`.** Now required on every
+  working run; only zero-work runs exit without commit. PM v2 runs are
+  now appending correctly.
+- **PM was silent about its own limitations.** Now logs the milestone
+  blocker explicitly in `pm.md` and `today.md`. Behavior verified.
+
+### Still open
+- **PM cannot create or attach milestones in the cloud sandbox.** Run 1
+  + run 2 both reported that the `gh` CLI is not installed in the CCR
+  environment and that the GitHub MCP tools available to PM don't
+  include `create_milestone` or `set_milestone_on_issue`. Until this is
+  resolved, PM tags `status:ready` correctly but **cannot milestone an
+  issue** — the CEO has to either create + attach milestones manually
+  via local `gh` or the GitHub web UI. Investigation needed:
+  1. Confirm what tools PM actually has (next time we run PM, instruct
+     it to emit `command -v gh; ls /tmp; mcp__list-tools` so we see
+     ground truth).
+  2. If `gh` truly isn't there, add an explicit install step
+     (`apt-get install gh` or `curl ...`) at the start of the PM
+     prompt, or vendor a small Python script that uses `urllib.request`
+     to hit the GitHub REST API (`POST /repos/{owner}/{repo}/milestones`)
+     with the `$GH_TOKEN` env var that the CCR sandbox already has.
+  3. Validate that PM's milestone-create + milestone-attach steps now
+     work end-to-end.
 
 ## When we hit the first real PR that needs reviewing
 - **Upgrade `review.yml` from option (a) to option (b).** Currently the
