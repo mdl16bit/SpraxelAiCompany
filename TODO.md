@@ -4,6 +4,25 @@ Items that are deliberately deferred from Phase 1, with the trigger that should
 prompt the upgrade. Each entry is one work item; we add (or remove) items as
 the framework matures.
 
+## Defects found during Step 1.13 smoke test (2026-05-23)
+
+- **PM doesn't actually create milestones.** Trigger-run on the wall-knock
+  smoke test issue: PM commented `_PM: ready for Developer pickup. Milestone:
+  v0.1 (target 2026-06-08)._` but no milestone was created on the repo
+  (`gh api repos/.../milestones` returned empty), and the issue's
+  `milestone` field stayed null. Tighten the PM agent prompt: milestone
+  creation via `gh api repos/:owner/:repo/milestones -X POST` is a
+  REQUIRED step before attaching, and the issue MUST be attached via
+  `gh issue edit N --milestone "v0.X"`. Also have PM verify the milestone
+  exists by reading `gh api repos/:owner/:repo/milestones` before claiming
+  one in the comment.
+- **PM didn't append to `.factory/inbox/today.md`.** Agent definition says
+  to add a one-liner; PM skipped it. The prompt may be ambiguous about
+  whether the line is mandatory or optional. Make it explicit: every PM
+  run that does ANY work (milestone, spawn, GUPP-unstick) MUST append a
+  one-line summary to today.md and `git push`. No-op runs (nothing-to-do
+  exit) skip the commit.
+
 ## When we hit the first real PR that needs reviewing
 - **Upgrade `review.yml` from option (a) to option (b).** Currently the
   Reviewer workflow posts an `@claude` mention on PR open and relies on the
