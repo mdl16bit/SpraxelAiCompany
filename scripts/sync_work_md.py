@@ -24,13 +24,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-DASH_LINE = "-" * 50
 SECTIONS = ("shipped", "current", "todo")
 
 ISSUE_RE = re.compile(r"\s*\(#(\d+)\)\s*$")
 PRIORITY_RE = re.compile(r"^(p[0-3])\s+", re.IGNORECASE)
 KIND_PREFIX_RE = re.compile(r"^(bug|fix|chore|feat|feature|new)\s*[:\-—]\s*", re.IGNORECASE)
 LIST_BULLET_RE = re.compile(r"^\s*-\s+")
+DIVIDER_RE = re.compile(r"^(-{10,}|={10,})$")
 
 
 @dataclass
@@ -40,6 +40,7 @@ class WorkLine:
     section: str
     bullet: str = ""
     body: str = ""
+    details: list[str] = field(default_factory=list)
     issue_no: int | None = None
     priority: str = ""
     kind: str = "feature"
@@ -57,41 +58,93 @@ class WorkDoc:
 
 
 def parse_work_md(text: str) -> WorkDoc:
+    """Tolerant parser. Two formats both work:
+
+    - Markdown-bulleted: lines like `- p0 title (#42)` under `## Shipped` /
+      `## Todo` headings, with one or more divider lines between sections.
+    - Plain-paragraph (CEO-style): each work item is a line at column 0; lines
+      with leading whitespace are detail/continuation for the item above. No
+      `## ` headings; dividers (10+ dashes or equals signs) separate sections.
+
+    Sections by divider count:
+      0 dividers → everything in "todo"
+      1 divider  → above="shipped", below="todo"
+      2+         → above-first="shipped", between="current", below-last="todo"
+
+    Header is everything before the first `## ` heading. If no heading exists,
+    there is no header and parsing begins at line 1.
+    """
     doc = WorkDoc()
     doc.raw_lines = text.splitlines()
+    n = len(doc.raw_lines)
 
-    HEADER, SHIPPED, CURRENT, TODO = -1, 0, 1, 2
-    section_names = {SHIPPED: "shipped", CURRENT: "current", TODO: "todo"}
-
-    section = HEADER
-    dash_count = 0
+    header_end = 0
     for i, raw in enumerate(doc.raw_lines):
-        if raw.strip() == DASH_LINE:
-            dash_count += 1
-            if dash_count > 2:
-                raise ValueError(
-                    f"WORK.md has more than 2 dashed-line dividers (line {i + 1})"
-                )
-            section = SHIPPED if section == HEADER else section + 1
+        if raw.startswith("## "):
+            header_end = i + 1
+            break
+
+    for i in range(header_end):
+        doc.header.append(doc.raw_lines[i])
+
+    divider_lines = [
+        i for i in range(header_end, n)
+        if DIVIDER_RE.match(doc.raw_lines[i].strip())
+    ]
+    n_div = len(divider_lines)
+
+    if n_div == 0:
+        def section_for(_i: int) -> str:
+            return "todo"
+    elif n_div == 1:
+        d0 = divider_lines[0]
+
+        def section_for(i: int) -> str:
+            return "shipped" if i < d0 else "todo"
+    else:
+        first, last = divider_lines[0], divider_lines[-1]
+
+        def section_for(i: int) -> str:
+            if i < first:
+                return "shipped"
+            if i > last:
+                return "todo"
+            return "current"
+
+    current_item: WorkLine | None = None
+
+    def close_item() -> None:
+        nonlocal current_item
+        if current_item is not None:
+            doc.sections[current_item.section].append(current_item)
+            current_item = None
+
+    for i in range(header_end, n):
+        raw = doc.raw_lines[i]
+        stripped = raw.strip()
+
+        if DIVIDER_RE.match(stripped):
+            close_item()
             continue
 
-        if section == HEADER:
-            if raw.startswith("## "):
-                section = SHIPPED
-            else:
-                doc.header.append(raw)
-                continue
-
-        if not LIST_BULLET_RE.match(raw):
+        if not stripped:
+            if current_item is not None:
+                current_item.details.append(raw)
             continue
 
-        wl = _parse_line(raw, i + 1, section_names[section])
-        doc.sections[section_names[section]].append(wl)
+        if raw[0].isspace():
+            if current_item is not None:
+                current_item.details.append(raw)
+            continue
 
-    if dash_count < 2:
-        raise ValueError(
-            f"WORK.md must contain two dashed-line dividers (found {dash_count})"
-        )
+        if raw.startswith("#"):
+            close_item()
+            continue
+
+        close_item()
+        current_item = _parse_line(raw, i + 1, section_for(i))
+
+    close_item()
     return doc
 
 
@@ -249,6 +302,9 @@ def append_to_intake(intake_path: Path, lines: list[WorkLine], apply: bool) -> N
             meta.append(wl.kind)
         meta_str = f" [{','.join(meta)}]" if meta else ""
         body.append(f"- (line {wl.line_no}){meta_str} {wl.title}")
+        for d in wl.details:
+            if d.strip():
+                body.append(d)
     block = "\n".join(body) + "\n"
 
     if apply:

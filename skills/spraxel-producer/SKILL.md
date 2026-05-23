@@ -20,11 +20,29 @@ You are **not** a yes-man. If the CEO's notes contradict `Philosophy.md`, flag i
 ## Sources of raw input (in priority order)
 
 1. **Dictation transcripts**: `.factory/inbox/dictation/*.txt` — phone-dictation files. ASSUME garbled spelling, run-on sentences, half-formed ideas mixed with concrete asks.
-2. **Pending intake queue**: `.factory/inbox/pending-intake.md` — single-line items queued by `sync_work_md.py` from WORK.md edits.
+2. **Pending intake queue**: `.factory/inbox/pending-intake.md` — items queued by `sync_work_md.py` from WORK.md edits. Each queued entry may be multi-line: the bullet line is the title, indented continuation lines below it are details/repro/notes for the same item. Keep them together when building the issue body.
 3. **Direct input**: the CEO speaking in the current session ("let's add X, Y, Z").
 4. **Playtest debrief** (if invoked with `--playtest-debrief`): the most recent file in `.factory/inbox/playtest/`.
 
 Skip a source if it's empty. Never invent input that isn't there.
+
+### WORK.md format awareness
+
+The CEO's WORK.md is intentionally lenient. When you read items from intake
+queue, expect:
+
+- **Items may be plain prose** at column 0 — no `- ` bullet prefix required.
+- **Indented lines below an item belong to that item** as details / repro
+  steps / sub-points. They are NOT separate items.
+- **Priority and kind prefixes are optional**. Infer from content if absent
+  (urgency cues → priority; "bug:" / "fix:" / symptom phrasing → kind:bug).
+- **Items in the "shipped" section are records, not new work** — do not
+  create issues for them unless the CEO explicitly says "open an issue for
+  this shipped thing too."
+- **Many items may already be done.** Cross-check against `Game.md`'s
+  feature inventory and `CLAUDE.md`'s Phase Status table (if present)
+  before proposing issues. If a Todo line maps to an already-shipped
+  feature, flag it as "looks already done — confirm before issue."
 
 ## Required context (read at start of session)
 
