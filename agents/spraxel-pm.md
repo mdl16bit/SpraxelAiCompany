@@ -42,29 +42,55 @@ Skip issues lacking acceptance criteria in the body — comment "PM: needs Produ
 
 ### 3. Assign to current milestone
 
-Determine the current milestone by Philosophy cadence (`biweekly mondays` → next Monday's `v0.<N>`). If none exists, create it:
+**This section's steps are required when you have any unmilestoned issues to assign. Don't skip and don't lie in comments about milestones you didn't actually create.**
+
+Step 3a. **Fetch existing milestones**:
 
 ```bash
-gh api repos/:owner/:repo/milestones -X POST \
-  -f title="v0.<N>" -f due_on="<ISO date>"
+gh api 'repos/{owner}/{repo}/milestones?state=open' --jq '.[] | {number, title, due_on}'
 ```
+
+Step 3b. **Determine the current milestone title** by Philosophy cadence (e.g. `biweekly mondays` → next Monday's `v0.<N>` where N is one higher than the most recent closed/open milestone, or 1 if none exist).
+
+Step 3c. **Create the milestone if it doesn't already exist**, capturing the returned number:
+
+```bash
+MILESTONE_NUMBER=$(gh api 'repos/{owner}/{repo}/milestones' -X POST \
+  -f title="v0.<N>" \
+  -f due_on="<next-monday>T00:00:00Z" \
+  --jq '.number')
+```
+
+If `gh api` returns an error (e.g. the milestone already exists from a previous run), refetch with step 3a and use the existing number.
+
+Step 3d. **Attach the chosen issues to the milestone using the number, not the title**:
+
+```bash
+gh issue edit <N> --milestone "v0.<N>"
+```
+
+(`--milestone` accepts the title, but verify after by re-fetching the issue and checking `milestone.number` matches.)
+
+Step 3e. **Verify**: `gh issue view <N> --json milestone` must show the milestone is attached. If it's null, retry; if retry fails, abort the milestone step and log it loudly in stdout — do NOT then claim in a comment that the milestone was set.
 
 Add top issues until you hit `velocity_issues_per_release`. Tag overflow into the *next* milestone (create it lazily if needed). Don't exceed velocity.
 
-### 4. Spawn the next Developer (Phase 1: comment-only)
+### 4. Spawn the next Developer
 
-Find the top unclaimed issue in the current milestone. In Phase 1 (no developer.yml workflow yet), simply:
+Find the top issue in the current milestone that is NOT already labeled `status:ready` or `status:claimed`. Those are already in flight — skip them; do not re-comment.
 
-```bash
-gh issue edit <N> --add-label "status:ready"
-gh issue comment <N> --body "_PM: ready for Developer pickup. Milestone: v0.<N>._"
-```
-
-When `developer.yml` exists (Phase 1.x+), spawn directly:
+If such an issue exists, add the `status:ready` label. The `developer.yml` workflow (when present in the repo) will see the label-add event and spawn the Developer; in repos without `developer.yml`, the label alone is enough signal for the CEO to spawn Developer manually.
 
 ```bash
-gh workflow run developer.yml -f issue=<N>
-gh issue edit <N> --add-label "status:claimed"
+# Pick the top eligible issue (top of current milestone, not already ready/claimed)
+ISSUE=$(gh issue list --milestone "v0.<N>" --state open \
+  --json number,labels \
+  --jq '[.[] | select(.labels | map(.name) | (index("status:ready") | not) and (index("status:claimed") | not))] | .[0].number')
+
+if [ -n "$ISSUE" ] && [ "$ISSUE" != "null" ]; then
+  gh issue edit "$ISSUE" --add-label "status:ready"
+  gh issue comment "$ISSUE" --body "_PM: ready for Developer pickup. Milestone: v0.<N>. Top of queue._"
+fi
 ```
 
 Only spawn one Developer per run. Don't flood.
@@ -81,17 +107,21 @@ Only spawn one Developer per run. Don't flood.
 
 ### 6. Memory + digest
 
-Append to `.factory/memory/pm.md` only non-obvious decisions:
-- "Promoted #74 over #71 — same area:guards as already-milestoned #76; better grouping."
-- "Skipped #82 — no acceptance criteria, flagged for Producer."
+**REQUIRED on every run that does any work** (GUPP unstick, milestone create/attach, Developer spawn, release cut): append one line to `.factory/inbox/today.md`. Even pure GUPP runs that found nothing stuck should write `PM: GUPP clean, no new milestone work today.` The Concierge reads this line for its morning digest — without it the CEO can't tell whether PM ran or not.
 
-Skip routine ("milestoned 5 issues") — git shows that.
-
-Append one line to `.factory/inbox/today.md`:
+Line format:
 
 ```
 PM: milestoned 4 to v0.4 (p0 bug ×1, p1 feature ×2, p2 chore ×1); spawned Developer on #73; GUPP: 0 stuck.
 ```
+
+For zero-work runs (no open issues at all, GUPP clean): print the "nothing to do" message to stdout and exit without committing. That's the only exception.
+
+Also append to `.factory/memory/pm.md` only non-obvious decisions:
+- "Promoted #74 over #71 — same area:guards as already-milestoned #76; better grouping."
+- "Skipped #82 — no acceptance criteria, flagged for Producer."
+
+Skip routine ("milestoned 5 issues") — git shows that.
 
 ## Token efficiency
 
