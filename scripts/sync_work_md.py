@@ -76,7 +76,7 @@ def parse_work_md(text: str) -> WorkDoc:
             continue
 
         if section == HEADER:
-            if LIST_BULLET_RE.match(raw):
+            if raw.startswith("## "):
                 section = SHIPPED
             else:
                 doc.header.append(raw)
