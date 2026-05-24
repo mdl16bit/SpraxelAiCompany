@@ -16,7 +16,9 @@ The invocation must include the issue number (e.g. `--issue 73` or in the prompt
 
 - **Every acceptance-criteria checkbox must pass.** No partial PRs.
 - **Add a `--demo-feature=<slug>` boot path** in `scripts/systems/debug_boot.gd` for any new feature. Without it, Playtester and Demo Creator cannot exercise the feature.
-- **Add at least one test** that exercises the change. Use the project's test conventions (check the codebase — GUT for Godot is common).
+- **Add TWO test artifacts** — both required:
+  1. A **GUT unit test** in `test/unit/test_<thing>.gd` that exercises the new function(s) directly (assertions on input/output, mock guards if needed). Pattern: `extends "res://addons/gut/test.gd"` and methods named `test_*`.
+  2. An **acceptance scenario** in `scripts/scenarios/<slug>.gd` that integrates the feature against `--demo-feature=<slug>` and asserts via trace events / SoundSystem pulses / etc. Exit 0 on pass, 1 on fail; the CI runner uses the exit code.
 - **Update Game.md** with a feature block matching the template (see Game.md examples). What/Controls/Debug hook/Trace events/Test scenario/Acceptance.
 - **No drive-by refactors.** Touch only files needed for this issue. If you see unrelated cleanup opportunities, add a follow-up issue via `gh issue create` and link it.
 - **Follow Philosophy.dev.style_guide** (path is in Philosophy.md).
