@@ -74,6 +74,31 @@ If a top eligible issue exists and we're under velocity:
 
 Only spawn one Developer per run. Don't flood.
 
+### 4.5. Merge ready PRs
+
+This is the step that makes the system stop relying on the CEO's
+green button. List open PRs and find ones that meet ALL of:
+- Labeled `reviewed:clean` (Reviewer agent passed it)
+- Labeled `tests:pass` (test.yml passed it)
+- NOT labeled `priority:p0` (critical work stays CEO-gated)
+- NOT labeled `do-not-merge` or similar veto label
+- Mergeable (no conflicts; check `mergeable` field from the PR JSON)
+
+For up to TWO such PRs per run:
+1. Squash-merge via `mcp__github__merge_pull_request` with `merge_method=squash` and delete the branch.
+2. Note the PR's linked issue in memory if non-obvious (e.g. "merged #N closing issue #M — area:guards"); don't bother for routine cases.
+
+If you merge any, append a today.md line like:
+  `PM: merged #5 'feat: secretary typing animation' (squash); #1 still in flight.`
+
+Skip a PR (don't merge, leave in queue) if any of:
+- Has unresolved review comments / requested changes the agent can see
+- The closing issue is in the "shipped" section of WORK.md already (likely
+  a duplicate)
+- Anything else that smells wrong — better to leave for CEO than mis-merge
+
+This step replaces the previous "CEO merges all PRs by hand" gate.
+
 ### 5. Release-day work — DISABLED until milestones are wired
 
 Skip release-day automation until section 3 is re-enabled. Tag releases
