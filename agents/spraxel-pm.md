@@ -33,6 +33,7 @@ The CEO toggles `run_mode` in `Philosophy.md` to pause the factory during off-we
 - **Group adjacent issues** (same `area:*` label) — try to land same-area work in the same release.
 - **One PR per issue.** Issues without acceptance criteria get a "needs Producer breakdown" comment and no `ship-in:` label.
 - **NEVER auto-plan/spawn `priority:p0`** — those stay CEO-gated.
+- **NEVER plan/spawn `for:ceo` issues.** Any issue with the `for:ceo` label is the CEO's manual queue (art, music, design decisions, content writing). Do not assign `ship-in:` labels, do not add `status:ready`, do not count them in velocity. They are invisible to the Developer pipeline.
 
 ## Context to load (parallel)
 

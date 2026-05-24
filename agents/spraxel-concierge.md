@@ -21,6 +21,34 @@ If `run_mode: "live"` (default), proceed normally with the rest of this workflow
 
 The CEO toggles `run_mode` in `Philosophy.md` to pause the factory during off-weeks without disabling individual routines or commenting out crons.
 
+## CEO queue surfacing — `label:for:ceo` open issues
+
+Issues labeled `for:ceo` are the CEO's manual queue — work the Developer pipeline never touches (art, music, animation, design decisions, story/dialog/cutscene content, level design, etc.). The CEO wants this list visible in the daily digest so they can pick stuff to work on.
+
+Fetch via MCP: `mcp__github__list_issues` with `labels: ["for:ceo"]` and `state: open`. Cap at 8 most-recently-updated. Group by the secondary `kind:*` label for skimmability.
+
+Embed in body as:
+
+```
+## CEO queue (N) — `for:ceo` open issues
+
+**Art / Animation (K)**
+- #<N> <title> (parent: #<P>)
+
+**Music / SFX (K)**
+- ...
+
+**Design / Story / Cutscene (K)**
+- ...
+
+**Level-design (K)**
+- ...
+
+[Full list](https://github.com/mdl16bit/infiltrators/issues?q=is%3Aissue+is%3Aopen+label%3Afor%3Aceo)
+```
+
+If the CEO queue is empty: omit the entire section (no clutter).
+
 ## Activity surfacing — read `.factory/costs.yaml`
 
 Activity ledger at `.factory/costs.yaml` tracks per-agent fire counts weighted by per-fire cost estimate. We don't track absolute $ (CEO is on Claude Max — flat plan). Only RELATIVE % matter — "Developer is 90% of my factory's activity" tells the CEO where their Max plan budget is going.

@@ -394,6 +394,51 @@ gh pr edit <N> --add-label merge-conflict
 
 The conflict resolver also honors `run_mode: "dryrun"` — paused factory means paused conflict resolution.
 
+## CEO queue — issues only you can handle
+
+Some work isn't Developer-able: art, music, animation, sound effects, story/dialog/cutscene content, level design, design decisions. The framework surfaces these via a label taxonomy you can query daily.
+
+### Labels
+
+Code work (Developer picks up via PM v9):
+- `kind:feature`, `kind:bug`, `kind:chore`
+
+CEO work (Developer **refuses** to act on; PM **never** plans):
+- `for:ceo` — umbrella tag. Required on every CEO-queue issue. Developer agent refuses, PM skips, auto-merge skips. Visible in the morning digest.
+- `kind:art` — sprites, portraits, backgrounds, UI graphics
+- `kind:animation` — character / object animation sequences
+- `kind:music` — music tracks, BGM
+- `kind:sfx` — sound effects
+- `kind:cutscene` — cutscene content (script + assets)
+- `kind:dialog` — character dialog lines
+- `kind:story` — narrative / lore / mission framing copy
+- `kind:level-design` — level content (layouts), NOT level-editor code
+- `kind:design` — open design question requiring CEO decision
+
+Always use `for:ceo` + at least one `kind:*` label. The Developer agent's prompt requires this when filing follow-up asset issues for new gameplay.
+
+### Daily query
+
+The Concierge morning digest (issue #5) shows the top 8 open `for:ceo` items grouped by kind. For the full list:
+
+- **CEO queue:** https://github.com/mdl16bit/infiltrators/issues?q=is%3Aissue+is%3Aopen+label%3Afor%3Aceo
+
+Sub-queries by kind:
+```
+?q=is:issue+is:open+label:kind:art
+?q=is:issue+is:open+label:kind:music
+?q=is:issue+is:open+label:kind:design
+```
+
+### Where these issues come from
+
+Two paths:
+
+1. **Developer agent files them** when shipping a feature that uses placeholder assets or needs human-decided design (e.g., ships cloaking with placeholder alpha shader → files `kind:art + for:ceo` for proper cloak VFX). The agent is required to do this per its prompt.
+2. **You file them directly** when dictating ideas via `/spraxel-producer`. Producer should recognize asset/design/content language and apply the right labels.
+
+When you finish a CEO-queue task (paint the art, record the SFX, decide the question), close the issue manually with a comment explaining the resolution. If you produced an asset file, commit it to `assets/` (Git LFS will route binary files automatically).
+
 ## Git LFS
 
 Binary asset files (`*.png`, `*.ogg`, `*.mp3`, `*.wav`, `*.mp4`, fonts, etc.) are tracked via Git LFS — see `.gitattributes` in the infiltrators repo for the exact extension list.
