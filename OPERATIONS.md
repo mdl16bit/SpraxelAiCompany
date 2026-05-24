@@ -336,10 +336,17 @@ In `~/GameProjects/infiltrators/` (the game, private):
 
 ## Merge conflicts
 
-When a PR auto-merge attempt hits a conflict (because a different PR landed first and touched overlapping lines), the system handles it without you:
+When a PR can't merge cleanly because a different PR landed first and touched overlapping lines, the system handles it without you. Three entry points all converge on the same resolver:
+
+- **Bot tried to auto-merge → conflict**: `auto-merge.yml` catches the failure and labels.
+- **You clicked the green Merge button → conflict**: `conflict-detector.yml` fires on the next master push (the sibling PR's eventual merge will trigger it) and labels. Also runs hourly as a fallback.
+- **You labeled `merge-conflict` manually**: same result; `conflict-resolver.yml` fires on the label-add.
+
+Detail flow:
 
 1. **`auto-merge.yml`** tries `gh pr merge --squash`. If the merge fails with a conflict-like error, it labels the PR `merge-conflict`, comments on the PR explaining the situation, and **does NOT trigger the next-issue chain** (so the queue stays stable until this PR resolves).
-2. **`conflict-resolver.yml`** fires on the `merge-conflict` label:
+2. **`conflict-detector.yml`** fires on `push: branches: [master]` + hourly cron + workflow_dispatch. Sleeps 90s for GitHub's mergeability recompute, then labels any open PR in `CONFLICTING` state that doesn't already have the label. Closes the CEO-clicked-merge-and-it-refused gap.
+3. **`conflict-resolver.yml`** fires on the `merge-conflict` label:
    - **First pass: cheap auto-rebase.** Checks out the branch and runs `git rebase origin/master`. If the rebase completes cleanly (textually non-overlapping changes), it force-pushes and removes the `merge-conflict` label. **No LLM call.** Most conflicts resolve here — they were "false positives" GitHub flagged on partial overlaps.
    - **Second pass: Developer agent.** If the rebase produces real conflicts, spawns the Developer agent (Sonnet) on the existing branch. The agent reads the PR body for context, decides each resolution preserving both the feature's intent and the new master code, force-pushes with `--force-with-lease`, removes the `merge-conflict` label, and posts a single PR comment explaining each decision.
    - **Escalation: `status:needs-ceo`.** If the agent decides the conflict is semantically irreconcilable (a function the PR depends on was deleted on master; data model mismatch; etc.) it aborts the rebase, comments on the PR explaining what broke, and adds `status:needs-ceo`. You take it from there.
