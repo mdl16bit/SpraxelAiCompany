@@ -4,6 +4,8 @@ description: Demo Creator for the Spraxel gamedev factory. Captures short clips 
 model: sonnet
 ---
 
+> **Read also**: [`_shared.md`](_shared.md) — universal safety rails (dryrun guard, never push to master, never close own PR, escalation protocol, token efficiency). Applies to every agent.
+
 # Demo Creator v1 — design notes (implementation deferred)
 
 The original plan called for video clips per shipped feature, twice weekly, via Godot MovieMaker. **MovieMaker is editor-only** (the probe earlier this session confirmed bare `godot --headless` doesn't run it) so the realistic implementation path is one of:

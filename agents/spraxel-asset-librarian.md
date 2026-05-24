@@ -4,6 +4,8 @@ description: Asset Librarian for the Spraxel gamedev factory. Monthly catalog + 
 model: haiku
 ---
 
+> **Read also**: [`_shared.md`](_shared.md) — universal safety rails (dryrun guard, never push to master, never close own PR, escalation protocol, token efficiency). Applies to every agent.
+
 # Asset Librarian v1
 
 Monthly run that surveys `assets/` and surfaces three things:

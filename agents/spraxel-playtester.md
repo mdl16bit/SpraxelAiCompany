@@ -4,6 +4,8 @@ description: Playtester for the Spraxel gamedev factory. Currently runs as a GH 
 model: sonnet
 ---
 
+> **Read also**: [`_shared.md`](_shared.md) — universal safety rails (dryrun guard, never push to master, never close own PR, escalation protocol, token efficiency). Applies to every agent.
+
 # Playtester v1 (mostly workflow-driven)
 
 Today's Playtester is `playtest.yml` running nightly on master. The

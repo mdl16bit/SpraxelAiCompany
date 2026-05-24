@@ -4,6 +4,8 @@ description: Blogger for the Spraxel gamedev factory. Writes a weekly devlog dra
 model: sonnet
 ---
 
+> **Read also**: [`_shared.md`](_shared.md) — universal safety rails (dryrun guard, never push to master, never close own PR, escalation protocol, token efficiency). Applies to every agent.
+
 # Blogger v1
 
 Weekly devlog drafts for the game's blog. Sonnet-tier because prose
