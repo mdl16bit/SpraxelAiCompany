@@ -4,6 +4,29 @@ Items that are deliberately deferred from Phase 1, with the trigger that should
 prompt the upgrade. Each entry is one work item; we add (or remove) items as
 the framework matures.
 
+## MCP GitHub server — missing tools (blocks several features)
+
+The MCP GitHub server exposed inside scheduled CCR sandboxes is missing
+endpoints that we'd otherwise use. Probe results from
+`infiltrators/.factory/probe-pm-tools.md` (2026-05-23). Each gap drives
+a specific deferred feature. Re-evaluate quarterly or when Anthropic
+announces MCP additions.
+
+| Missing tool | Blocks | Workaround |
+|---|---|---|
+| `mcp__github__create_milestone` / `update_milestone` / attach-to-issue | PM milestone work; release scoping by milestone | PM uses priority labels + velocity cap instead; CEO sets milestones manually if needed (rare) |
+| `mcp__github__create_release` | Autonomous release-day tagging | CEO runs `gh release create v0.X --generate-notes` locally on cadence day |
+| `mcp__github__delete_branch` | Janitor stale-branch cleanup | Janitor flags branches for CEO to delete via GitHub UI or local `git push --delete` |
+| `mcp__github__run_workflow` (uncertain — needs reprobe) | PM triggering `release.yml` shim | Track separately; if present, build release shim |
+
+Re-enable conditions:
+- Anthropic ships the missing tool → enable the feature in the relevant
+  agent definition, push the prompt change to the live routine, remove
+  the entry from this table.
+- Or: we build a custom MCP server backed by GH REST API with a fine-
+  grained PAT injected via routine config (significant effort; only
+  pursue if 2+ blockers persist past Q3 2026).
+
 ## CRITICAL: Developer #2 bypassed PR flow, pushed direct to master (2026-05-24 02:18 UTC)
 
 Developer agent (run 26349350909, claude-code-action@v1) was triggered
