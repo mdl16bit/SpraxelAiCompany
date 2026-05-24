@@ -47,9 +47,15 @@ Do NOT load Game.md, WORK.md, or full issue bodies in normal runs.
 
 ### 1. GUPP — unstick in-flight work first
 
-For each issue labeled `status:claimed`:
-- Check if a PR exists (`gh pr list --search "in:title <key phrase>" --state all`).
-- If no PR after >24h since `updatedAt`: remove the `status:claimed` label, add a comment "PM: unclaimed after 24h; re-queueing." Note in memory.
+For each issue labeled `status:claimed`, find its associated PRs (search PRs with `issue #<N>` or `(#<N>)` in the title, or by branch name `feat/issue-<N>-*`):
+
+- **If a linked PR exists AND is CLOSED-not-merged** (PR.state == "closed" AND PR.merged == false): remove `status:claimed` IMMEDIATELY, comment `_PM: previous PR was closed without merge (Developer self-close or CEO close); re-queueing._`, and the issue becomes eligible for re-spawn this same run.
+- **If a linked PR exists AND is OPEN**: leave alone, presumed in flight.
+- **If a linked PR exists AND is MERGED**: this issue should have been closed already; comment `_PM: linked PR merged but issue still open — verify and close manually._` Skip from spawn pool but don't re-queue.
+- **If NO linked PR exists AND `updatedAt` > 24h ago**: remove `status:claimed`, comment `_PM: unclaimed after 24h with no PR; re-queueing._`
+- **If NO linked PR exists AND `updatedAt` < 24h**: Developer agent may still be running; leave alone.
+
+The closed-not-merged case is the most important new behavior. Without it, a Developer agent that self-closes its PR strands the issue for 24h before unstick. With it, the next PM run (or fresh trigger) re-spawns immediately.
 
 ### 2. Sort the backlog
 
