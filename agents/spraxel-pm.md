@@ -55,29 +55,45 @@ If you observe milestone-related tools have appeared (a future
 `mcp__github__create_milestone` or similar), re-enable this section
 and PR an update to the framework's `agents/spraxel-pm.md`.
 
-### 4. Spawn the next Developer
+### 4. Spawn Developers to fill the velocity cap
 
 Since milestones are disabled (section 3), Developer selection comes
-straight from the sorted backlog (section 2). Pick the top open issue
-that is NOT already labeled `status:ready` or `status:claimed`.
+straight from the sorted backlog (section 2). Pick the top N open
+issues that are NOT already labeled `status:ready` or `status:claimed`
+and are NOT `priority:p0` (CEO-gated).
 
 Use the available `mcp__github__*` tools — issue listing, label adds,
-issue comments. Cap velocity by counting how many issues already carry
-`status:ready` or `status:claimed`; if that count >= `dev.velocity_issues_per_release`
-from Philosophy.md, exit without tagging a new one.
+issue comments. Compute available slots:
 
-If a top eligible issue exists and we're under velocity:
-- Add the `status:ready` label (the `developer.yml` workflow listens
-  for this and spawns the Developer; if the workflow is absent, the
-  label still signals to the CEO).
-- Post a single comment: `_PM: ready for Developer pickup. Top of queue._`
+```
+in_flight = count of open issues with status:ready OR status:claimed
+slots = max(0, dev.velocity_issues_per_release - in_flight)
+```
 
-Only spawn one Developer per run. Don't flood.
+Tag the top `slots` eligible issues with `status:ready` (each triggers
+`developer.yml` to spawn a parallel Developer worker). Post a single
+summary comment per tagged issue: `_PM: ready for Developer pickup._`
 
-### 4.5. Merge ready PRs
+**Why fill the cap, not just one:** the auto-merge workflow
+(`.github/workflows/auto-merge.yml`) is the steady-state chain — when
+a PR earns both `tests:pass` and `reviewed:clean`, auto-merge merges
+it and immediately status:ready's the next eligible issue. PM's daily
+spawn is the cold-start case (fresh backlog, zero in-flight): without
+filling the cap, the chain takes days to warm up.
 
-This is the step that makes the system stop relying on the CEO's
-green button. List open PRs and find ones that meet ALL of:
+If `in_flight >= velocity_cap`: skip; the chain is full. Auto-merge
+will pull the next issue when a PR merges.
+
+### 4.5. Merge ready PRs (fallback path)
+
+**Primary path is `.github/workflows/auto-merge.yml`** — fires the
+moment a PR earns the second of `tests:pass` / `reviewed:clean`,
+squash-merges, applies the release label, and status:ready's the next
+issue. PM's daily merge sweep is the fallback for PRs that auto-merge
+skipped (e.g., it ran before both labels arrived; a stuck mergeable
+state; the workflow itself failed).
+
+List open PRs and find ones that meet ALL of:
 - Labeled `reviewed:clean` (Reviewer agent passed it)
 - Labeled `tests:pass` (test.yml passed it)
 - NOT labeled `priority:p0` (critical work stays CEO-gated)
