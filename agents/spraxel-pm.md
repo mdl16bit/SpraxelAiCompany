@@ -84,12 +84,23 @@ green button. List open PRs and find ones that meet ALL of:
 - NOT labeled `do-not-merge` or similar veto label
 - Mergeable (no conflicts; check `mergeable` field from the PR JSON)
 
-For up to TWO such PRs per run:
+**Determine the current release version BEFORE merging** so you can tag
+the PR for the right release:
+1. Call `mcp__github__list_releases` (or equivalent). Take the highest
+   `v0.<N>` tag.
+2. The current in-flight release is `v0.<N+1>` (or `v0.1` if no releases
+   exist yet).
+3. Verify a label `release:v0.<N+1>` exists on the repo; if not, the CEO
+   needs to create it manually (Phase 2.x tooling will add this).
+
+For up to TWO PRs that meet the merge criteria per run:
 1. Squash-merge via `mcp__github__merge_pull_request` with `merge_method=squash` and delete the branch.
-2. Note the PR's linked issue in memory if non-obvious (e.g. "merged #N closing issue #M — area:guards"); don't bother for routine cases.
+2. Apply the `release:v0.<N+1>` label to the merged PR via
+   `mcp__github__update_issue` (PRs share the issue label API).
+3. Note the PR's linked issue in memory if non-obvious (e.g. "merged #N closing issue #M — area:guards").
 
 If you merge any, append a today.md line like:
-  `PM: merged #5 'feat: secretary typing animation' (squash); #1 still in flight.`
+  `PM: merged #5 'feat: secretary typing animation' (squash) → release:v0.4; #1 still in flight.`
 
 Skip a PR (don't merge, leave in queue) if any of:
 - Has unresolved review comments / requested changes the agent can see

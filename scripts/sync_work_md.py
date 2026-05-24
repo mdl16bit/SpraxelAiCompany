@@ -427,6 +427,114 @@ def cmd_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_release_cut(args: argparse.Namespace) -> int:
+    """Move WORK.md's middle-section items into the top 'shipped' section.
+
+    Called on release-day after PM tags the release. The middle section
+    is "shipped since last release" — those items become "shipped in
+    release v0.<N>" and get prefixed accordingly. The middle section
+    is left empty for the new cycle.
+
+    Requires WORK.md to have at least 2 dividers (3 sections). If only
+    1 divider exists, prints an error and exits — there's no middle
+    section to drain.
+    """
+    repo_dir = Path(args.repo_dir).resolve()
+    work_md = repo_dir / "WORK.md"
+    if not work_md.exists():
+        print(f"ERROR: {work_md} does not exist", file=sys.stderr)
+        return 1
+
+    version = args.release_cut  # e.g. "v0.1"
+
+    raw_text = work_md.read_text()
+    raw_lines = raw_text.splitlines()
+    n = len(raw_lines)
+
+    header_end = 0
+    for i, raw in enumerate(raw_lines):
+        if raw.startswith("## "):
+            header_end = i + 1
+            break
+
+    divider_lines = [
+        i for i in range(header_end, n)
+        if DIVIDER_RE.match(raw_lines[i].strip())
+    ]
+    if len(divider_lines) < 2:
+        print(
+            f"ERROR: WORK.md has {len(divider_lines)} divider(s); --release-cut needs at least 2 (a shipped/current/todo layout)",
+            file=sys.stderr,
+        )
+        return 2
+
+    first_div = divider_lines[0]
+    second_div = divider_lines[-1]
+
+    # Items in the middle section: line indices (first_div, second_div), excluding header lines like "## Shipped since..."
+    middle_item_indices: list[int] = []
+    for i in range(first_div + 1, second_div):
+        raw = raw_lines[i]
+        if not raw.strip():
+            continue
+        if raw.startswith("#"):
+            continue
+        if raw[0].isspace():
+            continue  # continuation line — moves with its item below
+        middle_item_indices.append(i)
+
+    if not middle_item_indices:
+        print("nothing in middle section to release-cut; exiting")
+        return 0
+
+    # Collect each middle item with its continuation lines
+    moved_blocks: list[list[str]] = []
+    for idx, line_no in enumerate(middle_item_indices):
+        title_line = raw_lines[line_no]
+        if title_line.startswith("- "):
+            new_title = f"- {version}: {title_line[2:]}"
+        else:
+            new_title = f"- {version}: {title_line}"
+        block = [new_title]
+        # walk forward, capturing indented continuation lines
+        next_idx = middle_item_indices[idx + 1] if idx + 1 < len(middle_item_indices) else second_div
+        for j in range(line_no + 1, next_idx):
+            block.append(raw_lines[j])
+        moved_blocks.append(block)
+
+    print(f"release-cut {version}: moving {len(moved_blocks)} item(s) from middle → shipped")
+    if not args.apply:
+        for blk in moved_blocks:
+            print(f"  + {blk[0]}")
+        print("(dry run — pass --apply to write)")
+        return 0
+
+    # Build new file:
+    # - lines before first_div + the items being moved + first_div + (empty middle) + second_div + everything after
+    new_lines: list[str] = []
+    # Header + shipped section + the moved blocks
+    for i in range(0, first_div):
+        new_lines.append(raw_lines[i])
+    for blk in moved_blocks:
+        new_lines.extend(blk)
+    # First divider
+    new_lines.append(raw_lines[first_div])
+    # Middle section header lines (## Shipped since...) but no items — preserve any ## heading
+    for i in range(first_div + 1, second_div):
+        raw = raw_lines[i]
+        if raw.startswith("##") or not raw.strip():
+            new_lines.append(raw)
+    # Second divider
+    new_lines.append(raw_lines[second_div])
+    # Rest (Todo section + everything after)
+    for i in range(second_div + 1, n):
+        new_lines.append(raw_lines[i])
+
+    work_md.write_text("\n".join(new_lines) + ("\n" if raw_text.endswith("\n") else ""))
+    print(f"wrote {work_md} with {len(moved_blocks)} item(s) moved to shipped section")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo-dir", default=".", help="Target game repo (default: cwd)")
@@ -434,7 +542,10 @@ def main() -> int:
     ap.add_argument("--seed", action="store_true", help="Bootstrap: create issues directly, skip intake queue")
     ap.add_argument("--parse-only", action="store_true", help="Parse WORK.md and print structure, no gh calls")
     ap.add_argument("--skip-gh", action="store_true", help="Skip GitHub issue-existence reconciliation")
+    ap.add_argument("--release-cut", metavar="v0.<N>", help="Move middle-section items to shipped, prefixed with this release version")
     args = ap.parse_args()
+    if args.release_cut:
+        return cmd_release_cut(args)
     return cmd_sync(args)
 
 
