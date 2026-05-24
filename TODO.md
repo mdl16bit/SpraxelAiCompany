@@ -4,6 +4,81 @@ Items that are deliberately deferred from Phase 1, with the trigger that should
 prompt the upgrade. Each entry is one work item; we add (or remove) items as
 the framework matures.
 
+## Defects found during PR #4 (hide-box) full-autopilot smoke test (2026-05-24 02:00 UTC)
+
+The first PR driven through the new auto-merge pipeline (issue #3
+HideBox) surfaced FOUR real defects in the test + review infrastructure.
+All fixable; next session priority.
+
+### 1. test.yml needs an editor-import step
+The Developer's `hide_box.gd` script declared `class_name HideBox` and
+the matching scenario at `scripts/scenarios/hide_box.gd` did
+`box as HideBox`. Godot's class-cache only registers `class_name`
+during an editor import; the bare `godot --headless` in test.yml does
+NOT refresh that cache for new files. Result: scenario fails to parse,
+"ERROR: Could not find type 'HideBox'."
+
+Same root cause: GUT failed silently with `Missing class_names: [GutErrorTracker, ...]`.
+
+**Fix:** add one step to test.yml BEFORE running tests:
+```yaml
+- name: Refresh class cache (editor import)
+  run: godot --editor --headless --quit-after 30 || true
+```
+This runs Godot's editor briefly which populates the class cache, then
+exits. GUT classes and any new game class_names get registered.
+
+### 2. test.yml's scenario loop is too permissive
+The loop relies on `godot --headless ... --quit-after=10` exiting 0
+to declare pass. But Godot exits 0 even when a script fails to parse —
+the parse error is logged to stderr but doesn't propagate. PR #4 got
+labeled `tests:pass` despite the scenario failing to load.
+
+**Fix:** capture the godot stdout+stderr per scenario and grep for
+`ERROR:` / `Parse error` / `SCRIPT ERROR`. Also require the scenario
+to print its own `SCENARIO <slug>: PASS` line. Stricter:
+
+```bash
+output=$(godot --headless --path . -- --demo-feature="$slug" --trace-file="/tmp/$slug.jsonl" --quit-after=10 2>&1)
+echo "$output"
+if echo "$output" | grep -qE "^(ERROR:|SCRIPT ERROR|Parse error)"; then
+  echo "::error::scenario $slug had script errors"
+  fail=1
+elif ! echo "$output" | grep -q "SCENARIO .* PASS"; then
+  echo "::error::scenario $slug did not print PASS"
+  fail=1
+fi
+```
+
+### 3. Reviewer ran but posted nothing
+Reviewer Haiku run on PR #4: 17 turns, $0.18, succeeded — but posted
+zero comments and added no `reviewed:*` label. Either Haiku decided
+there was nothing to say (despite the code having a real parse error
+that Reviewer should have caught), OR the action's
+"post-buffered-inline-comments" stage saw nothing to post and skipped.
+
+**Fix:** add `show_full_output: true` to review.yml to see what the
+agent actually decided. Then tune the prompt: require ONE summary
+comment + ONE `reviewed:*` label even on a clean review, never zero
+output. Currently the prompt says "End with a single summary comment
+... Then label the PR ..." but Haiku may have skipped both as
+optimization.
+
+### 4. Developer can ship parse errors
+Independent of the test infra: the Developer agent shipped code with
+a Parse error and the test infra approved it. With PM's merge step
+trusting `tests:pass + reviewed:clean`, broken code would auto-land.
+
+**Fix:** items 1+2+3 above. With all three fixed, broken code can't
+get to the merge step.
+
+### Smoke test postmortem
+PR #4 closed unmerged with explanation. Branch deleted. Issue #3
+reopened, label `status:claimed` removed so the issue is back in the
+backlog. Re-attempt after fixes 1+2+3 ship.
+
+---
+
 ## Defects found during Step 1.13 / 1.14 smoke tests (2026-05-23)
 
 ### Fixed in 73ed4de + routine update
