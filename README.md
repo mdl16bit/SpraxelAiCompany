@@ -79,6 +79,10 @@ infiltrators/
 
 Open items: see [`TODO.md`](TODO.md). MCP server gaps (no `create_milestone`, no `create_release`, no `delete_branch`) drive most deferred work.
 
+## Operating the factory
+
+The day-to-day CEO handbook is [`OPERATIONS.md`](OPERATIONS.md) — agent roster, cadence, skills, manual overrides, common workflows, tests, file map, gotchas, and a current plan-vs-shipped status.
+
 ## Heavy influences
 
 - **Steve Yegge's "Gas Town"** — GUPP (work-on-hook), molecules, patrol loops, pet/cattle agent split, NDI (state in Git). We borrow the vocabulary and most of the discipline; we drop the merge queue (single dev) and the supervisor (premature).
