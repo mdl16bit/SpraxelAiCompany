@@ -4,6 +4,18 @@ Items that are deliberately deferred from Phase 1, with the trigger that should
 prompt the upgrade. Each entry is one work item; we add (or remove) items as
 the framework matures.
 
+## Sync ↔ Producer feedback loop is one-way (re-queues forever)
+
+After Producer drains `pending-intake.md` into issues, the original `WORK.md` lines stay unannotated. Next `sync.yml` run (which fires on any push touching WORK.md, including bot pushes) sees them as un-handled and re-queues them into `pending-intake.md` again. Loop of noise.
+
+Fixes (any one works):
+
+1. **Producer auto-annotates WORK.md** at end-of-session. Map issue title → WORK.md line via fuzzy match; append ` (#N)` to each handled line. Commit. *Trade-off: bot commits to master are forbidden* — Producer is interactive so the CEO can run the commit themselves with a one-liner Producer prints.
+2. **`sync.yml` skips lines that fuzzy-match an existing open issue's title.** Pre-filter against `gh issue list --state all` before queueing. Cheaper but loose (false positives on similar titles).
+3. **`pending-intake.md` gets a high-water-mark line.** Sync only re-queues entries ABOVE the marker. Cleanest. Producer drops the marker on drain.
+
+Pick (3) when next touching the sync script — simplest semantics, no fuzzy matching, no commit-to-master concern.
+
 ## MCP GitHub server — missing tools (blocks several features)
 
 The MCP GitHub server exposed inside scheduled CCR sandboxes is missing
