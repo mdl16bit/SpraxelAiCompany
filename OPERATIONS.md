@@ -140,19 +140,9 @@ gh issue edit <N> --repo mdl16bit/infiltrators --add-label status:ready
 - Tests: `gh workflow run test.yml -F pr_number=<N>` (workflow_dispatch) or push a tiny commit to the branch.
 - Reviewer: push to the branch (it re-fires on `synchronize`).
 
-### Pause everything (`run_mode: dryrun`)
+### Pause everything
 
-Edit `Philosophy.md`:
-
-```yaml
-run_mode: "dryrun"   # was "live"
-```
-
-Push. On the next firing of **any** scheduled `/schedule` agent (PM, Concierge, Janitor, Triager, Designer, Asset Librarian), the agent reads Philosophy first, sees `dryrun`, and exits with a one-line `"would have done X"` log without making any MCP calls, comments, or commits. Flip back to `"live"` when you're ready to resume.
-
-This pauses the **agent** layer (Sonnet/Haiku spend). It does NOT yet pause the **workflow** layer (`developer.yml`, `review.yml`, `test.yml`, `playtest.yml`, `blogger.yml`, `auto-merge.yml`, `sync.yml`) — those fire on PR/push/issue events you control indirectly. For a full pause, also stop creating issues + disable the GH App, or set the routines to `enabled: false` via `/schedule`. Tracked in TODO.md as a follow-up.
-
-Nuclear option: revoke the OAuth token in claude.ai settings — bots immediately can't push.
+See the dedicated **[Pausing the system](#pausing-the-system)** section below for the full pause spectrum (full / partial / one-PR / inactivity / nuclear). Quick answer: edit `Philosophy.md` → `run_mode: "live"` to `run_mode: "dryrun"`, push.
 
 ### Cut a release
 
@@ -178,6 +168,194 @@ After that, `auto-merge.yml` will label future merges as `release:v0.<N+1>`.
 ```bash
 git push origin --delete feat/issue-N-foo
 ```
+
+---
+
+## Injecting manual work (hands-on mode)
+
+The factory is autonomous by default, but you can jump in any time — to write code yourself, test prompts, prototype a feature, debug an agent, or just iterate on something the system isn't doing right. Direct pushes to master from your account never trip the tripwire (tripwire fires only on `claude[bot]`).
+
+### Direct commits to master
+
+For docs, prompt tweaks, configuration, hot fixes — anything you want landed without the PR-review-test pipeline:
+
+```bash
+cd ~/GameProjects/infiltrators        # or ~/SpraxelAiCompany
+# edit files...
+git add . && git commit -m "..." && git push
+```
+
+Tripwire ignores. `sync.yml` may fire if you touched `WORK.md` or `pending-intake.md`; it's idempotent and cheap.
+
+### Branch + PR like the agents do
+
+To test out an idea before letting an agent touch the area, or to prototype something Developer agents might mess up:
+
+```bash
+git checkout -b feat/my-experiment
+# edit...
+git commit -m "experiment: prototyping X"
+git push -u origin feat/my-experiment
+gh pr create --title "experiment: X" --body "..." --label "do-not-merge"
+```
+
+The `do-not-merge` label keeps `auto-merge.yml` off your PR while you iterate. When ready, remove the label and the chain takes over (Reviewer runs, tests run, auto-merge fires).
+
+### Drop new work without going through Producer
+
+For one-off bypass of the producer flow when you already know exactly what you want as an issue:
+
+```bash
+gh issue create \
+  --repo mdl16bit/infiltrators \
+  --title "Add X feature" \
+  --label "kind:feature,priority:p1" \
+  --body "## Why...
+
+## Acceptance criteria
+- [ ] ..."
+```
+
+PM v9 picks it up on its next 7 AM PT run (or fire now via `/schedule` → Run PM, or via RemoteTrigger from a Claude session).
+
+### Force a specific issue into the current release
+
+Manipulate `ship-in:` labels directly:
+
+```bash
+gh issue edit <N> --repo mdl16bit/infiltrators \
+  --remove-label ship-in:v0.2 --remove-label ship-in:v0.3 \
+  --add-label ship-in:v0.1
+```
+
+Or status:ready right now to fire `developer.yml` immediately:
+
+```bash
+gh issue edit <N> --repo mdl16bit/infiltrators --add-label status:ready
+```
+
+### Fire any scheduled agent on demand
+
+From a Claude Code session: ask "fire the PM/Designer/Triager routine now." Or use the `/schedule` skill → Run now. Routine list: https://claude.ai/code/routines
+
+### Iterate on prompts (agent definitions)
+
+Agent prompts live in two places:
+
+- **Source of truth**: `~/SpraxelAiCompany/agents/spraxel-*.md` (edit this, commit, push)
+- **Live copy**: embedded in each `/schedule` routine's config (must be synced separately)
+
+To iterate:
+
+1. Edit `agents/spraxel-<role>.md` locally.
+2. Test invocation: `/spraxel-<role>` from a Claude Code session (uses the local file).
+3. Once happy, sync to the live routine via `/schedule` → Update OR ask Claude Code to do it via `RemoteTrigger`.
+4. Fire the routine to verify the live update works.
+
+For workflow YAML prompts (`developer.yml`, `review.yml`, etc.): edit the file in the infiltrators repo, push. The next workflow trigger uses the new prompt.
+
+### Fire any workflow on demand
+
+```bash
+gh workflow run release-cut.yml --repo mdl16bit/infiltrators -F skip_cadence_check=true
+gh workflow run conflict-resolver.yml --repo mdl16bit/infiltrators -F pr_number=<N>
+gh workflow run developer-rework.yml --repo mdl16bit/infiltrators -F pr_number=<N>
+gh workflow run cost-report.yml --repo mdl16bit/infiltrators
+gh workflow run inactivity-check.yml --repo mdl16bit/infiltrators
+# ...any workflow with workflow_dispatch trigger
+```
+
+### Test a feature locally before the agent touches it
+
+```bash
+cd ~/GameProjects/infiltrators
+/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot --path .
+# or specific feature
+/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot --path . -- --demo-feature=<slug>
+# or all tests
+godot --headless --path . -s res://addons/gut/gut_cmdln.gd -gdir=res://test/unit -ginclude_subdirs -gexit
+```
+
+### Observe what the system is doing
+
+- Workflow runs: https://github.com/mdl16bit/infiltrators/actions
+- Routine runs: https://claude.ai/code/routines → click a routine → see last fire's transcript
+- Factory Daily Log: https://github.com/mdl16bit/infiltrators/issues/5
+- Open PRs: `gh pr list --repo mdl16bit/infiltrators`
+- In-flight issues: `gh issue list --label status:claimed`
+- Cost report: `cat ~/GameProjects/infiltrators/.factory/costs.yaml`
+
+### Hand work back to the system after you're done
+
+When you're done iterating and want the autopilot to resume:
+
+- If you set `do-not-merge` on a PR: remove it.
+- If you set `run_mode: dryrun`: flip back to `"live"`, push.
+- If you disabled routines via `/schedule`: re-enable.
+- Issues you filed manually flow through PM v9 normally on its next run.
+
+---
+
+## Pausing the system
+
+Levels of pause, lightest to heaviest:
+
+### A. One-PR block (everything else keeps going)
+
+```bash
+gh pr edit <N> --add-label do-not-merge
+```
+
+`auto-merge.yml` skips this PR's merge. Other PRs continue. Chain spawns next issues from `ship-in:v0.<current>` as usual.
+
+### B. Partial pause — disable specific routines
+
+Don't want Designer firing this week? `/schedule` → Update Designer routine → `enabled: false`. Same for any of: PM, Concierge, Triager, Janitor, Designer, Asset Librarian. Re-enable when ready.
+
+Affects only the cron-scheduled agents (the `/schedule` routines). Event-driven workflows (`developer.yml`, `auto-merge.yml`, `conflict-resolver.yml`, etc.) keep firing.
+
+### C. Full pause via `run_mode: dryrun`
+
+The big switch. Edit `Philosophy.md`:
+
+```yaml
+run_mode: "dryrun"   # was "live"
+```
+
+Commit and push. On the next firing:
+
+- **Agent layer**: PM, Concierge, Janitor, Triager, Designer, Asset Librarian read Philosophy first, see `dryrun`, print `"would have done X"`, and exit. No MCP calls, no comments, no work. Cost = ~10 tokens per fire instead of ~10K.
+- **Workflow layer**: The 5 LLM-cost workflows (`developer.yml`, `review.yml`, `playtest.yml`, `blogger.yml`, `auto-merge.yml`) gate their main jobs on the `dryrun-guard` step. They fire on PR/issue events but their work is skipped with a `::warning::` line.
+- **Non-gated workflows** (`test.yml`, `sync.yml`, `tripwire.yml`, `cost-report.yml`, `inactivity-check.yml`, `conflict-detector.yml`, `work-md-on-close.yml`, `release-cut.yml`) keep running — they don't cost LLM money. (`release-cut.yml` IS gated on dryrun though, so it won't tag releases.)
+
+Flip back to `"live"` and everything resumes.
+
+### D. CEO inactivity auto-pause
+
+`inactivity-check.yml` runs daily at 7 AM PT. If `mdl16bit` hasn't committed/commented/edited issues in 5 days, it auto-flips Philosophy to `run_mode: "dryrun"` with a tag like `# auto-set by inactivity-check on <date>`. When you come back and start any activity, the next inactivity-check run auto-flips back to `"live"`. The marker distinguishes auto-set from manual-set — if you set dryrun yourself, this workflow won't flip it back.
+
+Useful for: vacations, sick days, weeks-off, anything where you'd otherwise burn credits while not engaging.
+
+### E. Nuclear option — revoke OAuth
+
+If something is wildly wrong and you need everything to stop immediately:
+
+1. Go to https://claude.ai → settings → API Keys / OAuth.
+2. Revoke the `CLAUDE_CODE_OAUTH_TOKEN` used in the GitHub repo secrets.
+3. Workflows continue to fire on events but `claude-code-action@v1` steps fail authentication. No LLM calls succeed.
+4. `/schedule` routines also fail authentication and exit.
+
+To resume: regenerate the OAuth token (`/login` in any Claude Code session, copy the new token), then `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo mdl16bit/infiltrators` (paste via stdin, never argv).
+
+### Which level to use when
+
+| Situation | Use |
+|---|---|
+| One PR is wrong and you want to fix it | (A) `do-not-merge` |
+| Designer noise is bothering you this week | (B) Disable Designer routine |
+| You're going on vacation | (C) `run_mode: dryrun` |
+| You forgot to set dryrun before vacation | (D) Inactivity auto-pause handles it after 5 days |
+| Something is broken in production / agents are doing damage | (E) Revoke OAuth |
 
 ---
 
