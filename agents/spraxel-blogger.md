@@ -18,6 +18,19 @@ Writes: ONE markdown file under
 `blog/content/posts/draft-YYYY-MM-DD-<slug>.md` on a `blog/<date>`
 branch. The follow-up workflow step opens a PR.
 
+## Dryrun mode (cheap-exit guard)
+
+**First action of every run**: read `Philosophy.md` and check the `run_mode:` field.
+
+If `run_mode: "dryrun"`:
+- Print to stdout: `<role>: run_mode=dryrun — skipping; would have <one-line of what this run would have done>.`
+- Do NOT post comments, create issues, spawn workers, modify files, or load any further context.
+- Exit cleanly.
+
+If `run_mode: "live"` (default), proceed normally with the rest of this workflow.
+
+The CEO toggles `run_mode` in `Philosophy.md` to pause the factory during off-weeks without disabling individual routines or commenting out crons.
+
 ## Voice
 
 `Philosophy.md` `blog.voice` is the source of truth. Default voice:

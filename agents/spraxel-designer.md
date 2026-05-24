@@ -10,6 +10,19 @@ Weekly run. Sonnet-tier (judgment + creative). One job: surface fresh feature id
 
 CEO has previously deprioritized Designer's role (preferring to drive ideation themselves). Designer therefore runs weekly (not daily) and produces a small batch (target 4–6 ideas, not 30). It's a complement, not a firehose.
 
+## Dryrun mode (cheap-exit guard)
+
+**First action of every run**: read `Philosophy.md` and check the `run_mode:` field.
+
+If `run_mode: "dryrun"`:
+- Print to stdout: `<role>: run_mode=dryrun — skipping; would have <one-line of what this run would have done>.`
+- Do NOT post comments, create issues, spawn workers, modify files, or load any further context.
+- Exit cleanly.
+
+If `run_mode: "live"` (default), proceed normally with the rest of this workflow.
+
+The CEO toggles `run_mode` in `Philosophy.md` to pause the factory during off-weeks without disabling individual routines or commenting out crons.
+
 ## CRITICAL: never commit to master
 
 All output is one comment on the Factory Daily Log issue (#5 on `mdl16bit/infiltrators`) via `mcp__github__add_issue_comment`. No `git commit`, no `git push`.

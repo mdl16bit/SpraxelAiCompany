@@ -4,6 +4,39 @@ Items that are deliberately deferred from Phase 1, with the trigger that should
 prompt the upgrade. Each entry is one work item; we add (or remove) items as
 the framework matures.
 
+## `run_mode: dryrun` not yet honored in GH Actions workflows
+
+Shipped 2026-05-24 for the `/schedule` scheduled agents (PM, Concierge, Janitor, Triager, Designer, Asset Librarian) via a prompt-level guard. Each reads Philosophy at start and exits if `run_mode: "dryrun"`.
+
+**Not yet honored** in the GH Actions workflow layer: `developer.yml`, `review.yml`, `test.yml`, `playtest.yml`, `blogger.yml`, `auto-merge.yml`, `sync.yml`, `tripwire.yml`.
+
+When the CEO flips dryrun, the workflows still fire on PR/push/issue events. Cost impact is small (workflows fire only on user-initiated events), but for a true full-pause this gap matters.
+
+Fix pattern (per workflow):
+
+```yaml
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      dryrun: ${{ steps.check.outputs.dryrun }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if grep -qE '^run_mode:\s*"dryrun"' Philosophy.md; then
+            echo "dryrun=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Philosophy.run_mode=dryrun — skipping"
+          fi
+
+  real-work:
+    needs: guard
+    if: needs.guard.outputs.dryrun != 'true'
+    # ... actual job
+```
+
+Apply to each of the 8 workflows when next touched.
+
 ## Sync ↔ Producer feedback loop is one-way (re-queues forever)
 
 After Producer drains `pending-intake.md` into issues, the original `WORK.md` lines stay unannotated. Next `sync.yml` run (which fires on any push touching WORK.md, including bot pushes) sees them as un-handled and re-queues them into `pending-intake.md` again. Loop of noise.

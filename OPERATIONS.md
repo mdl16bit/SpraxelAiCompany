@@ -140,9 +140,19 @@ gh issue edit <N> --repo mdl16bit/infiltrators --add-label status:ready
 - Tests: `gh workflow run test.yml -F pr_number=<N>` (workflow_dispatch) or push a tiny commit to the branch.
 - Reviewer: push to the branch (it re-fires on `synchronize`).
 
-### Pause everything
+### Pause everything (`run_mode: dryrun`)
 
-Set Philosophy's `run_mode: dryrun` (when honored — currently not threaded through every agent). Or disable the relevant routines via `/schedule` → Update → `enabled: false`. Or, nuclear: revoke the OAuth token in claude.ai settings; bots can't push.
+Edit `Philosophy.md`:
+
+```yaml
+run_mode: "dryrun"   # was "live"
+```
+
+Push. On the next firing of **any** scheduled `/schedule` agent (PM, Concierge, Janitor, Triager, Designer, Asset Librarian), the agent reads Philosophy first, sees `dryrun`, and exits with a one-line `"would have done X"` log without making any MCP calls, comments, or commits. Flip back to `"live"` when you're ready to resume.
+
+This pauses the **agent** layer (Sonnet/Haiku spend). It does NOT yet pause the **workflow** layer (`developer.yml`, `review.yml`, `test.yml`, `playtest.yml`, `blogger.yml`, `auto-merge.yml`, `sync.yml`) — those fire on PR/push/issue events you control indirectly. For a full pause, also stop creating issues + disable the GH App, or set the routines to `enabled: false` via `/schedule`. Tracked in TODO.md as a follow-up.
+
+Nuclear option: revoke the OAuth token in claude.ai settings — bots immediately can't push.
 
 ### Cut a release
 

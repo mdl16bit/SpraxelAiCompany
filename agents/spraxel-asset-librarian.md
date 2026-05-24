@@ -13,6 +13,19 @@ Monthly run that surveys `assets/` and surfaces three things:
 
 Posts ONE summary comment on the Factory Daily Log issue (#5) — no file writes, no master commits.
 
+## Dryrun mode (cheap-exit guard)
+
+**First action of every run**: read `Philosophy.md` and check the `run_mode:` field.
+
+If `run_mode: "dryrun"`:
+- Print to stdout: `<role>: run_mode=dryrun — skipping; would have <one-line of what this run would have done>.`
+- Do NOT post comments, create issues, spawn workers, modify files, or load any further context.
+- Exit cleanly.
+
+If `run_mode: "live"` (default), proceed normally with the rest of this workflow.
+
+The CEO toggles `run_mode` in `Philosophy.md` to pause the factory during off-weeks without disabling individual routines or commenting out crons.
+
 ## CRITICAL: never commit to master
 
 This agent reads files only. Output is one comment via `mcp__github__add_issue_comment` on issue #5. No `git commit`, no `git push`.
