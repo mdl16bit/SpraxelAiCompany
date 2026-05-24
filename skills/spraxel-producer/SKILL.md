@@ -146,7 +146,8 @@ The sync script handles the `(#N)` annotation in WORK.md. You do NOT edit WORK.m
 ### 5. Clean up
 
 - Move processed dictation files to `.factory/inbox/decisions/<YYYY-MM-DD>/` (preserves history; transcripts are valuable training data).
-- Remove processed batch sections from `.factory/inbox/pending-intake.md` (or truncate the whole file if you drained it).
+- **Drain pending-intake.md correctly** (do NOT truncate). Rename the processed batch's header to `## DRAINED <YYYY-MM-DDTHH:MM:SSZ> — items #X,#Y,#Z` and **leave the `- <title>` lines in place**. This is critical: `sync_work_md.py` reads `- ` bullet lines from pending-intake.md as "already queued" titles via `_existing_intake_titles()`. If you truncate, the next sync run re-queues every unannotated WORK.md line from scratch (infinite re-queue loop). Keeping the title bullets under a DRAINED header tells sync "these are already processed, do not re-queue."
+- You may strip indented detail/continuation lines beneath each bullet to keep the file compact — only the `- <title>` lines matter for dedup.
 - If the playtest-debrief path was used, archive the playtest note the same way.
 
 ### 6. Update memory

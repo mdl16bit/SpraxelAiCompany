@@ -37,17 +37,11 @@ jobs:
 
 Apply to each of the 8 workflows when next touched.
 
-## Sync ↔ Producer feedback loop is one-way (re-queues forever)
+## ~~Sync ↔ Producer feedback loop is one-way (re-queues forever)~~ Fixed 2026-05-24
 
-After Producer drains `pending-intake.md` into issues, the original `WORK.md` lines stay unannotated. Next `sync.yml` run (which fires on any push touching WORK.md, including bot pushes) sees them as un-handled and re-queues them into `pending-intake.md` again. Loop of noise.
+Resolved without changing `sync_work_md.py`. `_existing_intake_titles()` already parses any `- <title>` line in pending-intake.md as a queued title (regardless of section header). Solution: **Producer drains by renaming the section header to `## DRAINED <timestamp> — <reason>` and leaves the bullet titles in place**, instead of truncating. Sync sees the titles, recognizes them as duplicates, doesn't re-queue.
 
-Fixes (any one works):
-
-1. **Producer auto-annotates WORK.md** at end-of-session. Map issue title → WORK.md line via fuzzy match; append ` (#N)` to each handled line. Commit. *Trade-off: bot commits to master are forbidden* — Producer is interactive so the CEO can run the commit themselves with a one-liner Producer prints.
-2. **`sync.yml` skips lines that fuzzy-match an existing open issue's title.** Pre-filter against `gh issue list --state all` before queueing. Cheaper but loose (false positives on similar titles).
-3. **`pending-intake.md` gets a high-water-mark line.** Sync only re-queues entries ABOVE the marker. Cleanest. Producer drops the marker on drain.
-
-Pick (3) when next touching the sync script — simplest semantics, no fuzzy matching, no commit-to-master concern.
+Updated `skills/spraxel-producer/SKILL.md` step 5 with explicit drain semantics. The current `.factory/inbox/pending-intake.md` has been rewritten in the new format (bullet titles preserved under a DRAINED header; indented continuations stripped for compactness).
 
 ## MCP GitHub server — missing tools (blocks several features)
 
