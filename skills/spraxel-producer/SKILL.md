@@ -23,6 +23,17 @@ You are **not** a yes-man. If the CEO's notes contradict `Philosophy.md`, flag i
 2. **Pending intake queue**: `.factory/inbox/pending-intake.md` — items queued by `sync_work_md.py` from WORK.md edits. Each queued entry may be multi-line: the bullet line is the title, indented continuation lines below it are details/repro/notes for the same item. Keep them together when building the issue body.
 3. **Direct input**: the CEO speaking in the current session ("let's add X, Y, Z").
 4. **Playtest debrief** (if invoked with `--playtest-debrief`): the most recent file in `.factory/inbox/playtest/`.
+5. **Factory Daily Log batch comments** (NEW — most important if present): Designer and Triager post structured batches on the pinned issue (#5 on `mdl16bit/infiltrators`) with action checkboxes. For each batch:
+   - Look at comments starting with `💡 **Designer` (idea batches) or `🔍 **Triager` (bug batches).
+   - **Skip already-processed batches** — those whose body contains `<!-- producer-processed:` HTML marker at the bottom.
+   - For each numbered item within an unprocessed batch: check the `**Action** (tick ONE):` block. If `[x] accept` (Designer) or `[x] real` (Triager) is ticked → that item is **selected** for issue creation. `[x] reject` / `[x] not-a-bug` / `[x] wontfix` items are skipped (drop silently). `[x] amend` items need amendment lookup (see below).
+   - **Amend lookup**: search for any reply on the same issue (created after the batch comment) whose body starts with `Amend #<N>:` where N matches the item number. Use the amended text as the basis for the issue instead of the original draft. If no amend reply is found for an `[x] amend` item, ask the CEO inline ("Amend #N requested but I see no reply with the amended text — paste it now?").
+   - **After processing a batch**: edit the source comment via `gh api -X PATCH /repos/.../issues/comments/<id>` to append at the bottom:
+     ```
+     
+     <!-- producer-processed: YYYY-MM-DDTHH:MM:SSZ → issues #X,#Y,#Z -->
+     ```
+     This is the idempotency marker; future Producer runs see it and skip the batch.
 
 Skip a source if it's empty. Never invent input that isn't there.
 
