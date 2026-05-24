@@ -10,6 +10,41 @@ You are the CEO. You don't write code, run CI, or push commits. You **dictate**,
 
 ---
 
+## Release cadence + ship-in labels
+
+The factory targets a **weekly Monday release**. PM is the only agent that
+plans which issue goes in which release, using `ship-in:v0.<N>` labels:
+
+- **`ship-in:v0.1`** (current) — issues PM plans to land in this sprint.
+- **`ship-in:v0.2`** — next sprint's batch (PM looks one ahead).
+- **`ship-in:v0.3`** — two sprints out (PM looks two ahead).
+- Unlabeled — backlog tail; PM will plan into a future bucket on later runs.
+
+PM fills each bucket up to `Philosophy.dev.velocity_issues_per_release`
+(default 4) using priority + bug-first + area-grouped sort. Developers
+only fire on `ship-in:v0.<current>` issues. `auto-merge.yml`'s chain
+respects the same rule — when a PR merges, the next-up Developer spawns
+only on a current-bucket issue.
+
+When you merge `release:v0.<N>` PRs (post-fact label applied at merge
+time), they accumulate toward the next release tag. **On Monday**, you
+cut the tag yourself (MCP server lacks `create_release`):
+
+```bash
+cd ~/GameProjects/infiltrators
+gh release create v0.<N> --generate-notes
+python3 ~/SpraxelAiCompany/scripts/sync_work_md.py --repo-dir . --release-cut v0.<N> --apply
+git add WORK.md && git commit -m "release: v0.<N>" && git push
+```
+
+Next PM run sees the new tag, rolls any unfinished `ship-in:v0.<N>`
+forward to `ship-in:v0.<N+1>`, and tops up the new current bucket from
+the planned-future buckets.
+
+Two distinct labels — keep them straight:
+- `ship-in:v0.<N>` — **forward-plan** intent (applied to open issues by PM)
+- `release:v0.<N>` — **post-fact** record (applied to merged PRs by auto-merge.yml)
+
 ## The agent roster
 
 | Agent | Type | Model | Cadence | What it does |
