@@ -10,11 +10,12 @@ The CEO will open `.factory/inbox/today.md` on their phone or laptop with coffee
 
 ## Hard rules
 
-- **One file: `.factory/inbox/today.md`.** Overwrite, don't append. Yesterday's digest is gone — that's fine, decisions are archived in `.factory/inbox/decisions/`.
+- **Output target: the pinned "Factory Daily Log" issue body.** Find it by title or default to issue #5 in `mdl16bit/infiltrators`. Overwrite the body each run via `mcp__github__update_issue`. Yesterday's digest is gone, that's fine. **Never** commit files to master — bot pushes to master trip the tripwire workflow.
 - **No item is presented without a one-line action.** Either "approve / reject / skip" or "merge / close / comment."
-- **Cap each section at the 5 most important items.** If there are more, write "(+ N more in `<inbox file>`)" and stop.
+- **Cap each section at the 5 most important items.** If there are more, write "(+ N more — see <link>)" and stop.
 - **Sort by what blocks the CEO most.** PRs awaiting merge > bugs needing yes/no > new designer ideas > FYI items.
 - **No preamble.** Start with the action items. End with the cost report.
+- **Never close the Factory Daily Log issue.** Only update its body.
 
 ## Context to load (parallel)
 
@@ -41,7 +42,7 @@ Do NOT load: Game.md, WORK.md, full PR diffs, full issue bodies.
 | **PM** | One-line PM summary from yesterday |
 | **FYI** | Stuck workers (status:claimed but no PR after 24h), failed CI, anything off-pattern |
 
-### 2. Write `.factory/inbox/today.md`
+### 2. Write the Factory Daily Log issue body
 
 Format:
 
@@ -79,11 +80,15 @@ If `.factory/costs.yaml` exists, read yesterday's total + by-agent. If not, writ
 
 ### 4. Memory + done
 
-Append to `.factory/memory/concierge.md` only:
-- Format preferences the CEO has signaled ("user asked: keep merge section to 3 items max").
-- Anomaly patterns ("Developer #73 stuck twice this week — flag harder").
+Concierge memory lives in the body history of the Factory Daily Log
+issue itself — read yesterday's body before overwriting to remember
+format preferences ("merge section capped at 3 items"), anomaly
+patterns ("Developer #73 stuck twice this week"). Encode those as a
+small `<!-- concierge-memory: ... -->` HTML comment at the bottom of
+the body so they survive overwrites but aren't visible to the CEO in
+the rendered view.
 
-Don't log "ran a digest" — that's in git.
+Do not commit any files to master.
 
 ## Token efficiency
 

@@ -116,17 +116,28 @@ Skip release-day automation until section 3 is re-enabled. Tag releases
 is a CEO-manual step for now: the CEO runs `gh release create v0.X
 --generate-notes` from their local machine on release day.
 
-### 6. Memory + digest
+### 6. Memory + digest (state lives in the pinned GH issue, not on master)
 
-**REQUIRED on every run that does any work** (GUPP unstick or Developer spawn): append one line to `.factory/inbox/today.md`. Even pure GUPP runs that found nothing stuck should write `PM: GUPP clean, no Developer spawn today.` The Concierge reads this line for its morning digest — without it the CEO can't tell whether PM ran or not.
+PM does **NOT** commit files to master. Bot pushes to master trip the
+tripwire workflow. State is written to the pinned **Factory Daily Log**
+issue (find by title `"Factory Daily Log"` or fall back to issue #5 on
+`mdl16bit/infiltrators`).
 
-Line format (milestones are CEO-manual; do NOT mention them):
+**REQUIRED on every run that does any work** (GUPP unstick, Developer
+spawn, or PR merge): post a comment on the Factory Daily Log issue via
+`mcp__github__add_issue_comment`. One comment per run. Format:
 
 ```
-PM: spawned Developer on #73 (top of sorted backlog, p1 bug); GUPP: 0 stuck. Velocity 1/4.
+PM (YYYY-MM-DD HH:MM UTC): spawned Developer on #73 (top, p1 bug); merged #5 'foo' → release:v0.1; GUPP: 0 stuck. Velocity 1/4.
 ```
 
-For zero-work runs (no open issues at all, GUPP clean): print the "nothing to do" message to stdout and exit without committing. That's the only exception.
+For zero-work runs (no open issues, no open PRs, no status:claimed):
+print 'PM: nothing to do; exiting' to stdout and exit without posting.
+
+**Memory**: don't try to persist memory files. To recall what you did
+yesterday, list the recent N comments on the Factory Daily Log issue
+via `mcp__github__list_issue_comments`. That's your durable memory
+now — comments persist and the CEO can read them on GitHub.
 
 Also append to `.factory/memory/pm.md` only non-obvious decisions:
 - "Promoted #74 over #71 — same area:guards as already-milestoned #76; better grouping."
