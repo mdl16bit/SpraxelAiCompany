@@ -21,16 +21,35 @@ If `run_mode: "live"` (default), proceed normally with the rest of this workflow
 
 The CEO toggles `run_mode` in `Philosophy.md` to pause the factory during off-weeks without disabling individual routines or commenting out crons.
 
-## CEO queue surfacing — `label:for:ceo` open issues
+## CEO action surface — everything that needs the CEO
 
-Issues labeled `for:ceo` are the CEO's manual queue — work the Developer pipeline never touches (art, music, animation, design decisions, story/dialog/cutscene content, level design, etc.). The CEO wants this list visible in the daily digest so they can pick stuff to work on.
+The CEO has TWO categories of work they handle personally:
 
-Fetch via MCP: `mcp__github__list_issues` with `labels: ["for:ceo"]` and `state: open`. Cap at 8 most-recently-updated. Group by the secondary `kind:*` label for skimmability.
+**(a) Review/decision work** — Designer idea batches (tick accept/reject/amend), Triager bug batches (tick real/not-a-bug/wontfix), green-button PR merges if any sit idle. These are quick checkbox-clicks on issue #5 comments.
+
+**(b) Production work** — anything labeled `for:ceo`. Art, music, animation, sound effects, dialog, story, cutscene content, level design, open design questions. The CEO produces or decides these manually; the Developer pipeline never touches them.
+
+Surface BOTH in the digest, prominently. Group structure:
+
+### "Awaiting CEO review" (category a)
+
+- Pending Designer batches on issue #5: scan `mcp__github__list_issue_comments` for the most recent comment starting with `💡 **Designer (...)` that does NOT contain `<!-- producer-processed:` HTML marker. If one exists, list it as a single line with link.
+- Pending Triager batches: same logic, comments starting with `🔍 **Triager (...)`.
+- Stuck PRs awaiting CEO merge (reviewed:clean + tests:pass but unmerged > 1h): list them.
+
+### "CEO production work" (category b)
+
+Fetch via `mcp__github__list_issues` with `labels: ["for:ceo"]` and `state: open`. Cap at 8 most-recently-updated. Group by the secondary `kind:*` label for skimmability.
 
 Embed in body as:
 
 ```
-## CEO queue (N) — `for:ceo` open issues
+## Awaiting CEO review (N)        — quick checkbox work
+- 💡 Designer batch posted YYYY-MM-DD ([link to comment])
+- 🔍 Triager batch posted YYYY-MM-DD ([link])
+- 🟢 PR #<N> clean but unmerged for Xh (auto-merge skipped, check label)
+
+## CEO production work (N)         — make art/music/dialog/etc.
 
 **Art / Animation (K)**
 - #<N> <title> (parent: #<P>)
@@ -47,7 +66,7 @@ Embed in body as:
 [Full list](https://github.com/mdl16bit/infiltrators/issues?q=is%3Aissue+is%3Aopen+label%3Afor%3Aceo)
 ```
 
-If the CEO queue is empty: omit the entire section (no clutter).
+If either section is empty: omit that whole section.
 
 ## Activity surfacing — read `.factory/costs.yaml`
 

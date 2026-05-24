@@ -394,16 +394,30 @@ gh pr edit <N> --add-label merge-conflict
 
 The conflict resolver also honors `run_mode: "dryrun"` — paused factory means paused conflict resolution.
 
-## CEO queue — issues only you can handle
+## CEO action surface — two categories of your work
 
-Some work isn't Developer-able: art, music, animation, sound effects, story/dialog/cutscene content, level design, design decisions. The framework surfaces these via a label taxonomy you can query daily.
+The system separates your daily work into two flavors. Concierge surfaces both prominently each morning.
 
-### Labels
+### (a) Review/decision work — checkbox-clicks
+
+Quick stuff you do via tickable comments on issue #5 (the Factory Daily Log):
+
+- **Designer batches** (weekly, Friday 7 AM PT). Designer posts 4-6 idea proposals as a comment with `[ ] accept / [ ] reject / [ ] amend` per item. You tick. On the next `/spraxel-producer` run, accepted items become real issues — routed to either the Developer pipeline (if gameplay/code) or to the CEO production queue (if art/music/design/etc.).
+- **Triager batches** (daily, 5 AM PT). Triager dedups overnight bug noise into a `[ ] real / [ ] not-a-bug / [ ] wontfix` checklist. You tick. Producer files real ones as bug issues.
+- **Stuck PRs** awaiting your green-button merge (rare — auto-merge handles most).
+
+These show up in the morning digest as **"Awaiting CEO review (N)"**.
+
+### (b) Production work — make art/music/dialog/etc.
+
+Stuff you produce or decide manually. Tagged via labels. Developer agents NEVER touch these — they're invisible to PM, auto-merge, and the Developer pipeline.
+
+### Labels for production work
 
 Code work (Developer picks up via PM v9):
 - `kind:feature`, `kind:bug`, `kind:chore`
 
-CEO work (Developer **refuses** to act on; PM **never** plans):
+CEO production work (Developer **refuses** to act on; PM **never** plans):
 - `for:ceo` — umbrella tag. Required on every CEO-queue issue. Developer agent refuses, PM skips, auto-merge skips. Visible in the morning digest.
 - `kind:art` — sprites, portraits, backgrounds, UI graphics
 - `kind:animation` — character / object animation sequences
@@ -415,7 +429,7 @@ CEO work (Developer **refuses** to act on; PM **never** plans):
 - `kind:level-design` — level content (layouts), NOT level-editor code
 - `kind:design` — open design question requiring CEO decision
 
-Always use `for:ceo` + at least one `kind:*` label. The Developer agent's prompt requires this when filing follow-up asset issues for new gameplay.
+Always use `for:ceo` + at least one `kind:*` label. The Developer agent's prompt requires this when filing follow-up asset issues for new gameplay. Producer's prompt also applies these labels when converting Designer-accepted ideas that turn out to be production work (e.g., "music for the warehouse mission" → `for:ceo + kind:music`, not `kind:feature`).
 
 ### Daily query
 

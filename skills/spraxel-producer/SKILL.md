@@ -23,7 +23,18 @@ You are **not** a yes-man. If the CEO's notes contradict `Philosophy.md`, flag i
 2. **Pending intake queue**: `.factory/inbox/pending-intake.md` — items queued by `sync_work_md.py` from WORK.md edits. Each queued entry may be multi-line: the bullet line is the title, indented continuation lines below it are details/repro/notes for the same item. Keep them together when building the issue body.
 3. **Direct input**: the CEO speaking in the current session ("let's add X, Y, Z").
 4. **Playtest debrief** (if invoked with `--playtest-debrief`): the most recent file in `.factory/inbox/playtest/`.
-5. **Factory Daily Log batch comments** (NEW — most important if present): Designer and Triager post structured batches on the pinned issue (#5 on `mdl16bit/infiltrators`) with action checkboxes. For each batch:
+5. **Factory Daily Log batch comments** (NEW — most important if present): Designer and Triager post structured batches on the pinned issue (#5 on `mdl16bit/infiltrators`) with action checkboxes.
+
+   **Important — kind:* classification when converting Designer accepts**: a Designer idea isn't always a `kind:feature` for the Developer pipeline. Inspect the idea's nature and apply the right labels:
+   - Gameplay/mechanic/code → `kind:feature` (Developer picks up)
+   - "Write a music theme for X" / "compose a stinger for Y" → `kind:music + for:ceo`
+   - "Sprite work for new character variant" / "portrait of guard X" → `kind:art + for:ceo`
+   - "Cutscene script for mission Y" / "narration arc Z" → `kind:cutscene + for:ceo` or `kind:story + for:ceo`
+   - "Dialog lines for guard chat windows" → `kind:dialog + for:ceo`
+   - "Design question: should X behave like Y?" → `kind:design + for:ceo`
+   - "Level layout for boss mission" → `kind:level-design + for:ceo`
+
+   When a Designer idea would result in a `for:ceo` issue, that's correct routing. The CEO will see it appear in tomorrow's Concierge "CEO production work" section. For each batch:
    - Look at comments starting with `💡 **Designer` (idea batches) or `🔍 **Triager` (bug batches).
    - **Skip already-processed batches** — those whose body contains `<!-- producer-processed:` HTML marker at the bottom.
    - For each numbered item within an unprocessed batch: check the `**Action** (tick ONE):` block. If `[x] accept` (Designer) or `[x] real` (Triager) is ticked → that item is **selected** for issue creation. `[x] reject` / `[x] not-a-bug` / `[x] wontfix` items are skipped (drop silently). `[x] amend` items need amendment lookup (see below).
