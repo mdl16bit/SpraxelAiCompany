@@ -535,6 +535,123 @@ def cmd_release_cut(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_move_closed(args: argparse.Namespace) -> int:
+    """Move a `(#N)`-annotated line from Todo section to Current section.
+
+    Called by the work-md-on-close.yml workflow when issue #N closes (via PR
+    merge or manual close). Looks up the line in WORK.md's Todo section
+    (below the last divider), captures any indented continuation lines,
+    and migrates the block into the Current section (between dividers).
+
+    No-ops:
+    - Issue line is already in Current section
+    - Issue line is in Shipped (top) section (historical record; don't touch)
+    - Issue line not found anywhere in WORK.md (issue may have come from a
+      Designer batch or directly via gh issue create, not from a WORK.md line)
+
+    Requires 2+ dividers (shipped/current/todo layout). 0-1 dividers: error.
+    """
+    repo_dir = Path(args.repo_dir).resolve()
+    work_md = repo_dir / "WORK.md"
+    if not work_md.exists():
+        print(f"ERROR: {work_md} does not exist", file=sys.stderr)
+        return 1
+
+    issue_num = int(args.move_closed)
+    annotation_re = re.compile(rf"\s*\(#{issue_num}\)\s*$")
+
+    raw_text = work_md.read_text()
+    raw_lines = raw_text.splitlines()
+    n = len(raw_lines)
+
+    header_end = 0
+    for i, raw in enumerate(raw_lines):
+        if raw.startswith("## "):
+            header_end = i + 1
+            break
+
+    divider_lines = [
+        i for i in range(header_end, n)
+        if DIVIDER_RE.match(raw_lines[i].strip())
+    ]
+    if len(divider_lines) < 2:
+        print(
+            f"ERROR: WORK.md has {len(divider_lines)} divider(s); --move-closed needs at least 2 (shipped/current/todo)",
+            file=sys.stderr,
+        )
+        return 2
+
+    first_div = divider_lines[0]
+    last_div = divider_lines[-1]
+
+    # Find the (#N)-annotated line. Skip continuation lines (indented).
+    found_at = -1
+    for i in range(n):
+        raw = raw_lines[i]
+        if not raw.strip():
+            continue
+        if raw[0].isspace():
+            continue  # continuation
+        if annotation_re.search(raw):
+            found_at = i
+            break
+
+    if found_at == -1:
+        print(f"move-closed #{issue_num}: line not found in WORK.md; no-op")
+        return 0
+
+    # Section detection
+    if found_at < first_div:
+        print(f"move-closed #{issue_num}: line is in Shipped section (line {found_at+1}); no-op")
+        return 0
+    if first_div < found_at < last_div:
+        print(f"move-closed #{issue_num}: line is already in Current section (line {found_at+1}); no-op")
+        return 0
+    # Below last_div = Todo section. Capture continuation lines.
+    block_end = found_at + 1
+    while block_end < n:
+        raw = raw_lines[block_end]
+        if not raw.strip():
+            block_end += 1
+            continue
+        if raw[0].isspace():
+            block_end += 1
+            continue
+        break
+    # Trim trailing blank lines from the captured block
+    while block_end > found_at + 1 and not raw_lines[block_end - 1].strip():
+        block_end -= 1
+
+    block = raw_lines[found_at:block_end]
+    print(f"move-closed #{issue_num}: moving {len(block)} line(s) from Todo (lines {found_at+1}..{block_end}) to Current section")
+    for ln in block:
+        print(f"  | {ln}")
+
+    if not args.apply:
+        print("(dry run — pass --apply to write)")
+        return 0
+
+    # Build new file. Insert the block at the end of the Current section
+    # (just before last_div). Remove from the Todo section.
+    new_lines = list(raw_lines[:last_div])
+    # If the Current section's last non-blank line right before last_div is not blank,
+    # insert a blank separator
+    if new_lines and new_lines[-1].strip():
+        new_lines.append("")
+    new_lines.extend(block)
+    # last_div line itself
+    new_lines.append(raw_lines[last_div])
+    # Rest of file, excluding the block we moved
+    for i in range(last_div + 1, n):
+        if found_at <= i < block_end:
+            continue
+        new_lines.append(raw_lines[i])
+
+    work_md.write_text("\n".join(new_lines) + ("\n" if raw_text.endswith("\n") else ""))
+    print(f"wrote {work_md} — issue #{issue_num} block moved to Current section")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo-dir", default=".", help="Target game repo (default: cwd)")
@@ -543,9 +660,12 @@ def main() -> int:
     ap.add_argument("--parse-only", action="store_true", help="Parse WORK.md and print structure, no gh calls")
     ap.add_argument("--skip-gh", action="store_true", help="Skip GitHub issue-existence reconciliation")
     ap.add_argument("--release-cut", metavar="v0.<N>", help="Move middle-section items to shipped, prefixed with this release version")
+    ap.add_argument("--move-closed", metavar="N", help="Move the line annotated (#N) from Todo section to Current section (called on issue close)")
     args = ap.parse_args()
     if args.release_cut:
         return cmd_release_cut(args)
+    if args.move_closed:
+        return cmd_move_closed(args)
     return cmd_sync(args)
 
 
