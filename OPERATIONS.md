@@ -240,19 +240,26 @@ From a Claude Code session: ask "fire the PM/Designer/Triager routine now." Or u
 
 ### Iterate on prompts (agent definitions)
 
-Agent prompts live in two places:
+Agent prompts live in **ONE place** as of 2026-05-24:
 
-- **Source of truth**: `~/SpraxelAiCompany/agents/spraxel-*.md` (edit this, commit, push)
-- **Live copy**: embedded in each `/schedule` routine's config (must be synced separately)
+- `~/SpraxelAiCompany/agents/spraxel-*.md` — source of truth. Edit, commit, push.
+
+The `/schedule` routines run a tiny ~200-token prompt that:
+
+1. Checks `Philosophy.run_mode` (early dryrun-exit).
+2. `curl`s the agent spec from `https://raw.githubusercontent.com/mdl16bit/SpraxelAiCompany/master/agents/spraxel-<role>.md`.
+3. Follows the fetched markdown as its full contract.
+
+So editing → commit → push to SpraxelAiCompany IS the whole sync. Next routine fire picks up the new version automatically. No more dual-source drift.
 
 To iterate:
 
 1. Edit `agents/spraxel-<role>.md` locally.
-2. Test invocation: `/spraxel-<role>` from a Claude Code session (uses the local file).
-3. Once happy, sync to the live routine via `/schedule` → Update OR ask Claude Code to do it via `RemoteTrigger`.
-4. Fire the routine to verify the live update works.
+2. Test invocation locally: `/spraxel-<role>` from a Claude Code session.
+3. Commit + push to master.
+4. (Optional) Fire the routine via `/schedule` → Run now to verify the live update — it'll fetch the brand-new file.
 
-For workflow YAML prompts (`developer.yml`, `review.yml`, etc.): edit the file in the infiltrators repo, push. The next workflow trigger uses the new prompt.
+For workflow YAML prompts (`developer.yml`, `review.yml`, etc.): edit the file in the **infiltrators** repo, commit, push. The next workflow trigger uses the new prompt. (Workflow YAMLs aren't yet on the dynamic-fetch pattern — they're per-game so it's fine.)
 
 ### Fire any workflow on demand
 
