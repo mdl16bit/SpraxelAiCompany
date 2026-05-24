@@ -334,6 +334,40 @@ In `~/GameProjects/infiltrators/` (the game, private):
 
 ---
 
+## Git LFS
+
+Binary asset files (`*.png`, `*.ogg`, `*.mp3`, `*.wav`, `*.mp4`, fonts, etc.) are tracked via Git LFS — see `.gitattributes` in the infiltrators repo for the exact extension list.
+
+**One-time setup per developer machine** (you, mostly):
+
+```bash
+brew install git-lfs
+git lfs install   # in any infiltrators clone, once
+```
+
+After that, normal `git add / commit / push` works — matching files automatically route to LFS. The Spraxel agents running in cloud sandboxes use ephemeral clones with LFS support built in; you don't need to configure anything there.
+
+To migrate existing in-repo binaries to LFS retroactively (rewrites history):
+
+```bash
+cd ~/GameProjects/infiltrators
+git lfs migrate import --include="assets/**" --everything
+git push --force-with-lease   # only safe if no one else has clones
+```
+
+For a project that's still pre-release with a single developer, that migration is safe. Skip if anyone else has a clone.
+
+## CEO inactivity auto-pause
+
+The `inactivity-check.yml` workflow runs daily at **7:00 AM PT** and checks for recent CEO activity (commits, issue comments, issue/PR edits authored by `mdl16bit`).
+
+- **5+ days idle** → flips `Philosophy.md` from `run_mode: "live"` to `run_mode: "dryrun"` and posts a 💤 alert on issue #5. The daily scheduled agents start exiting on their next fire; the 5 LLM-cost workflows (developer, review, playtest, blogger, auto-merge) gate on the same flag.
+- **Activity returns** → flips back to `"live"`, posts a 🟢 resume comment.
+
+The auto-set version of dryrun has a trailing `# auto-set by inactivity-check ...` comment in `Philosophy.md`, distinguishing it from a manually-set dryrun (which never auto-flips back). If you set dryrun manually for any reason, that takes precedence and the workflow leaves it alone.
+
+Cutoff is configurable via `INACTIVITY_DAYS` in the workflow's env. Default 5.
+
 ## Gotchas / things to know
 
 - **Bot push to master is forbidden.** `tripwire.yml` will alert on issue #5 if it happens. Branch protection isn't available on free private repos. The guard rail is prompt + tripwire.
