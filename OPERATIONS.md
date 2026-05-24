@@ -334,6 +334,29 @@ In `~/GameProjects/infiltrators/` (the game, private):
 
 ---
 
+## Merge conflicts
+
+When a PR auto-merge attempt hits a conflict (because a different PR landed first and touched overlapping lines), the system handles it without you:
+
+1. **`auto-merge.yml`** tries `gh pr merge --squash`. If the merge fails with a conflict-like error, it labels the PR `merge-conflict`, comments on the PR explaining the situation, and **does NOT trigger the next-issue chain** (so the queue stays stable until this PR resolves).
+2. **`conflict-resolver.yml`** fires on the `merge-conflict` label:
+   - **First pass: cheap auto-rebase.** Checks out the branch and runs `git rebase origin/master`. If the rebase completes cleanly (textually non-overlapping changes), it force-pushes and removes the `merge-conflict` label. **No LLM call.** Most conflicts resolve here — they were "false positives" GitHub flagged on partial overlaps.
+   - **Second pass: Developer agent.** If the rebase produces real conflicts, spawns the Developer agent (Sonnet) on the existing branch. The agent reads the PR body for context, decides each resolution preserving both the feature's intent and the new master code, force-pushes with `--force-with-lease`, removes the `merge-conflict` label, and posts a single PR comment explaining each decision.
+   - **Escalation: `status:needs-ceo`.** If the agent decides the conflict is semantically irreconcilable (a function the PR depends on was deleted on master; data model mismatch; etc.) it aborts the rebase, comments on the PR explaining what broke, and adds `status:needs-ceo`. You take it from there.
+3. Once the branch is force-pushed cleanly, the existing `test.yml` + `review.yml` fire on `synchronize`, eventually labels land, and `auto-merge.yml` retries the merge.
+
+Manual trigger if the auto-flow misses one:
+```bash
+gh workflow run conflict-resolver.yml -F pr_number=<N>
+```
+
+Or just label it yourself:
+```bash
+gh pr edit <N> --add-label merge-conflict
+```
+
+The conflict resolver also honors `run_mode: "dryrun"` — paused factory means paused conflict resolution.
+
 ## Git LFS
 
 Binary asset files (`*.png`, `*.ogg`, `*.mp3`, `*.wav`, `*.mp4`, fonts, etc.) are tracked via Git LFS — see `.gitattributes` in the infiltrators repo for the exact extension list.
