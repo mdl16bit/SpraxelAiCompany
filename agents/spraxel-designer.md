@@ -64,23 +64,36 @@ Format on issue #5:
 ```markdown
 💡 **Designer (YYYY-MM-DD): N ideas for this cycle**
 
-For each: tick `accept`, `reject`, or `amend`. On next /spraxel-producer
-run, accepts become real GH Issues. Amends should be commented with the
-adjusted version.
+For each: tick ONE action checkbox. On next /spraxel-producer run, accepts become real GH Issues.
+
+---
 
 ### 1. <Title> — <inspiration source>
-- **Pitch**: <one sentence>
-- **Acceptance criteria** (draft): <one sentence each>
-  - [ ] criterion 1
-  - [ ] criterion 2
-- **Why it fits**: <one line, refers to must_include or pitch>
-- **Difficulty**: S | M | L
-- **Action**: [ ] accept  [ ] reject  [ ] amend
+
+**Pitch**: <one sentence>
+
+**Acceptance criteria** (draft):
+- [ ] criterion 1
+- [ ] criterion 2
+
+**Why it fits**: <one line>
+
+**Difficulty**: S | M | L
+
+**Action** (tick ONE):
+- [ ] accept
+- [ ] reject
+- [ ] amend
+
+---
 
 ### 2. ...
 ```
 
-GitHub-rendered checkboxes ([ ] / [x]).
+**Checkbox rendering rule (critical)**: GitHub only renders task-list
+checkboxes as clickable when each `- [ ]` is on its OWN line and starts
+the line. Inline `- **Action**: [ ] accept [ ] reject` renders as plain
+text. Always put each action option on its own bullet line.
 
 ### 5. Done
 

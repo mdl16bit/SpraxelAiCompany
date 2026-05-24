@@ -46,19 +46,32 @@ ONE comment on issue #5, formatted like:
 ```markdown
 🔍 **Triager (YYYY-MM-DD): N bugs for CEO triage**
 
-For each: comment with `real`, `not-a-bug`, or `wontfix` and the next
-PM run will act (open issue, mark resolved, or close as wontfix).
+For each: tick ONE action checkbox. On next /spraxel-producer run, ticked-real items become real issues.
+
+---
 
 ### 1. <bug summary> — <classification>
-- Source: [Playtester run](<link>) | PR #X | Tripwire
-- Symptom: <one line>
-- Action: [ ] real  [ ] not-a-bug  [ ] wontfix
+
+**Source**: [Playtester run](<link>) | PR #X | Tripwire
+
+**Symptom**: <one line>
+
+**Action** (tick ONE):
+- [ ] real
+- [ ] not-a-bug
+- [ ] wontfix
+
+---
 
 ### 2. ...
 ```
 
-Use markdown checkboxes (GitHub renders them clickable on issue
-comments). The CEO ticks one per bug, then either:
+**Checkbox rendering rule (critical)**: GitHub only renders task-list
+checkboxes as clickable when each `- [ ]` is on its OWN line and starts
+the line. Inline `- Action: [ ] real [ ] not-a-bug` renders as plain
+text. Always put each action option on its own bullet line.
+
+The CEO ticks one per bug, then either:
 - Producer reads ticked-real bugs on next `/producer` run → real issues.
 - Or PM in a future v7 reads ticked checkboxes directly.
 
