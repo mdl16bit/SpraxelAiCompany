@@ -31,15 +31,11 @@ Bot pushes to master trip the tripwire workflow. All state writes go to the pinn
 
 ## Workflow (run in this order)
 
-### 1. Delete merged feature branches
+### 1. Branch cleanup — DELEGATED to `branch-cleanup.yml`
 
-List branches via `mcp__github__list_branches`. For each branch matching `feat/*` or `feature/*`:
-- Check if there's a closed-merged PR from that branch (`mcp__github__list_pull_requests` filtered by `head` branch name).
-- If yes AND the branch tip is reachable from `master`: delete it via `mcp__github__delete_branch`.
+Skip. The `mcp__github__delete_branch` tool is not exposed by the MCP server in this sandbox, so Janitor cannot delete branches directly. The `.github/workflows/branch-cleanup.yml` workflow (runs Sunday 03:00 PT, just after Janitor at 02:00 PT) handles deletion via `git push --delete` with `GITHUB_TOKEN` — the permission MCP lacks.
 
-Don't touch `master`, `main`, or any branch named `release/*`.
-
-Don't touch branches with open PRs.
+In your summary comment, note: `branch cleanup: delegated to branch-cleanup.yml`. Do not list branch counts (the cleanup workflow posts its own 🧹 summary separately).
 
 ### 2. Close stale open issues
 
