@@ -214,6 +214,36 @@ If you want to short-circuit:
 - Add a comment on the issue with what you want different.
 - PM re-picks it up. Tell Developer in the comment to read previous branch / what to avoid.
 
+### "Reject a PR (close + abandon, close + redo, or send back with feedback)"
+
+Three patterns by intent:
+
+**A. Reject and abandon** (the work is wrong-direction, don't redo):
+```bash
+gh pr close <PR> --comment "Rejected: <why>. Not pursuing."
+gh issue close <SOURCE-ISSUE> --comment "Abandoned."
+```
+
+**B. Reject and restart fresh** (close PR, let a new Developer try from scratch):
+```bash
+gh pr close <PR> --comment "Closing — wants a clean restart. <why>."
+# Then either wait for PM's next run (which catches closed-not-merged via GUPP v9
+# and re-spawns automatically), or force it immediately:
+gh issue edit <SOURCE-ISSUE> --remove-label status:claimed --add-label status:ready
+```
+
+**C. Send back with feedback — iterate on the same branch** (the implementation is salvageable; you want specific changes):
+```bash
+# Leave inline comments on the PR via GitHub UI (or via gh api)
+gh pr comment <PR> --body "Please change X to Y; the line-of-sight check is wrong because Z."
+# Then label needs-rework — fires developer-rework.yml
+gh pr edit <PR> --add-label needs-rework
+```
+
+`developer-rework.yml` checks out the existing branch, gives the Developer agent the PR comments + source issue body, asks it to address the feedback surgically (no rewrite, no scope expansion), force-pushes. `test.yml` + `review.yml` re-fire on `synchronize`; once both clean labels land, `auto-merge.yml` retries the merge. The agent leaves the PR open even if it can't fully address feedback — escalates by adding `status:needs-ceo`.
+
+Distinction: `needs-rework` is for **feature-level changes** ("change the behavior") — `merge-conflict` is for **branch-out-of-sync with master** (`conflict-resolver.yml` handles that). They're separate workflows.
+
 ### "Pull a PR locally to test before merging"
 
 The system auto-merges clean PRs (`auto-merge.yml` fires when both `tests:pass` and `reviewed:clean` labels land). To intervene and test something yourself first:
