@@ -79,6 +79,10 @@ Format on issue #5:
 
 For each: tick ONE action checkbox. On next /spraxel-producer run, accepts become real GH Issues.
 
+**Bulk action**: tick this single box to accept-all un-ticked items at once (per-item ticks override):
+
+- [ ] **accept-all-untouched** (CEO bulk-approve; saves clicking N boxes)
+
 ---
 
 ### 1. <Title> — <inspiration source>

@@ -61,6 +61,10 @@ ONE comment on issue #5, formatted like:
 
 For each: tick ONE action checkbox. On next /spraxel-producer run, ticked-real items become real issues.
 
+**Bulk action**: tick this to treat all un-ticked items as `real`:
+
+- [ ] **mark-all-real-untouched** (CEO bulk-confirm; per-item ticks override)
+
 ---
 
 ### 1. <bug summary> — <classification>

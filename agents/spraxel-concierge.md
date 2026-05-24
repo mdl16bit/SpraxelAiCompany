@@ -100,6 +100,30 @@ Embed in body as:
 
 If `.factory/costs.yaml` is missing or yesterday's row is empty: `(activity tracking refreshes nightly at 23:00 PT)`.
 
+## "Since yesterday" delta — what's new since the last digest
+
+Surface a compact list of what changed in the last 24 hours, so CEO sees the deltas without comparing two digests mentally. Fetch via gh CLI / MCP — capping each subsection at 5 items, `(+ N more)` if exceeded:
+
+- **PRs merged**: `gh pr list --state merged --search "merged:>YYYY-MM-DD"` (yesterday's date)
+- **Issues closed**: `gh issue list --state closed --search "closed:>YYYY-MM-DD"`
+- **Releases cut**: `gh release list --limit 5` filtered by `publishedAt` > yesterday
+- **New `for:ceo` items**: `gh issue list --state open --label for:ceo --search "created:>YYYY-MM-DD"`
+- **Escalations**: `gh pr list --state open --label status:needs-ceo` + `gh issue list --state open --label status:needs-ceo`
+
+Embed early in the body (right after "Awaiting CEO review" section) as:
+
+```
+## 📝 Since yesterday's digest
+
+**Merged (N)**: #61 conversation pool • #54 mission spawn • (+2 more)
+**Closed (N)**: #7 guard small-talk
+**For:ceo new (N)**: #62 author dialog conversations
+**Escalations (N)**: PR #52 blocked-rework-cap-hit (status:needs-ceo)
+**Releases**: v0.1 cut at 08:02 PT
+```
+
+If nothing changed (e.g., paused day): omit the section entirely (don't show empty subsections).
+
 ## Hard rules
 
 - **Output target: the pinned "Factory Daily Log" issue body.** Find it by title or default to issue #5 in `mdl16bit/infiltrators`. Overwrite the body each run via `mcp__github__update_issue`. Yesterday's digest is gone, that's fine. **Never** commit files to master — bot pushes to master trip the tripwire workflow.
