@@ -16,7 +16,7 @@ Probe results from `infiltrators/.factory/probe-pm-tools.md` (2026-05-23). Each 
 |---|---|---|
 | `mcp__github__create_milestone` / `update_milestone` / attach-to-issue | PM milestone work | PM v9 uses `ship-in:v0.<N>` labels (equivalent expressiveness) |
 | `mcp__github__create_release` | PM autonomous release tagging | `release-cut.yml` workflow (autonomous biweekly Monday + manual) — workflows can call the release API even though MCP can't |
-| `mcp__github__delete_branch` | Janitor stale-branch cleanup | Janitor flags for CEO; CEO runs `git push origin --delete <branch>` |
+| `mcp__github__delete_branch` | Janitor stale-branch cleanup | ✅ Mitigated 2026-05-24 by `branch-cleanup.yml` workflow (Sunday 03:00 PT, after Janitor). Uses `git push --delete` via `GITHUB_TOKEN`. |
 
 Re-enable conditions: Anthropic ships the missing tool → enable in the agent file → next routine run picks it up (dynamic-fetch, see below). No routine config update needed.
 
