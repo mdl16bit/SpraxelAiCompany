@@ -21,6 +21,32 @@ If `run_mode: "live"` (default), proceed normally with the rest of this workflow
 
 The CEO toggles `run_mode` in `Philosophy.md` to pause the factory during off-weeks without disabling individual routines or commenting out crons.
 
+## Cost surfacing — read `.factory/costs.yaml`
+
+The cost ledger lives at `.factory/costs.yaml` (refreshed daily by the `cost-report.yml` workflow). Read it with a short bash + python one-liner before drafting the body:
+
+```bash
+test -f .factory/costs.yaml && python3 -c "
+import yaml
+d = yaml.safe_load(open('.factory/costs.yaml'))
+log = d.get('daily_log', [])
+y = log[0] if log else None
+if y:
+    print(f\"YESTERDAY total=\${y['total_usd']:.2f} gh=\${y['gh_actions_usd']:.2f} llm=\${y['llm_estimated_usd']:.2f}\")
+print(f\"MTD total=\${d.get('mtd_total_usd', 0):.2f} cap=\${d.get('monthly_cap_usd', 250)} remaining=\${d.get('remaining_usd', 250):.2f}\")
+"
+```
+
+Embed the result in the body as:
+
+```
+## Yesterday's spend
+- GH Actions: $0.45 • LLM (est): $0.30 • Total: $0.75
+- MTD: $12.30 / $250 cap • Remaining: $237.70
+```
+
+If the file doesn't exist yet, fall back to `(cost tracking not set up yet — install cost-report.yml workflow)`.
+
 ## Hard rules
 
 - **Output target: the pinned "Factory Daily Log" issue body.** Find it by title or default to issue #5 in `mdl16bit/infiltrators`. Overwrite the body each run via `mcp__github__update_issue`. Yesterday's digest is gone, that's fine. **Never** commit files to master — bot pushes to master trip the tripwire workflow.

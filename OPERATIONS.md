@@ -214,6 +214,46 @@ If you want to short-circuit:
 - Add a comment on the issue with what you want different.
 - PM re-picks it up. Tell Developer in the comment to read previous branch / what to avoid.
 
+### "Pull a PR locally to test before merging"
+
+The system auto-merges clean PRs (`auto-merge.yml` fires when both `tests:pass` and `reviewed:clean` labels land). To intervene and test something yourself first:
+
+```bash
+# 1. Block auto-merge temporarily
+gh pr edit <N> --repo mdl16bit/infiltrators --add-label do-not-merge
+
+# 2. Check out the PR locally
+cd ~/GameProjects/infiltrators
+gh pr checkout <N>      # creates/switches to a local branch tracking the PR
+
+# 3. Run the game windowed and play through it
+/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot --path .
+
+# 3a. Or run the specific feature's debug hook
+/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot --path . -- --demo-feature=<slug>
+
+# 3b. Or run the headless scenario test directly
+godot --headless --path . -- --demo-feature=<slug> --trace-file=/tmp/t.jsonl --quit-after=10
+
+# 3c. Or run the full GUT unit suite
+godot --headless --path . -s res://addons/gut/gut_cmdln.gd -gdir=res://test/unit -ginclude_subdirs -gexit
+
+# 4a. If it works — un-block, let auto-merge take over
+gh pr edit <N> --remove-label do-not-merge
+# (or merge manually): gh pr merge <N> --squash --delete-branch
+
+# 4b. If it doesn't work — leave do-not-merge on, comment the issue with
+#     what failed, close the PR, remove status:claimed from the source issue.
+gh pr close <N> --comment "Tests pass but X is wrong — see issue #M"
+gh issue edit <source-issue> --remove-label status:claimed
+
+# 5. Return to master
+git checkout master
+git pull
+```
+
+`gh pr checkout` handles fork-PRs and detached-head cases cleanly. The `do-not-merge` label is recognized by `auto-merge.yml` as a veto so the chain won't merge while you're testing.
+
 ### "I want to disable an agent temporarily"
 
 `/schedule` → List → pick the routine → Update → set `enabled: false`. Re-enable when you want it back.
