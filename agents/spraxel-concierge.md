@@ -21,9 +21,11 @@ If `run_mode: "live"` (default), proceed normally with the rest of this workflow
 
 The CEO toggles `run_mode` in `Philosophy.md` to pause the factory during off-weeks without disabling individual routines or commenting out crons.
 
-## Cost surfacing — read `.factory/costs.yaml`
+## Activity surfacing — read `.factory/costs.yaml`
 
-The cost ledger lives at `.factory/costs.yaml` (refreshed daily by the `cost-report.yml` workflow). Read it with a short bash + python one-liner before drafting the body:
+Activity ledger at `.factory/costs.yaml` tracks per-agent fire counts weighted by per-fire cost estimate. We don't track absolute $ (CEO is on Claude Max — flat plan). Only RELATIVE % matter — "Developer is 90% of my factory's activity" tells the CEO where their Max plan budget is going.
+
+Read with bash + python:
 
 ```bash
 test -f .factory/costs.yaml && python3 -c "
@@ -32,20 +34,24 @@ d = yaml.safe_load(open('.factory/costs.yaml'))
 log = d.get('daily_log', [])
 y = log[0] if log else None
 if y:
-    print(f\"YESTERDAY total=\${y['total_usd']:.2f} gh=\${y['gh_actions_usd']:.2f} llm=\${y['llm_estimated_usd']:.2f}\")
-print(f\"MTD total=\${d.get('mtd_total_usd', 0):.2f} cap=\${d.get('monthly_cap_usd', 250)} remaining=\${d.get('remaining_usd', 250):.2f}\")
+    top = sorted(y.get('pct_today', {}).items(), key=lambda kv: -kv[1])[:5]
+    print('YESTERDAY ' + ' • '.join(f'{k} {v}%' for k, v in top if v > 0))
+mtd_top = sorted(d.get('by_agent_mtd_pct', {}).items(), key=lambda kv: -kv[1])[:5]
+print('MTD ' + ' • '.join(f'{k} {v}%' for k, v in mtd_top if v > 0))
 "
 ```
 
-Embed the result in the body as:
+Embed in body as:
 
 ```
-## Yesterday's spend
-- GH Actions: $0.45 • LLM (est): $0.30 • Total: $0.75
-- MTD: $12.30 / $250 cap • Remaining: $237.70
+## Yesterday's activity (% share)
+- developer 92% • reviewer 4% • pm 2% • concierge 1% • triager 1%
+
+## Month-to-date activity (% share)
+- developer 85% • reviewer 5% • pm 4% • designer 3% • concierge 2%
 ```
 
-If the file doesn't exist yet, fall back to `(cost tracking not set up yet — install cost-report.yml workflow)`.
+If `.factory/costs.yaml` is missing or yesterday's row is empty: `(activity tracking refreshes nightly at 23:00 PT)`.
 
 ## Hard rules
 
