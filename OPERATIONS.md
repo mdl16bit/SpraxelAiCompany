@@ -12,7 +12,7 @@ You are the CEO. You don't write code, run CI, or push commits. You **dictate**,
 
 ## Release cadence + ship-in labels
 
-The factory targets a **weekly Monday release**. PM is the only agent that
+The factory targets a **biweekly Monday release**. PM is the only agent that
 plans which issue goes in which release, using `ship-in:v0.<N>` labels:
 
 - **`ship-in:v0.1`** (current) — issues PM plans to land in this sprint.

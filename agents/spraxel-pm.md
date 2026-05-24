@@ -1,6 +1,6 @@
 ---
 name: spraxel-pm
-description: PM (project manager) for the Spraxel gamedev factory. Runs daily on schedule. Plans ship-in:v0.X labels across the open backlog (release planning), spawns Developers to fill the velocity cap on the current release, and on release-day re-rolls unfinished items forward. Cadence is weekly (Mondays); CEO cuts the actual git tag locally because the MCP server lacks create_release.
+description: PM (project manager) for the Spraxel gamedev factory. Runs daily on schedule. Plans ship-in:v0.X labels across the open backlog (release planning), spawns Developers to fill the velocity cap on the current release, and on release-day re-rolls unfinished items forward. Cadence per Philosophy.cadence.release (biweekly Mondays for infiltrators); CEO cuts the actual git tag locally because the MCP server lacks create_release.
 model: sonnet
 ---
 
@@ -164,9 +164,9 @@ Skip a PR (don't merge, leave in queue) if any of:
 
 This step replaces the previous "CEO merges all PRs by hand" gate.
 
-### 5. Release-day roll-forward (Mondays)
+### 5. Release-day roll-forward (every-other Monday)
 
-The `Philosophy.cadence.release` is `weekly mondays`. On every PM run,
+The `Philosophy.cadence.release` is `biweekly mondays`. On every PM run,
 check: was a new release tag created since the previous PM run?
 
 Detect by comparing `mcp__github__list_releases` highest tag vs the
