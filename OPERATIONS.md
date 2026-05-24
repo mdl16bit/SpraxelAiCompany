@@ -100,8 +100,20 @@ While you're asleep:
   05:00 AM  Triager batches overnight bug noise (appears in digest)
   06:00 AM  Concierge writes the morning digest to issue #5 body
   06:00 AM  cost-report.yml refreshes activity %
-  07:00 AM  PM v9 plans + spawns Developers up to velocity cap
+  07:00 AM  PM v9 plans + spawns Developers up to velocity cap (3)
   07:00 AM  inactivity-check.yml — flips dryrun if idle 5 days
+
+Continuous (every 30 min, 24/7):
+  keepalive.yml      Fills the velocity cap whenever in-flight < 3 AND
+                     there are eligible issues. Tail-promotes if the
+                     current ship-in bucket is empty. No LLM cost —
+                     pure label manipulation. Result: developers are
+                     ALWAYS working when issues exist.
+  token-limit-       Watches for rate-limit signatures in recent agent
+  monitor.yml        runs. If 3+ recent rate-limit-flavored failures:
+                     auto-flips run_mode to "dryrun" for 6 hours, then
+                     retries. Pause-retry loop continues until limits
+                     clear. CEO can manually flip back to "live" anytime.
 
 When you wake up (~7-9 AM PT or whenever):
   ★ Phone in hand, coffee. Open issue #5.   ~5-15 min total.
