@@ -88,25 +88,108 @@ You do not need your Mac on for any of this. Everything runs in Anthropic CCR sa
 
 ---
 
-## What you do (3 touchpoints/day)
+## Your daily + weekly schedule (all PT)
 
-### Morning — open issue #5 on your phone
+### Daily — every day
 
-- Read the Concierge digest (the issue body).
-- If there's a **Designer batch** comment, tick one of `accept` / `reject` / `amend` per idea. (Reply `Amend #<N>: <new text>` for amends.)
-- If there's a **Triager bug batch** comment, tick `real` / `not-a-bug` / `wontfix`.
-- That's it. Producer drains your ticks on its next run.
+```
+While you're asleep:
+  02:00 AM  Playtester runs nightly scenarios on master (no action)
+  02:00 AM  Janitor (Sundays only — see weekly)
+  03:00 AM  Branch-cleanup (Sundays only — see weekly)
+  05:00 AM  Triager batches overnight bug noise (appears in digest)
+  06:00 AM  Concierge writes the morning digest to issue #5 body
+  06:00 AM  cost-report.yml refreshes activity %
+  07:00 AM  PM v9 plans + spawns Developers up to velocity cap
+  07:00 AM  inactivity-check.yml — flips dryrun if idle 5 days
 
-### Whenever you have ideas — dictate or type
+When you wake up (~7-9 AM PT or whenever):
+  ★ Phone in hand, coffee. Open issue #5.   ~5-15 min total.
+    - Read "Awaiting CEO review" section. Tick any Designer/Triager
+      checkboxes. Producer hits the system on its next /producer run.
+    - Read "CEO production work" section. Note today's options.
+    - Glance at "Yesterday's activity %" to see what burned credits.
 
-- **Phone dictation**: drop transcripts as `.txt` files into `.factory/inbox/dictation/`. Producer eats them next run.
-- **Direct edits to `WORK.md`**: add lines to the bottom (todo) section. On push, `sync.yml` queues them into `pending-intake.md`.
-- **In a Claude Code session**: just type `/spraxel-producer` and start talking.
+Anywhere from 9 AM to whenever:
+  Pick from CEO production queue and work on something for as long
+  as you feel like:
+    - Art (draw / source / AI-gen)
+    - Music or SFX (record / source / AI-gen)
+    - Dialog / story / cutscene writing
+    - Design questions (decide + reply on the issue, close with answer)
+    - Level layouts (campaign content, when restructure #49 lands)
+  Done with one? `gh issue close <N> --comment "..."` (or via UI).
+  Art assets: drop the file in `assets/<subdir>/`, commit + push.
 
-### End-of-day — run Producer
+Anytime you have ideas — drop them as you go:
+  - Phone dictation → file in .factory/inbox/dictation/
+  - Text-type into WORK.md (bottom section, below dividers)
+  - /spraxel-producer in any Claude Code session, dump prose
+  - `gh issue create` if you already know exactly what you want
 
-- `/spraxel-producer` in any Claude Code session.
-- Producer shows you a numbered batch of cleaned-up issue drafts. You reply `all` or `2 needs repro, 5 not now`. Issues get created. Done.
+End of day (optional):
+  - Drain the day's dictation: `/spraxel-producer` in a Claude
+    Code session. Issues filed; you confirm the batch.
+  - Eyeball PRs merged today:
+    https://github.com/mdl16bit/infiltrators/pulls?q=is%3Apr+merged%3A%3E%3Dyesterday
+  - Or close the laptop. Tomorrow's Concierge will surface
+    anything that needs attention.
+```
+
+### Weekly markers (PT)
+
+```
+Monday
+  08:00 AM   release-cut.yml — biweekly autonomous tag cut. If PRs
+             merged since last tag: auto-creates v0.<N>, generates
+             notes, lifts WORK.md middle → shipped. Posts 🚢 on #5.
+             No action needed unless you want to amend the notes.
+
+Tuesday-Thursday
+  Normal autonomous days. PM plans at 07:00 AM. Developers /
+  Reviewer / Tests / Auto-merge / Conflict-resolver all fire on
+  events. Continuous work-flow through the velocity cap.
+
+Friday
+  07:00 AM   Designer agent posts a 4-6 idea batch on issue #5.
+             Each idea has [ ] accept / [ ] reject / [ ] amend.
+             Tick anytime over the weekend; Producer creates issues
+             on next /producer run.
+
+Saturday
+  10:00 AM   Blogger writes a weekly devlog draft (markdown) from
+             the past 7 days of merged PRs. Opens a PR with the
+             draft. Review, humanize, merge — OR send back with
+             `gh pr edit <N> --add-label needs-rework` if you want
+             Developer to redo it.
+
+Sunday
+  02:00 AM   Janitor: closes 30-day-stale issues, compacts #5
+             comments if > 100, reports WORK.md ↔ Issues drift.
+  03:00 AM   branch-cleanup.yml: deletes merged feature branches.
+             Both post summaries on issue #5.
+
+First of each month
+  08:00 AM   Asset Librarian: scans assets/ for orphans, broken
+             refs, license gaps. Posts inventory on issue #5.
+```
+
+### Time budget
+
+| Activity | Time/week |
+|---|---|
+| Morning digest skim + ticking | ~5-15 min/day × 7 = ~1-2 h |
+| CEO production work (art / music / story / etc.) | as much as you want — 0 to 40 h |
+| Dictation + `/producer` drains | ~10-15 min × 3-5/week ≈ 1 h |
+| Friday Designer ticking | ~5-10 min |
+| Saturday Blogger review + merge | ~10-30 min |
+| Hands-on dev / testing PRs locally | as much as you want |
+| **Mandatory total** | **~2-3 hours/week** |
+| **Typical engaged total** | **8-15 hours/week** |
+
+Skip a week → autopilot keeps going, CEO queue accumulates.
+Skip 5 days → `inactivity-check.yml` auto-pauses to save credits.
+Come back → activity detected, auto-resumes.
 
 ---
 
