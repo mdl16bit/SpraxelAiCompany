@@ -4,6 +4,59 @@ Items that are deliberately deferred from Phase 1, with the trigger that should
 prompt the upgrade. Each entry is one work item; we add (or remove) items as
 the framework matures.
 
+## CRITICAL: Developer #2 bypassed PR flow, pushed direct to master (2026-05-24 02:18 UTC)
+
+Developer agent (run 26349350909, claude-code-action@v1) was triggered
+on issue #3 (HideBox). Instead of creating a feature branch and opening
+a PR, it pushed **directly to master** as commit `46e0b8e`. That code
+was therefore:
+- Never reviewed (review.yml only fires on PRs)
+- Never tested (test.yml only fires on PRs)
+- Closed the source issue when Developer #3 later saw the files exist
+
+The `branch_prefix: "feat/"` action input did NOT prevent this. The
+action's checkout step puts the runner on `master`, and unless Claude
+explicitly creates a feature branch first, commits end up on master.
+
+### Immediate mitigation (shipped this session)
+- developer.yml prompt now has a "CRITICAL: never push to master"
+  section at the top of the action's prompt — explicit instructions to
+  `git checkout -b feat/issue-<N>-...` as the FIRST action on any
+  commit-producing run, and explicit "fireable offense" framing.
+- show_full_output: true so future direct-push attempts are visible.
+
+### Real fix: GitHub branch protection on master
+Currently mitigation relies on Claude following instructions. The
+durable fix is branch-protection rules that physically reject any
+push to master that didn't come through a PR.
+
+Recommended rule set (CEO sets via
+https://github.com/mdl16bit/infiltrators/settings/branches):
+- Require a pull request before merging (1 approval not required;
+  PM agent will be the merger)
+- Require status checks to pass: `Tests`, `Reviewer`
+- Disallow force pushes
+- Disallow branch deletions
+- Allow administrators to bypass (CEO emergency)
+
+### Open design question
+With strict branch protection, PM's own state writes (today.md,
+memory/pm.md) will be rejected too, because PM also pushes directly
+to master. Options:
+1. PM commits its state via auto-merge-PRs (overhead but safe).
+2. PM writes state to a separate non-protected branch (`factory-state`).
+3. PM uses a different storage layer (GH Issues / Discussions /
+   Gist).
+4. Accept the trade-off: PM stays bypass-eligible (still risky).
+
+Pick before enabling protection. Probably (2) for cleanliness.
+
+### The commit 46e0b8e itself
+Currently being tested on master via workflow_dispatch on test.yml.
+If it passes: leave it. If it fails: revert.
+
+---
+
 ## Defects found during PR #4 (hide-box) full-autopilot smoke test (2026-05-24 02:00 UTC)
 
 The first PR driven through the new auto-merge pipeline (issue #3
