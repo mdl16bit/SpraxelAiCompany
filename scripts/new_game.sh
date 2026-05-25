@@ -70,26 +70,18 @@ for d in memory inbox inbox/dictation inbox/decisions inbox/playtest artifacts; 
     [ -e "$TARGET/.factory/$d/.gitkeep" ] || touch "$TARGET/.factory/$d/.gitkeep"
 done
 
-# .github/ structure — workflows + issue templates
-mkdir -p "$TARGET/.github/workflows"
-mkdir -p "$TARGET/.github/ISSUE_TEMPLATE"
-for f in feature.md bug.md; do
-    copy_if_missing "$TEMPLATE_DIR/.github/ISSUE_TEMPLATE/$f" "$TARGET/.github/ISSUE_TEMPLATE/$f"
-done
-# Copy ALL workflows (26+) — the autopilot needs the full set.
-for src in "$TEMPLATE_DIR"/.github/workflows/*.yml; do
-    [ -f "$src" ] || continue
-    copy_if_missing "$src" "$TARGET/.github/workflows/$(basename "$src")"
-done
+# Local test runner — installable launchd job (every 30 min while Mac awake).
+mkdir -p "$TARGET/scripts"
+copy_if_missing "$TEMPLATE_DIR/scripts/install_local_tests.sh" "$TARGET/scripts/install_local_tests.sh"
+copy_if_missing "$TEMPLATE_DIR/scripts/run_local_tests.sh" "$TARGET/scripts/run_local_tests.sh"
+chmod +x "$TARGET/scripts/install_local_tests.sh" "$TARGET/scripts/run_local_tests.sh" 2>/dev/null || true
 
-# Placeholder substitution in EVERYTHING just copied: {{GAME_NAME}}, {{CEO_LOGIN}}
+# Placeholder substitution: {{GAME_NAME}}, {{CEO_LOGIN}}.
 python3 - "$NAME" "${CEO:-}" "$TARGET" <<'PY'
 import sys, pathlib
 name, ceo, target_str = sys.argv[1], sys.argv[2], sys.argv[3]
 target = pathlib.Path(target_str)
-# Run substitution across top-level files AND .github/workflows/*.yml
 paths = [target / fname for fname in ("Philosophy.md", "Game.md", "WORK.md")]
-paths += list((target / ".github" / "workflows").glob("*.yml"))
 substitutions = {}
 if name: substitutions["{{GAME_NAME}}"] = name
 if ceo:  substitutions["{{CEO_LOGIN}}"] = ceo
@@ -104,14 +96,13 @@ for f in paths:
         print(f"  templated {f.relative_to(target)}")
 PY
 
-# Warn if --ceo not provided — workflows still have {{CEO_LOGIN}} placeholders
-if [ -z "$CEO" ]; then
-    echo ""
-    echo "⚠️  --ceo not provided; {{CEO_LOGIN}} placeholders remain in workflows."
-    echo "    Affected files (search for {{CEO_LOGIN}}):"
-    grep -l "{{CEO_LOGIN}}" "$TARGET/.github/workflows/"*.yml 2>/dev/null | sed 's|.*/|      |'
-    echo "    Either re-run with --ceo <your-github-login> or sed-substitute manually."
-fi
+# Note: this game becomes the active game for the Spraxel daemon only if you
+# update ~/SpraxelAiCompany/schedule.yaml `game_dir:` to point here.
+echo ""
+echo "ℹ️  To make this game the active target for the Spraxel daemon, edit:"
+echo "      ~/SpraxelAiCompany/schedule.yaml"
+echo "    and set: game_dir: $TARGET"
+echo "    (only one game can be the active target at a time.)"
 
 cat <<EOF
 

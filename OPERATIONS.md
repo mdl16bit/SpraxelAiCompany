@@ -1,854 +1,742 @@
 # Operations — CEO handbook
 
-How to drive the Spraxel factory day-to-day. Companion to [`README.md`](README.md) (which is the public pitch) and [`TODO.md`](TODO.md) (deferred work).
+How to drive the offline Spraxel factory day-to-day.
 
 ---
 
 ## Mental model
 
-You are the CEO. You don't write code, run CI, or push commits. You **dictate**, **tick checkboxes**, and **eyeball merges**. A roster of agents owns the rest. State lives in **GitHub Issues** (canonical) and in `WORK.yaml` (a human-friendly mirror). Issue **#5** on `mdl16bit/infiltrators` is the **Factory Daily Log** — a perpetual dashboard where every bot posts updates. Open that on your phone first thing in the morning and you'll see everything.
+You are the **CEO**. You don't write code, run CI, or push feature commits.
+You **dictate**, **play-test**, **promote ideas**, **escalate decisions**.
+A roster of Claude agents handles the rest, running locally on your Mac.
+
+State lives in **`WORK.md`** at the game repo root — the single source of
+truth for everything in flight. Everything else is derivable from WORK.md +
+git log.
+
+There are no GitHub Issues. There are no GitHub Actions. There are no
+Anthropic `/schedule` routines. There is one local daemon (`launchd`),
+one schedule file (`schedule.yaml`), and one CLI you run from your Mac
+(`claude -p`). Total recurring cost: $0 above your existing Claude Max plan.
 
 ---
 
-## Release cadence + ship-in labels
+## The system in one picture
 
-The factory targets a **biweekly Monday release**. PM is the only agent that
-plans which issue goes in which release, using `ship-in:v0.<N>` labels:
+```
+┌─────────────────────────────────────────────────────────────┐
+│  launchd (com.spraxel.tick.plist)                          │
+│  fires every 60 s                                          │
+│         │                                                  │
+│         ▼                                                  │
+│  scripts/tick.sh                                           │
+│  reads schedule.yaml — who's due now?                     │
+└───┬──────────────────┬────────────────────────────────────┘
+    │                  │
+    ▼                  ▼
+run_agent.sh       overnight_dev.sh
+(crew agents)      (23:00 → 06:00 PT)
+    │                  │
+    └─ claude -p ──────┘
+            │
+            ▼
+       Max plan (flat fee)
+            │
+            ▼
+   WORK.md / Game.md / Philosophy.md / commits
+            │
+            ▼
+  git push origin master  ← only network egress
+```
 
-- **`ship-in:v0.1`** (current) — issues PM plans to land in this sprint.
-- **`ship-in:v0.2`** — next sprint's batch (PM looks one ahead).
-- **`ship-in:v0.3`** — two sprints out (PM looks two ahead).
-- Unlabeled — backlog tail; PM will plan into a future bucket on later runs.
+---
 
-PM fills each bucket up to `Philosophy.dev.velocity_issues_per_release`
-(default 4) using priority + bug-first + area-grouped sort. Developers
-only fire on `ship-in:v0.<current>` issues. `auto-merge.yml`'s chain
-respects the same rule — when a PR merges, the next-up Developer spawns
-only on a current-bucket issue.
+## A day in the system
 
-When you merge `release:v0.<N>` PRs (post-fact label applied at merge
-time), they accumulate toward the next release tag. **On Monday**, you
-cut the tag yourself (MCP server lacks `create_release`):
+Daily cycle (all times America/Los_Angeles):
+
+| Time | Who | What |
+|------|-----|------|
+| 23:00 PT | **overnight_dev.sh** | Loop: pick top of `## Todo` → Developer → tests → Reviewer → merge → push. Stops at 10 features OR 06:00 PT. Failed items → `.factory/escalations.md`. |
+| 05:00 PT | **triager** | Reads overnight test failures, appends `[bug]` items to `## Todo`. |
+| 06:00 PT | **morning-briefer** | Writes `MORNING.md` with: 10 features to play-test, Designer `[idea]` items, new bugs, escalations, time-boxed routine. |
+| 07:00 PT | **pm** | Re-sorts top of `## Todo` so the next overnight loop ships the right things. |
+| ~07:00 PT | **CEO (you)** | Open `MORNING.md`. Walk the time-boxed sections. ~38 minutes. |
+
+Weekly:
+
+| Time | Who | What |
+|------|-----|------|
+| Fri 07:00 PT | **designer** | Drops 4-6 `[idea]`-tagged items into `## Todo` for CEO triage. |
+| Sat 10:00 PT | **blogger** | Drafts `blog/<YYYY-MM-DD>.md` from the week's commits. Pushes branch; CEO merges manually. |
+| Sun 02:00 PT | **janitor** | Cold-archives stale items (30+ days), deletes merged branches, prunes old logs. |
+| 1st 08:00 PT | **asset-librarian** | Scans `assets/`, reports orphans + license gaps. |
+
+Every 30 minutes (separately scheduled — `com.spraxel.localtests.plist`):
+
+- **local-tests** — runs Godot GUT + every `scripts/scenarios/*.gd` headlessly. Writes `.factory/local-tests-status.json`. The Triager reads this nightly.
+
+---
+
+## CEO daily routine (the part that matters)
+
+You wake up around 7 AM. Here's the optimal schedule:
+
+### 06:00 AM — System has prepared your day
+You're asleep. `morning-briefer` is writing MORNING.md right now.
+
+### 07:00 — 07:38 AM — Morning routine (~38 min)
+
+**Time-boxed**. If you blow past 45 min, stop and commit what you have.
 
 ```bash
 cd ~/GameProjects/infiltrators
-gh release create v0.<N> --generate-notes
-python3 ~/SpraxelAiCompany/scripts/sync_work_md.py --repo-dir . --release-cut v0.<N> --apply
-git add WORK.yaml && git commit -m "release: v0.<N>" && git push
+cat MORNING.md
 ```
 
-Next PM run sees the new tag, rolls any unfinished `ship-in:v0.<N>`
-forward to `ship-in:v0.<N+1>`, and tops up the new current bucket from
-the planned-future buckets.
+In Claude Code, type `/inbox` to open the walk-through skill (read-only view of MORNING.md).
 
-Two distinct labels — keep them straight:
-- `ship-in:v0.<N>` — **forward-plan** intent (applied to open issues by PM)
-- `release:v0.<N>` — **post-fact** record (applied to merged PRs by auto-merge.yml)
-
-## The agent roster
-
-| Agent | Type | Model | Cadence | What it does |
-|---|---|---|---|---|
-| **Producer** | Crew, interactive | Opus | on `/spraxel-producer` | Turns your dictation / WORK.yaml prose into clean GH Issues with acceptance criteria. The only agent you talk to directly. |
-| **PM** | Crew, scheduled | Sonnet | daily 07:00 PT | GUPP (un-stick stuck claims), spawns Developers up to velocity cap, posts daily summary on issue #5. |
-| **Developer** | Worker, on-demand | Sonnet | fires on `status:ready` label | Implements one issue end-to-end: code, tests, scenarios, Game.md update, opens PR. One per issue, no memory across runs. |
-| **Reviewer** | Worker, on PR | Haiku | fires on PR open | Reads diff, labels `reviewed:clean` or `reviewed:blocking`, posts findings. |
-| **Tests** | Workflow, on PR | n/a | fires on PR open | Runs GUT + every `scripts/scenarios/*.gd` headlessly; labels `tests:pass` or `tests:fail`; on fail, posts 🐛 summary to issue #5. |
-| **Auto-merge** | Workflow, on PR label | n/a | fires when 2 labels land | Squash-merges if both `reviewed:clean` + `tests:pass` + no veto labels; applies `release:v0.<N>` label; chains in the next issue. |
-| **Concierge** | Crew, scheduled | Haiku | daily 06:00 PT | Rewrites issue #5 body with today's digest (pending merges, intake counts, Designer batches, anomalies). |
-| **Playtester** | Workflow, scheduled | n/a | nightly 02:00 PT | Re-runs scenarios on master; posts 🐛 comments on issue #5 if anything fails. |
-| **Triager** | Crew, scheduled | Haiku | daily 05:00 PT | Dedupes the previous 24h of 🐛 comments on issue #5 into one tickable bug batch. |
-| **Janitor** | Crew, scheduled | Haiku | weekly Sun 02:00 PT | Closes 30-day-stale issues, deletes merged branches (when MCP allows), reports WORK.yaml ↔ Issues drift. |
-| **Designer** | Crew, scheduled | Sonnet | weekly Fri 07:00 PT | Proposes 4-6 new feature ideas as a tickable batch on issue #5. |
-| **Blogger** | Crew, scheduled | Sonnet | weekly Sat 10:00 PT | Drafts a markdown devlog post from the week's merged PRs; opens a PR. |
-| **Asset Librarian** | Crew, scheduled | Haiku | monthly 1st 08:00 PT | Scans `assets/` for orphans, broken refs, license gaps. |
-
-PT timezone shifts twice a year; cron is fixed in UTC, so PDT (summer) and PST (winter) differ by an hour from these listed times.
-
----
-
-## A day in the system (autonomous baseline)
-
-```
-02:00 PT  Sunday-only: Janitor cleans entropy + drift
-02:00 PT  Playtester re-runs scenarios on master headlessly
-05:00 PT  Triager batches yesterday's failures into one tickable comment
-06:00 PT  Concierge rewrites issue #5 body with the morning digest
-07:00 PT  PM fills the velocity cap (spawns N Developers on top backlog)
-~07:30    Developers open PRs in parallel
-~07:35    Reviewer + Tests labels land
-~07:40    Auto-merge merges any clean PR + status:ready's the next issue
-…         Chain repeats until backlog drains or cap is full
-Fri 07    Designer drops a 4-6 idea batch on issue #5
-Sat 10    Blogger PRs the week's devlog draft
-1st 08    Asset Librarian dumps the monthly assets inventory
-```
-
-You do not need your Mac on for any of this. Everything runs in Anthropic CCR sandboxes (`/schedule` routines) or GitHub-hosted runners.
-
----
-
-## Your daily + weekly schedule (all PT)
-
-### Daily — every day
-
-```
-While you're asleep:
-  02:00 AM  Playtester runs nightly scenarios on master (no action)
-  02:00 AM  Janitor (Sundays only — see weekly)
-  03:00 AM  Branch-cleanup (Sundays only — see weekly)
-  05:00 AM  Triager batches overnight bug noise (appears in digest)
-  06:00 AM  Concierge writes the morning digest to issue #5 body
-  06:00 AM  cost-report.yml refreshes activity %
-  07:00 AM  PM v9 plans + spawns Developers up to velocity cap (3)
-  07:00 AM  inactivity-check.yml — flips dryrun if idle 5 days
-
-Continuous (every 30 min, 24/7):
-  keepalive.yml      Fills the velocity cap whenever in-flight < 3 AND
-                     there are eligible issues. Tail-promotes if the
-                     current ship-in bucket is empty. No LLM cost —
-                     pure label manipulation. Result: developers are
-                     ALWAYS working when issues exist.
-  token-limit-       Watches for rate-limit signatures in recent agent
-  monitor.yml        runs. If 3+ recent rate-limit-flavored failures:
-                     auto-flips run_mode to "dryrun" for 6 hours, then
-                     retries. Pause-retry loop continues until limits
-                     clear. CEO can manually flip back to "live" anytime.
-
-When you wake up (~7-9 AM PT or whenever):
-  ★ At your desk: run `/spraxel-inbox` (or `/inbox`) in a Claude Code session.   ~5-15 min total.
-    On phone: open Issue #5 in the GitHub app — same content, no slash command.
-    The skill surfaces: unticked Designer ideas / Triager bug batches / stuck PRs
-    needing CEO decision / for:ceo production queue / Concierge digest highlights.
-
-    - Tick `[x] accept` / `[x] reject` / `[x] amend` on Designer/Triager batches
-      directly on GitHub (web or app). Reply `Amend #N: <text>` for amended items.
-    - Note today's CEO production-queue options (art, music, design questions).
-    - Run `/spraxel-producer` later in the day to drain accepted/amended ticks
-      into real issues.
-
-Anywhere from 9 AM to whenever:
-  Pick from CEO production queue and work on something for as long
-  as you feel like:
-    - Art (draw / source / AI-gen)
-    - Music or SFX (record / source / AI-gen)
-    - Dialog / story / cutscene writing
-    - Design questions (decide + reply on the issue, close with answer)
-    - Level layouts (campaign content, when restructure #49 lands)
-  Done with one? `gh issue close <N> --comment "..."` (or via UI).
-  Art assets: drop the file in `assets/<subdir>/`, commit + push.
-
-Anytime you have ideas — drop them as you go:
-  - Phone dictation → file in .factory/inbox/dictation/
-  - Text-type into WORK.yaml — add `- title: <your line>` under the `todo:` section. `sync_work_yaml.py` queues it to `pending-intake.md` on push; next Producer run drains.
-  - /spraxel-producer in any Claude Code session, dump prose
-  - `gh issue create` if you already know exactly what you want
-
-End of day (optional):
-  - Drain the day's dictation: `/spraxel-producer` in a Claude
-    Code session. Issues filed; you confirm the batch.
-  - Eyeball PRs merged today:
-    https://github.com/mdl16bit/infiltrators/pulls?q=is%3Apr+merged%3A%3E%3Dyesterday
-  - Or close the laptop. Tomorrow's Concierge will surface
-    anything that needs attention.
-```
-
-### Weekly markers (PT)
-
-```
-Monday
-  08:00 AM   release-cut.yml — biweekly autonomous tag cut. If PRs
-             merged since last tag: auto-creates v0.<N>, generates
-             notes, lifts WORK.yaml middle → shipped. Posts 🚢 on #5.
-             No action needed unless you want to amend the notes.
-
-Tuesday-Thursday
-  Normal autonomous days. PM plans at 07:00 AM. Developers /
-  Reviewer / Tests / Auto-merge / Conflict-resolver all fire on
-  events. Continuous work-flow through the velocity cap.
-
-Friday
-  07:00 AM   Designer agent posts a 4-6 idea batch on issue #5.
-             Each idea has [ ] accept / [ ] reject / [ ] amend.
-             Tick anytime over the weekend; Producer creates issues
-             on next /producer run.
-
-Saturday
-  10:00 AM   Blogger writes a weekly devlog draft (markdown) from
-             the past 7 days of merged PRs. Opens a PR with the
-             draft. Review, humanize, merge — OR send back with
-             `gh pr edit <N> --add-label needs-rework` if you want
-             Developer to redo it.
-
-Sunday
-  02:00 AM   Janitor: closes 30-day-stale issues, compacts #5
-             comments if > 100, reports WORK.yaml ↔ Issues drift.
-  03:00 AM   branch-cleanup.yml: deletes merged feature branches.
-             Both post summaries on issue #5.
-
-First of each month
-  08:00 AM   Asset Librarian: scans assets/ for orphans, broken
-             refs, license gaps. Posts inventory on issue #5.
-```
-
-### Time budget
-
-| Activity | Time/week |
-|---|---|
-| Morning digest skim + ticking | ~5-15 min/day × 7 = ~1-2 h |
-| CEO production work (art / music / story / etc.) | as much as you want — 0 to 40 h |
-| Dictation + `/producer` drains | ~10-15 min × 3-5/week ≈ 1 h |
-| Friday Designer ticking | ~5-10 min |
-| Saturday Blogger review + merge | ~10-30 min |
-| Hands-on dev / testing PRs locally | as much as you want |
-| **Mandatory total** | **~2-3 hours/week** |
-| **Typical engaged total** | **8-15 hours/week** |
-
-Skip a week → autopilot keeps going, CEO queue accumulates.
-Skip 5 days → `inactivity-check.yml` auto-pauses to save credits.
-Come back → activity detected, auto-resumes.
-
----
-
-## Skills + slash commands
-
-| Command | What it does |
-|---|---|
-| `/spraxel-inbox` (or `/inbox`) | Morning read-only triage: surfaces unticked Designer ideas / Triager bugs / stuck PRs / `for:ceo` queue / Concierge digest highlights from Issue #5. One-screen "what needs my attention" view. Doesn't modify anything. |
-| `/spraxel-producer` (or `/producer`) | Drain dictation, WORK.yaml intake, Designer/Triager checked batches → polished GH Issues. The only skill that writes. |
-| `/schedule` | Manage `/schedule` routines (the cloud-scheduled agents). Use to list / update / fire a routine on-demand. See "Manual overrides" below. |
-
-When you say `/something`, Claude Code matches against the available skills list. The Spraxel skills live in `skills/spraxel-<name>/SKILL.md` and are symlinked into `~/.claude/skills/`.
-
-**Original plan vs reality**: `process.txt` (the bootstrap doc) referenced `/director` and `/inbox` as separate skills. Today: `/director` → `/spraxel-producer` (renamed during build); `/inbox` → `/spraxel-inbox` (built later as a read-only sidekick; the original write-capable inbox flow merged into Producer's batch-checkbox processing).
-
----
-
-## Manual overrides
-
-### Fire a scheduled agent immediately
-
-Use `/schedule` → choose **Run now** → pick the routine. Or in chat: ask "fire the PM routine now." The routine list lives at https://claude.ai/code/routines.
-
-### Spawn a Developer on a specific issue right now
-
-Add the `status:ready` label to the issue. `developer.yml` fires on label-add. The Developer agent claims the issue (adds `status:claimed`), opens a feature branch, ships a PR. Example:
+Walk the sections **in order** — here's what each step actually means in commands:
 
 ```bash
-gh issue edit <N> --repo mdl16bit/infiltrators --add-label status:ready
+WORK=~/GameProjects/infiltrators/WORK.md
+WORKMD=~/SpraxelAiCompany/scripts/workmd.py
 ```
 
-### Force a re-run of an existing PR's tests / reviewer
+#### 1. ▶ Overnight result (1 min)
 
-- Tests: `gh workflow run test.yml -F pr_number=<N>` (workflow_dispatch) or push a tiny commit to the branch.
-- Reviewer: push to the branch (it re-fires on `synchronize`).
+Glance at the commit range in MORNING.md. Any surprises? Drill in:
+
+```bash
+cd ~/GameProjects/infiltrators
+git log master --since="yesterday 22:00 PT" --oneline
+git show <sha>           # if anything looks weird
+```
+
+#### 2. ▶ Play-test (20 min)
+
+For each of the 10 features in MORNING.md, run the listed launch command:
+
+```bash
+cd ~/GameProjects/infiltrators
+godot --demo-feature=<slug>
+```
+
+Spend 1–2 min per feature verifying the "Look for" line. Mentally tick ✓ or ✗.
+Jot fix notes for ✗ — they become Dictation step input.
+
+#### 3. ▶ Decide — Designer ideas (5 min)
+
+Designer drops appear in WORK.md `## Todo` with `[idea]` tag. Three actions:
+
+```bash
+# ACCEPT an idea  (remove the [idea] tag → eligible for overnight)
+python3 $WORKMD promote $WORK "sleeping-gas grenade"
+
+# REJECT an idea  (delete the line entirely)
+python3 $WORKMD drop $WORK "radio-tower mission"
+
+# DEFER  (do nothing — [idea] tag stays, overnight keeps skipping)
+```
+
+Or just open WORK.md in any editor and:
+- Remove `[idea] ` from the start of a line → accept.
+- Delete the line (+ its indented details) → reject.
+- Leave it alone → defer.
+
+The PM reorder summary in MORNING.md is informational — no action required. To see what PM changed:
+
+```bash
+git log -1 --author='pm-bot' -p WORK.md
+```
+
+#### 4. ▶ Bug triage (5 min)
+
+Triager appended new `[bug]` items overnight. Actions:
+
+```bash
+# BUMP priority   (urgent → p0, or low → p2)
+python3 $WORKMD bump $WORK "stairs teleport" p0
+
+# DELETE a duplicate
+python3 $WORKMD drop $WORK "duplicate-bug-title-substring"
+
+# KEEP — just leave the line alone; overnight picks it up by priority order.
+```
+
+#### 5. ▶ Escalations (3 min)
+
+```bash
+cat ~/GameProjects/infiltrators/.factory/escalations.md
+```
+
+For each entry, **one** of:
+
+```bash
+# RESURRECT with clarifying details — addresses the Developer's blocker
+python3 $WORKMD append $WORK --section todo \
+  "[feature] p1 skill tree system" \
+  --detail "scope clarified: SCAFFOLDING only (data structure + 5 example" \
+  --detail "skills + UI). Full 300-skill list comes later."
+
+# RESURRECT as-is — Developer was just having a bad night
+python3 $WORKMD append $WORK --section todo "[feature] p1 <title>"
+
+# LET IT DIE — do nothing. Item stays out of rotation.
+```
+
+`escalations.md` is append-only history. Don't edit it — just read and decide.
+
+#### 6. ▶ Dictation (5 min, optional)
+
+Anything new from play-testing or stray thoughts:
+
+```bash
+echo "the run sound should be QUIETER for ducked-walking" \
+  >> ~/GameProjects/infiltrators/.factory/inbox/raw.md
+echo "extraction zone bug back — character #3 stuck after extracting" \
+  >> ~/GameProjects/infiltrators/.factory/inbox/raw.md
+```
+
+Then in Claude Code, run the producer skill to convert them:
+
+```
+/spraxel-producer
+```
+
+It reads `.factory/inbox/raw.md` (and any dictation files), classifies each note (`[bug]` / `[feature]` / `[game-feature]`), assigns priority, appends to WORK.md `## Todo`, commits.
+
+#### 7. Commit your morning edits
+
+Your Decide/Triage/Escalations edits aren't pushed yet. Either commit yourself, or let the next agent run sweep them up naturally (PM/Janitor pick up changes on their next commit):
+
+```bash
+cd ~/GameProjects/infiltrators
+git diff WORK.md                    # sanity check
+git commit -am "ceo: morning triage $(date +%Y-%m-%d)"
+git push
+```
+
+#### The four CLI verbs you'll actually use
+
+| Verb | What it does |
+|------|--------------|
+| `promote <substr>` | Remove `[idea]` / `[cold]` tag → accept idea / resurrect cold item. |
+| `drop <substr>` | Delete an item entirely from any section. |
+| `bump <substr> pN` | Change priority (p0..p3). |
+| `append --section todo …` | Add a new item. (Producer skill does this for you.) |
+
+All four match on title substring (case-insensitive, first match wins). Be specific enough to uniquely match.
+
+### 07:38 AM — 10:00 PM — You go live your life
+
+System is quiet during the day (just `local-tests` every 30 min on master,
+silent unless something breaks). You're free to:
+
+- Work on art, music, design, level layout.
+- Manually edit WORK.md (CEO can do anything).
+- Run individual agents on demand: `bash ~/SpraxelAiCompany/scripts/run_agent.sh <name>`.
+- Drop ideas into `.factory/inbox/raw.md` whenever they hit you.
+
+### 10:00 PM — Optional: top up the queue
+
+Before bed, if you want a productive overnight:
+
+```bash
+# Sanity check WORK.md has enough items at the top
+python3 ~/SpraxelAiCompany/scripts/workmd.py top ~/GameProjects/infiltrators/WORK.md -n 12
+
+# Drain any dictation you've accumulated today
+# (in Claude Code) /spraxel-producer
+```
+
+### 11:00 PM — Overnight kicks off
+
+You're asleep. `overnight_dev.sh` is shipping features.
+
+---
+
+## Setup (one-time)
+
+1. **Install the daemon**:
+   ```bash
+   bash ~/SpraxelAiCompany/scripts/install_daemon.sh
+   ```
+   This drops `~/Library/LaunchAgents/com.spraxel.tick.plist` and starts it.
+   First tick fires immediately (RunAtLoad=true).
+
+2. **Install local tests** (separate launchd job, runs every 30 min):
+   ```bash
+   cd ~/GameProjects/infiltrators
+   bash scripts/install_local_tests.sh
+   ```
+
+3. **Verify**:
+   ```bash
+   launchctl list | grep com.spraxel
+   # → com.spraxel.tick (and com.spraxel.localtests)
+
+   bash ~/SpraxelAiCompany/scripts/install_daemon.sh status
+   ```
+
+4. **Confirm Claude is logged in**:
+   ```bash
+   claude --version
+   # If session expired, run `claude login` in a Claude Code window.
+   ```
+
+---
+
+## Common operations
+
+### Manually run one agent
+
+```bash
+bash ~/SpraxelAiCompany/scripts/run_agent.sh designer
+bash ~/SpraxelAiCompany/scripts/run_agent.sh morning-briefer
+bash ~/SpraxelAiCompany/scripts/run_agent.sh pm --dry-run     # see prompt, don't fire
+```
+
+Logs land at `~/SpraxelAiCompany/logs/<agent>/<ts>.log`.
+
+### Manually run the overnight loop now
+
+```bash
+bash ~/SpraxelAiCompany/scripts/overnight_dev.sh
+```
+
+It'll hard-stop at 06:00 PT — useful for a one-off mid-day burst if you've
+got dictation backed up.
 
 ### Pause everything
 
-See the dedicated **[Pausing the system](#pausing-the-system)** section below for the full pause spectrum (full / partial / one-PR / inactivity / nuclear). Quick answer: edit `Philosophy.md` → `run_mode: "live"` to `run_mode: "dryrun"`, push.
+```bash
+touch ~/SpraxelAiCompany/.paused
+```
 
-### Cut a release
+The daemon keeps ticking but `tick.sh` and `run_agent.sh` and
+`overnight_dev.sh` all check this flag and exit silently. Resume with:
 
-Currently CEO-manual (MCP server lacks `create_release`):
+```bash
+rm ~/SpraxelAiCompany/.paused
+```
+
+### Pause one agent only
+
+Comment out the line in `schedule.yaml`. Change applies on the next tick.
+
+### Retune cadences
+
+Edit `~/SpraxelAiCompany/schedule.yaml`. All times are PT, cron format
+`m h dom mon dow`. Examples:
+
+- Run PM twice a day: `cron: "0 7,15 * * *"`
+- Move Designer to Sunday: `cron: "0 7 * * 0"`
+- Bump overnight target from 10 to 15: change `target_items: 10` → `target_items: 15`
+
+No restart needed. The next tick reads the file.
+
+### Run the tick once (for debugging)
+
+```bash
+bash ~/SpraxelAiCompany/scripts/tick.sh
+tail -5 ~/SpraxelAiCompany/logs/tick/$(date +%Y-%m-%d).log
+```
+
+### Read recent logs
+
+```bash
+# Tick log (one line per minute)
+tail -50 ~/SpraxelAiCompany/logs/tick/$(date +%Y-%m-%d).log
+
+# Last morning briefer run
+ls -t ~/SpraxelAiCompany/logs/morning-briefer/ | head -1 | xargs -I{} cat ~/SpraxelAiCompany/logs/morning-briefer/{}
+
+# Last overnight
+ls -t ~/SpraxelAiCompany/logs/overnight/ | head -1
+```
+
+### Manually move an item
+
+```bash
+WORK=~/GameProjects/infiltrators/WORK.md
+WORKMD=~/SpraxelAiCompany/scripts/workmd.py
+
+python3 $WORKMD parse $WORK | head -30
+python3 $WORKMD top   $WORK -n 10
+
+# Add — Producer normally does this for you via /spraxel-producer
+python3 $WORKMD append $WORK --section todo \
+  "[bug] p0 stairs teleport on save/load" \
+  --detail "repro: save mid-staircase, load" \
+  --detail "char spawns one floor below"
+
+# Mark something shipped manually
+python3 $WORKMD ship $WORK "<title substring>"
+
+# Accept a Designer [idea] (remove [idea]/[cold] tag)
+python3 $WORKMD promote $WORK "sleeping-gas grenade"
+
+# Reject / delete entirely (Designer idea, duplicate bug, anything)
+python3 $WORKMD drop $WORK "radio-tower mission"
+
+# Change a priority
+python3 $WORKMD bump $WORK "stairs teleport" p0
+
+# Push to escalations (out of rotation, kept for history)
+python3 $WORKMD escalate $WORK "<title>" --log "(manual)"
+```
+
+You can also just **edit WORK.md directly** — the format is human-friendly.
+Just don't edit while the overnight loop is running (use `.paused`).
+
+### Make a manual code change
+
+No PR ceremony in this workflow. Branch, edit, merge yourself:
 
 ```bash
 cd ~/GameProjects/infiltrators
-gh release create v0.<N> --generate-notes
-python3 ~/SpraxelAiCompany/scripts/sync_work_md.py --repo-dir . --release-cut v0.<N> --apply
-git add WORK.yaml && git commit -m "release: v0.<N>" && git push
-```
 
-After that, `auto-merge.yml` will label future merges as `release:v0.<N+1>`.
-
-### Override a stuck PR
-
-- Tests failing but you know the failure is a flake: `gh pr edit <N> --add-label tests:pass` (auto-merge will fire). Better: re-run tests.
-- Reviewer blocked but you want to merge anyway: `gh pr edit <N> --add-label reviewed:clean --remove-label reviewed:blocking`.
-- Don't want auto-merge to touch a PR: `gh pr edit <N> --add-label do-not-merge`.
-
-### Delete a merged branch (Janitor can't yet)
-
-```bash
-git push origin --delete feat/issue-N-foo
-```
-
----
-
-## Injecting manual work (hands-on mode)
-
-The factory is autonomous by default, but you can jump in any time — to write code yourself, test prompts, prototype a feature, debug an agent, or just iterate on something the system isn't doing right. Direct pushes to master from your account never trip the tripwire (tripwire fires only on `claude[bot]`).
-
-### Direct commits to master
-
-For docs, prompt tweaks, configuration, hot fixes — anything you want landed without the PR-review-test pipeline:
-
-```bash
-cd ~/GameProjects/infiltrators        # or ~/SpraxelAiCompany
-# edit files...
-git add . && git commit -m "..." && git push
-```
-
-Tripwire ignores. `sync.yml` may fire if you touched `WORK.yaml` or `pending-intake.md`; it's idempotent and cheap.
-
-### Branch + PR like the agents do
-
-To test out an idea before letting an agent touch the area, or to prototype something Developer agents might mess up:
-
-```bash
-git checkout -b feat/my-experiment
-# edit...
-git commit -m "experiment: prototyping X"
-git push -u origin feat/my-experiment
-gh pr create --title "experiment: X" --body "..." --label "do-not-merge"
-```
-
-The `do-not-merge` label keeps `auto-merge.yml` off your PR while you iterate. When ready, remove the label and the chain takes over (Reviewer runs, tests run, auto-merge fires).
-
-### Drop new work without going through Producer
-
-For one-off bypass of the producer flow when you already know exactly what you want as an issue:
-
-```bash
-gh issue create \
-  --repo mdl16bit/infiltrators \
-  --title "Add X feature" \
-  --label "kind:feature,priority:p1" \
-  --body "## Why...
-
-## Acceptance criteria
-- [ ] ..."
-```
-
-PM v9 picks it up on its next 7 AM PT run (or fire now via `/schedule` → Run PM, or via RemoteTrigger from a Claude session).
-
-### Force a specific issue into the current release
-
-Manipulate `ship-in:` labels directly:
-
-```bash
-gh issue edit <N> --repo mdl16bit/infiltrators \
-  --remove-label ship-in:v0.2 --remove-label ship-in:v0.3 \
-  --add-label ship-in:v0.1
-```
-
-Or status:ready right now to fire `developer.yml` immediately:
-
-```bash
-gh issue edit <N> --repo mdl16bit/infiltrators --add-label status:ready
-```
-
-### Fire any scheduled agent on demand
-
-From a Claude Code session: ask "fire the PM/Designer/Triager routine now." Or use the `/schedule` skill → Run now. Routine list: https://claude.ai/code/routines
-
-### Iterate on prompts (agent definitions)
-
-Agent prompts live in **ONE place** as of 2026-05-24:
-
-- `~/SpraxelAiCompany/agents/spraxel-*.md` — source of truth. Edit, commit, push.
-
-The `/schedule` routines run a tiny ~200-token prompt that:
-
-1. Checks `Philosophy.run_mode` (early dryrun-exit).
-2. `curl`s the agent spec from `https://raw.githubusercontent.com/mdl16bit/SpraxelAiCompany/master/agents/spraxel-<role>.md`.
-3. Follows the fetched markdown as its full contract.
-
-So editing → commit → push to SpraxelAiCompany IS the whole sync. Next routine fire picks up the new version automatically. No more dual-source drift.
-
-To iterate:
-
-1. Edit `agents/spraxel-<role>.md` locally.
-2. Test invocation locally: `/spraxel-<role>` from a Claude Code session.
-3. Commit + push to master.
-4. (Optional) Fire the routine via `/schedule` → Run now to verify the live update — it'll fetch the brand-new file.
-
-For workflow YAML prompts (`developer.yml`, `review.yml`, etc.): edit the file in the **infiltrators** repo, commit, push. The next workflow trigger uses the new prompt. (Workflow YAMLs aren't yet on the dynamic-fetch pattern — they're per-game so it's fine.)
-
-### Fire any workflow on demand
-
-```bash
-gh workflow run release-cut.yml --repo mdl16bit/infiltrators -F skip_cadence_check=true
-gh workflow run conflict-resolver.yml --repo mdl16bit/infiltrators -F pr_number=<N>
-gh workflow run developer-rework.yml --repo mdl16bit/infiltrators -F pr_number=<N>
-gh workflow run cost-report.yml --repo mdl16bit/infiltrators
-gh workflow run inactivity-check.yml --repo mdl16bit/infiltrators
-# ...any workflow with workflow_dispatch trigger
-```
-
-### Test a feature locally before the agent touches it
-
-```bash
-cd ~/GameProjects/infiltrators
-/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot --path .
-# or specific feature
-/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot --path . -- --demo-feature=<slug>
-# or all tests
-godot --headless --path . -s res://addons/gut/gut_cmdln.gd -gdir=res://test/unit -ginclude_subdirs -gexit
-```
-
-### Observe what the system is doing
-
-- Workflow runs: https://github.com/mdl16bit/infiltrators/actions
-- Routine runs: https://claude.ai/code/routines → click a routine → see last fire's transcript
-- Factory Daily Log: https://github.com/mdl16bit/infiltrators/issues/5
-- Open PRs: `gh pr list --repo mdl16bit/infiltrators`
-- In-flight issues: `gh issue list --label status:claimed`
-- Cost report: `cat ~/GameProjects/infiltrators/.factory/costs.yaml`
-
-### Hand work back to the system after you're done
-
-When you're done iterating and want the autopilot to resume:
-
-- If you set `do-not-merge` on a PR: remove it.
-- If you set `run_mode: dryrun`: flip back to `"live"`, push.
-- If you disabled routines via `/schedule`: re-enable.
-- Issues you filed manually flow through PM v9 normally on its next run.
-
----
-
-## Pausing the system
-
-Levels of pause, lightest to heaviest:
-
-### A. One-PR block (everything else keeps going)
-
-```bash
-gh pr edit <N> --add-label do-not-merge
-```
-
-`auto-merge.yml` skips this PR's merge. Other PRs continue. Chain spawns next issues from `ship-in:v0.<current>` as usual.
-
-### B. Partial pause — disable specific routines
-
-Don't want Designer firing this week? `/schedule` → Update Designer routine → `enabled: false`. Same for any of: PM, Concierge, Triager, Janitor, Designer, Asset Librarian. Re-enable when ready.
-
-Affects only the cron-scheduled agents (the `/schedule` routines). Event-driven workflows (`developer.yml`, `auto-merge.yml`, `conflict-resolver.yml`, etc.) keep firing.
-
-### C. Full pause via `run_mode: dryrun`
-
-The big switch. Edit `Philosophy.md`:
-
-```yaml
-run_mode: "dryrun"   # was "live"
-```
-
-Commit and push. On the next firing:
-
-- **Agent layer**: PM, Concierge, Janitor, Triager, Designer, Asset Librarian read Philosophy first, see `dryrun`, print `"would have done X"`, and exit. No MCP calls, no comments, no work. Cost = ~10 tokens per fire instead of ~10K.
-- **Workflow layer**: The 5 LLM-cost workflows (`developer.yml`, `review.yml`, `playtest.yml`, `blogger.yml`, `auto-merge.yml`) gate their main jobs on the `dryrun-guard` step. They fire on PR/issue events but their work is skipped with a `::warning::` line.
-- **Non-gated workflows** (`test.yml`, `sync.yml`, `tripwire.yml`, `cost-report.yml`, `inactivity-check.yml`, `conflict-detector.yml`, `work-md-on-close.yml`, `release-cut.yml`) keep running — they don't cost LLM money. (`release-cut.yml` IS gated on dryrun though, so it won't tag releases.)
-
-Flip back to `"live"` and everything resumes.
-
-### D. CEO inactivity auto-pause
-
-`inactivity-check.yml` runs daily at 7 AM PT. If `mdl16bit` hasn't committed/commented/edited issues in 5 days, it auto-flips Philosophy to `run_mode: "dryrun"` with a tag like `# auto-set by inactivity-check on <date>`. When you come back and start any activity, the next inactivity-check run auto-flips back to `"live"`. The marker distinguishes auto-set from manual-set — if you set dryrun yourself, this workflow won't flip it back.
-
-Useful for: vacations, sick days, weeks-off, anything where you'd otherwise burn credits while not engaging.
-
-### E. Nuclear option — revoke OAuth
-
-If something is wildly wrong and you need everything to stop immediately:
-
-1. Go to https://claude.ai → settings → API Keys / OAuth.
-2. Revoke the `CLAUDE_CODE_OAUTH_TOKEN` used in the GitHub repo secrets.
-3. Workflows continue to fire on events but `claude-code-action@v1` steps fail authentication. No LLM calls succeed.
-4. `/schedule` routines also fail authentication and exit.
-
-To resume: regenerate the OAuth token (`/login` in any Claude Code session, copy the new token), then `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo mdl16bit/infiltrators` (paste via stdin, never argv).
-
-### Which level to use when
-
-| Situation | Use |
-|---|---|
-| One PR is wrong and you want to fix it | (A) `do-not-merge` |
-| Designer noise is bothering you this week | (B) Disable Designer routine |
-| You're going on vacation | (C) `run_mode: dryrun` |
-| You forgot to set dryrun before vacation | (D) Inactivity auto-pause handles it after 5 days |
-| Something is broken in production / agents are doing damage | (E) Revoke OAuth |
-
----
-
-## Common workflows
-
-### "I dictated some ideas, what now?"
-
-1. Drop the transcript in `.factory/inbox/dictation/<YYYY-MM-DD-walk>.txt`. (Or paste into WORK.yaml.)
-2. Run `/spraxel-producer` in a Claude Code session.
-3. Producer reads the dictation, drafts a numbered issue batch, asks you to confirm. Say `all` or pick numbers to amend.
-4. Issues are created with `acceptance criteria` checkboxes. PM picks them up on its next 07:00 run (or you fire PM now via `/schedule` → Run now).
-
-### "Designer dropped 5 ideas overnight — how do I accept them?"
-
-1. On issue #5, scroll to the most recent `💡 **Designer (...)**` comment.
-2. Per idea, tick exactly one of the 3 boxes (`accept` / `reject` / `amend`).
-3. For amends: reply on the issue with a comment starting `Amend #<N>: <new text>`.
-4. Run `/spraxel-producer`. It reads the ticked batch, creates issues for accepts, and marks the batch processed via an HTML comment so it's never reprocessed.
-
-### "PR is failing tests, what do I do?"
-
-If you want the system to handle it:
-- Test.yml has already posted a 🐛 summary on issue #5. Triager will batch it tomorrow. You'll see it as a tickable bug. Tick `real` → next `/spraxel-producer` run creates a bug issue → PM picks it up.
-
-If you want to short-circuit:
-- Close the PR with `gh pr close <N>` + comment explaining.
-- Comment on the source issue with what went wrong + relevant context (file paths, error excerpts).
-- Remove `status:claimed` from the source issue (`gh issue edit <N> --remove-label status:claimed`). PM re-spawns a Developer on its next run.
-
-### "I want to start fresh on a feature the Developer half-built"
-
-- Close the PR (don't delete the branch — it's reference for the next attempt).
-- Remove `status:claimed` from the source issue.
-- Add a comment on the issue with what you want different.
-- PM re-picks it up. Tell Developer in the comment to read previous branch / what to avoid.
-
-### "Reject a PR (close + abandon, close + redo, or send back with feedback)"
-
-Three patterns by intent:
-
-**A. Reject and abandon** (the work is wrong-direction, don't redo):
-```bash
-gh pr close <PR> --comment "Rejected: <why>. Not pursuing."
-gh issue close <SOURCE-ISSUE> --comment "Abandoned."
-```
-
-**B. Reject and restart fresh** (close PR, let a new Developer try from scratch):
-```bash
-gh pr close <PR> --comment "Closing — wants a clean restart. <why>."
-# Then either wait for PM's next run (which catches closed-not-merged via GUPP v9
-# and re-spawns automatically), or force it immediately:
-gh issue edit <SOURCE-ISSUE> --remove-label status:claimed --add-label status:ready
-```
-
-**C. Send back with feedback — iterate on the same branch** (the implementation is salvageable; you want specific changes):
-```bash
-# Leave inline comments on the PR via GitHub UI (or via gh api)
-gh pr comment <PR> --body "Please change X to Y; the line-of-sight check is wrong because Z."
-# Then label needs-rework — fires developer-rework.yml
-gh pr edit <PR> --add-label needs-rework
-```
-
-`developer-rework.yml` checks out the existing branch, gives the Developer agent the PR comments + source issue body, asks it to address the feedback surgically (no rewrite, no scope expansion), force-pushes. `test.yml` + `review.yml` re-fire on `synchronize`; once both clean labels land, `auto-merge.yml` retries the merge. The agent leaves the PR open even if it can't fully address feedback — escalates by adding `status:needs-ceo`.
-
-Distinction: `needs-rework` is for **feature-level changes** ("change the behavior") — `merge-conflict` is for **branch-out-of-sync with master** (`conflict-resolver.yml` handles that). They're separate workflows.
-
-### "Pull a PR locally to test before merging"
-
-The system auto-merges clean PRs (`auto-merge.yml` fires when both `tests:pass` and `reviewed:clean` labels land). To intervene and test something yourself first:
-
-```bash
-# 1. Block auto-merge temporarily
-gh pr edit <N> --repo mdl16bit/infiltrators --add-label do-not-merge
-
-# 2. Check out the PR locally
-cd ~/GameProjects/infiltrators
-gh pr checkout <N>      # creates/switches to a local branch tracking the PR
-
-# 3. Run the game windowed and play through it
-/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot --path .
-
-# 3a. Or run the specific feature's debug hook
-/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot --path . -- --demo-feature=<slug>
-
-# 3b. Or run the headless scenario test directly
-godot --headless --path . -- --demo-feature=<slug> --trace-file=/tmp/t.jsonl --quit-after=10
-
-# 3c. Or run the full GUT unit suite
-godot --headless --path . -s res://addons/gut/gut_cmdln.gd -gdir=res://test/unit -ginclude_subdirs -gexit
-
-# 4a. If it works — un-block, let auto-merge take over
-gh pr edit <N> --remove-label do-not-merge
-# (or merge manually): gh pr merge <N> --squash --delete-branch
-
-# 4b. If it doesn't work — leave do-not-merge on, comment the issue with
-#     what failed, close the PR, remove status:claimed from the source issue.
-gh pr close <N> --comment "Tests pass but X is wrong — see issue #M"
-gh issue edit <source-issue> --remove-label status:claimed
-
-# 5. Return to master
+# Touch up code without agent involvement
+git checkout -b ceo/<short-description> master
+$EDITOR <files>
+bash scripts/run_local_tests.sh        # sanity check
+git add <files>
+git commit -m "<your message>"
+
+# Merge yourself — straight to master
 git checkout master
-git pull
+git merge --no-ff ceo/<short-description> -m "<commit message>"
+git push origin master
+git branch -d ceo/<short-description>
+
+# Or for tiny edits, skip the branch
+$EDITOR <file>
+git commit -am "<message>" && git push
+
+# If overnight is mid-flight and you want to commit safely:
+touch ~/SpraxelAiCompany/.paused      # halts new agent dispatches
+# ...do your edits + commit...
+rm ~/SpraxelAiCompany/.paused
 ```
 
-`gh pr checkout` handles fork-PRs and detached-head cases cleanly. The `do-not-merge` label is recognized by `auto-merge.yml` as a veto so the chain won't merge while you're testing.
-
-### "I want to disable an agent temporarily"
-
-`/schedule` → List → pick the routine → Update → set `enabled: false`. Re-enable when you want it back.
-
-### "Something is wrong with an agent — how do I debug?"
-
-- **Last run logs**: claude.ai/code/routines → pick the routine → "Last run" → opens the session transcript.
-- **The agent's prompt**: lives in two places — the framework copy at `~/SpraxelAiCompany/agents/spraxel-<role>.md` (the source of truth you edit), and the cloud copy embedded in the routine config (the version that actually runs). To sync them: edit the framework copy, then `/schedule` → Update → paste the new prompt content into the routine's `events[].data.message.content`. This duplication is intentional (and tracked under TODO.md's "dynamic fetch" item).
-
----
-
-## Tests — yes, `scripts/scenarios/*` are the tests (one of two layers)
-
-Two layers run on every PR via `test.yml`:
-
-### Layer 1 — GUT unit tests at `test/unit/*.gd`
-
-Pure GDScript unit tests using [GUT 9.6.0](https://github.com/bitwes/Gut) (vendored at `addons/gut/`). Run via:
-
-```bash
-godot --headless --path . -s res://addons/gut/gut_cmdln.gd \
-  -gdir=res://test/unit -ginclude_subdirs -gexit
-```
-
-Fast, hermetic, no scene loading. Use for: queue logic, parsers, math, state machines.
-
-### Layer 2 — Acceptance scenarios at `scripts/scenarios/*.gd`
-
-Real-engine integration tests. Each scenario:
-1. Instantiates a real character + guard + environment.
-2. Runs a sequence of inputs/awaits via the autoload-aware lifecycle.
-3. Calls `_assert(...)` for each acceptance bullet.
-4. Prints `SCENARIO <slug>: PASS` (or `FAIL`) and quits the engine with the right exit code.
-
-Triggered by:
-```bash
-godot --headless --path . -- --demo-feature=<slug> --trace-file=/tmp/<slug>.jsonl --quit-after=10
-```
-
-The test step in `test.yml` loops over every `.gd` file in `scripts/scenarios/`, runs it, and greps stdout/stderr for `ERROR:`, `Parse error`, `SCENARIO <slug>: FAIL`, or absence of `SCENARIO <slug>: PASS`. Any of those → `tests:fail` label + 🐛 comment on issue #5.
-
-Naming: the slug is the filename with underscores → dashes. `overwatch.gd` → `--demo-feature=overwatch`. `hide_box.gd` → `--demo-feature=hide-box`.
-
-Every Developer-implemented feature ships with **both** layers: a `test/unit/test_<feature>.gd` and a `scripts/scenarios/<feature>.gd`. That's in the Developer molecule.
-
----
-
-## File map (what lives where)
-
-In `~/SpraxelAiCompany/` (framework, public):
-
-| Path | Purpose |
-|---|---|
-| `agents/spraxel-*.md` | Agent definitions (source of truth). Symlinked to `~/.claude/agents/`. |
-| `skills/spraxel-producer/SKILL.md` | The interactive Producer skill. |
-| `scripts/sync_work_md.py` | WORK.yaml ↔ GH Issues bidirectional sync. Also supports `--seed` and `--release-cut`. |
-| `scripts/new_game.sh` | Bootstrap a new game repo with the framework. |
-| `template/` | What `new_game.sh` copies in. |
-| `TODO.md` | Deferred work + MCP server gaps + post-mortems. |
-| `OPERATIONS.md` | This file. |
-
-In `~/GameProjects/infiltrators/` (the game, private):
-
-| Path | Purpose |
-|---|---|
-| `Philosophy.md` | Identity, must_include/exclude, cadences, model assignments, velocity cap. |
-| `Game.md` | Canonical feature/controls catalog. Every feature ships a block here. |
-| `WORK.yaml` | Three-section human-friendly mirror of GH Issues. |
-| `.factory/inbox/pending-intake.md` | Sync's queue of WORK.yaml lines waiting for Producer. |
-| `.factory/inbox/dictation/` | Phone-dictated transcripts. Producer drains. |
-| `.factory/memory/<role>.md` | Per-agent compacted memory. Janitor maintains. |
-| `.github/workflows/*.yml` | CI: developer / review / test / playtest / blogger / sync / tripwire / auto-merge. |
-| `scripts/systems/debug_boot.gd` | `--demo-feature=<slug>` autoload entry point. |
-| `scripts/systems/tracer.gd` | JSON event emitter (read by Playtester). |
-| `scripts/scenarios/*.gd` | Acceptance tests (Layer 2). |
-| `test/unit/*.gd` | GUT unit tests (Layer 1). |
-| `addons/gut/` | Vendored GUT 9.6.0. |
-
----
-
-## Merge conflicts
-
-When a PR can't merge cleanly because a different PR landed first and touched overlapping lines, the system handles it without you. Three entry points all converge on the same resolver:
-
-- **Bot tried to auto-merge → conflict**: `auto-merge.yml` catches the failure and labels.
-- **You clicked the green Merge button → conflict**: `conflict-detector.yml` fires on the next master push (the sibling PR's eventual merge will trigger it) and labels. Also runs hourly as a fallback.
-- **You labeled `merge-conflict` manually**: same result; `conflict-resolver.yml` fires on the label-add.
-
-Detail flow:
-
-1. **`auto-merge.yml`** tries `gh pr merge --squash`. If the merge fails with a conflict-like error, it labels the PR `merge-conflict`, comments on the PR explaining the situation, and **does NOT trigger the next-issue chain** (so the queue stays stable until this PR resolves).
-2. **`conflict-detector.yml`** fires on `push: branches: [master]` + hourly cron + workflow_dispatch. Sleeps 90s for GitHub's mergeability recompute, then labels any open PR in `CONFLICTING` state that doesn't already have the label. Closes the CEO-clicked-merge-and-it-refused gap.
-3. **`conflict-resolver.yml`** fires on the `merge-conflict` label:
-   - **First pass: cheap auto-rebase.** Checks out the branch and runs `git rebase origin/master`. If the rebase completes cleanly (textually non-overlapping changes), it force-pushes and removes the `merge-conflict` label. **No LLM call.** Most conflicts resolve here — they were "false positives" GitHub flagged on partial overlaps.
-   - **Second pass: Developer agent.** If the rebase produces real conflicts, spawns the Developer agent (Sonnet) on the existing branch. The agent reads the PR body for context, decides each resolution preserving both the feature's intent and the new master code, force-pushes with `--force-with-lease`, removes the `merge-conflict` label, and posts a single PR comment explaining each decision.
-   - **Escalation: `status:needs-ceo`.** If the agent decides the conflict is semantically irreconcilable (a function the PR depends on was deleted on master; data model mismatch; etc.) it aborts the rebase, comments on the PR explaining what broke, and adds `status:needs-ceo`. You take it from there.
-3. Once the branch is force-pushed cleanly, the existing `test.yml` + `review.yml` fire on `synchronize`, eventually labels land, and `auto-merge.yml` retries the merge.
-
-Manual trigger if the auto-flow misses one:
-```bash
-gh workflow run conflict-resolver.yml -F pr_number=<N>
-```
-
-Or just label it yourself:
-```bash
-gh pr edit <N> --add-label merge-conflict
-```
-
-The conflict resolver also honors `run_mode: "dryrun"` — paused factory means paused conflict resolution.
-
-## CEO action surface — two categories of your work
-
-The system separates your daily work into two flavors. Concierge surfaces both prominently each morning.
-
-### (a) Review/decision work — checkbox-clicks
-
-Quick stuff you do via tickable comments on issue #5 (the Factory Daily Log):
-
-- **Designer batches** (weekly, Friday 7 AM PT). Designer posts 4-6 idea proposals as a comment with `[ ] accept / [ ] reject / [ ] amend` per item. You tick. On the next `/spraxel-producer` run, accepted items become real issues — routed to either the Developer pipeline (if gameplay/code) or to the CEO production queue (if art/music/design/etc.).
-- **Triager batches** (daily, 5 AM PT). Triager dedups overnight bug noise into a `[ ] real / [ ] not-a-bug / [ ] wontfix` checklist. You tick. Producer files real ones as bug issues.
-- **Stuck PRs** awaiting your green-button merge (rare — auto-merge handles most).
-
-These show up in the morning digest as **"Awaiting CEO review (N)"**.
-
-### (b) Production work — make art/music/dialog/etc.
-
-Stuff you produce or decide manually. Tagged via labels. Developer agents NEVER touch these — they're invisible to PM, auto-merge, and the Developer pipeline.
-
-### Labels for production work
-
-Code work (Developer picks up via PM v9):
-- `kind:feature`, `kind:bug`, `kind:chore`
-
-CEO production work (Developer **refuses** to act on; PM **never** plans):
-- `for:ceo` — umbrella tag. Required on every CEO-queue issue. Developer agent refuses, PM skips, auto-merge skips. Visible in the morning digest.
-- `kind:art` — sprites, portraits, backgrounds, UI graphics
-- `kind:animation` — character / object animation sequences
-- `kind:music` — music tracks, BGM
-- `kind:sfx` — sound effects
-- `kind:cutscene` — cutscene content (script + assets)
-- `kind:dialog` — character dialog lines
-- `kind:story` — narrative / lore / mission framing copy
-- `kind:level-design` — level content (layouts), NOT level-editor code
-- `kind:design` — open design question requiring CEO decision
-
-Always use `for:ceo` + at least one `kind:*` label. The Developer agent's prompt requires this when filing follow-up asset issues for new gameplay. Producer's prompt also applies these labels when converting Designer-accepted ideas that turn out to be production work (e.g., "music for the warehouse mission" → `for:ceo + kind:music`, not `kind:feature`).
-
-### Daily query
-
-The Concierge morning digest (issue #5) shows the top 8 open `for:ceo` items grouped by kind. For the full list:
-
-- **CEO queue:** https://github.com/mdl16bit/infiltrators/issues?q=is%3Aissue+is%3Aopen+label%3Afor%3Aceo
-
-Sub-queries by kind:
-```
-?q=is:issue+is:open+label:kind:art
-?q=is:issue+is:open+label:kind:music
-?q=is:issue+is:open+label:kind:design
-```
-
-### Where these issues come from
-
-Two paths:
-
-1. **Developer agent files them** when shipping a feature that uses placeholder assets or needs human-decided design (e.g., ships cloaking with placeholder alpha shader → files `kind:art + for:ceo` for proper cloak VFX). The agent is required to do this per its prompt.
-2. **You file them directly** when dictating ideas via `/spraxel-producer`. Producer should recognize asset/design/content language and apply the right labels.
-
-When you finish a CEO-queue task (paint the art, record the SFX, decide the question), close the issue manually with a comment explaining the resolution. If you produced an asset file, commit it to `assets/` (Git LFS will route binary files automatically).
-
-## Git LFS
-
-Binary asset files (`*.png`, `*.ogg`, `*.mp3`, `*.wav`, `*.mp4`, fonts, etc.) are tracked via Git LFS — see `.gitattributes` in the infiltrators repo for the exact extension list.
-
-**One-time setup per developer machine** (you, mostly):
-
-```bash
-brew install git-lfs
-git lfs install   # in any infiltrators clone, once
-```
-
-After that, normal `git add / commit / push` works — matching files automatically route to LFS. The Spraxel agents running in cloud sandboxes use ephemeral clones with LFS support built in; you don't need to configure anything there.
-
-To migrate existing in-repo binaries to LFS retroactively (rewrites history):
+### Test the game
 
 ```bash
 cd ~/GameProjects/infiltrators
-git lfs migrate import --include="assets/**" --everything
-git push --force-with-lease   # only safe if no one else has clones
+
+# Full suite (GUT unit tests + every scripts/scenarios/*.gd)
+bash scripts/run_local_tests.sh
+# → exit 0 = pass; details in .factory/local-tests-status.json
+
+# Just unit tests, headless
+godot --headless --path . -s addons/gut/gut_cmdln.gd -gdir=test/unit/ -gexit
+
+# Just one scenario
+godot --headless --path . scripts/scenarios/<feature>.gd
+
+# Play-test a specific feature (debug-feature hook from Game.md)
+godot --demo-feature=<slug>
+
+# Free-roam interactive
+godot --path .
 ```
 
-For a project that's still pre-release with a single developer, that migration is safe. Skip if anyone else has a clone.
+### Check token budget (Claude Max plan)
 
-## CEO inactivity auto-pause
+Max doesn't expose remaining-tokens as a number. Indirect signals:
 
-The `inactivity-check.yml` workflow runs daily at **7:00 AM PT** and checks for recent CEO activity (commits, issue comments, issue/PR edits authored by `mdl16bit`).
+```bash
+# Is the CLI session alive?
+claude --version    # 0 exit = ok; otherwise re-run `claude login` in Claude Code
 
-- **5+ days idle** → flips `Philosophy.md` from `run_mode: "live"` to `run_mode: "dryrun"` and posts a 💤 alert on issue #5. The daily scheduled agents start exiting on their next fire; the 5 LLM-cost workflows (developer, review, playtest, blogger, auto-merge) gate on the same flag.
-- **Activity returns** → flips back to `"live"`, posts a 🟢 resume comment.
+# Did anything rate-limit recently?
+grep -l "rate limit\|429\|quota" ~/SpraxelAiCompany/logs/*/$(date +%Y-%m-%d)*.log
 
-The auto-set version of dryrun has a trailing `# auto-set by inactivity-check ...` comment in `Philosophy.md`, distinguishing it from a manually-set dryrun (which never auto-flips back). If you set dryrun manually for any reason, that takes precedence and the workflow leaves it alone.
+# Last overnight's fail_streak
+cat ~/SpraxelAiCompany/.cache/last-overnight.txt
+# → fail_streak: 0 healthy; >=3 = likely rate-limited or session expired
 
-Cutoff is configurable via `INACTIVITY_DAYS` in the workflow's env. Default 5.
+# Today's claude -p invocations (rough budget gauge)
+ls ~/SpraxelAiCompany/logs/*/$(date +%Y-%m-%d)*.log 2>/dev/null | wc -l
+# Heavy day: ~20 (PM, Triager, Morning, plus 10-15 overnight Sonnet runs).
+# Max plan should handle that. If you start seeing 429s:
+touch ~/SpraxelAiCompany/.paused      # let the weekly cap reset (~24h)
+```
 
-## Gotchas / things to know
+### Dictation flow (drop → producer)
 
-- **Bot push to master is forbidden.** `tripwire.yml` will alert on issue #5 if it happens. Branch protection isn't available on free private repos. The guard rail is prompt + tripwire.
-- **claude[bot] has admin** on the infiltrators repo (so it can label, comment, merge). If something feels off, you can revoke at https://github.com/settings/installations.
-- **Pasting an API key in chat is dangerous.** If you do it accidentally, revoke immediately at https://console.anthropic.com → API Keys, then set the new one via `gh secret set ANTHROPIC_API_KEY --repo mdl16bit/infiltrators` with stdin (no argv).
-- **Velocity cap is in `Philosophy.dev.velocity_issues_per_release`** (currently 4). Raise/lower to control parallelism + spend.
-- **Cost knob #1 is `model_assignments` in Philosophy.md.** Move a Sonnet agent to Haiku → ~80% cost drop for that agent.
-- **MCP server gaps**: no `create_milestone`, no `create_release`, no `delete_branch`. The system works around all three; see TODO.md's gap table.
-- **Two prompt copies for scheduled agents**: the framework file at `agents/spraxel-<role>.md` is the source of truth; the cloud routine has a copy embedded in its config. Edit the framework file first, then sync to the routine via `/schedule` → Update. (TODO: dynamic fetch.)
-- **`WORK.yaml` parser is divider-count-sensitive**: 0 dividers → everything is todo; 1 → shipped/todo; 2+ → shipped/current/todo. Put new dictation **below** the last divider so sync queues it.
-- **Hard CEO gates** (the system will never act without your tick): bulk issue creation, release cuts, designer-idea acceptance, p0-priority work, bug "real or not" calls.
+```bash
+# Drop raw notes whenever they hit you — typed or pasted from voice memos
+echo "the run sound should be QUIETER for ducked-walking" \
+  >> ~/GameProjects/infiltrators/.factory/inbox/raw.md
+echo "extraction zone bug back — character #3 stuck" \
+  >> ~/GameProjects/infiltrators/.factory/inbox/raw.md
 
-### CI hardening lessons learned (2026-05-25)
+# Then in Claude Code:
+# /spraxel-producer
+# → reads raw.md, classifies each note ([bug]/[feature]/[game-feature]),
+#   assigns priority, appends to WORK.md ## Todo, commits.
+```
 
-- **`GITHUB_TOKEN` does NOT cascade events.** When a workflow uses `GITHUB_TOKEN` to add a label, the resulting `pull_request: labeled` event does NOT fire other workflows. GH built this as a security guard (prevents bot infinite loops). The exception: **`workflow_dispatch` IS allowed.** Pattern: when a workflow needs to trigger another, use `gh workflow run <other>.yml -F <input>=<value>` instead of relying on label cascade. All keepalive + auto-merge + test.yml chain-fires use this.
-- **`actions/checkout` doesn't pull LFS by default.** Set `lfs: true` on every checkout step in workflows that touch LFS-tracked files (asset JSONs, binary data, etc.). Without it, the runner gets text pointer files starting with `version https://git-lfs.github...` which Godot/parsers choke on with confusing errors.
-- **`claude-code-action@v1` rejects `github-actions[bot]` actor by default.** The bot guard refuses to run when triggered by a non-human actor. Set `allowed_bots: "claude[bot],github-actions[bot]"` on every claude-code-action that's dispatched via `gh workflow run` (which uses the `github-actions[bot]` identity).
-- **GH cron is throttled for active repos.** Per GH's "fairness across the platform" policy, scheduled fires get dropped for repos with high run volume. Workaround: drive keepalive from an Anthropic `/schedule` CCR routine that posts a marker comment, fires keepalive via `issue_comment` event. See [`docs/ccr-keepalive-routine.md`](docs/ccr-keepalive-routine.md) for setup. GH cron stays as a backup.
-- **Concurrency groups prevent duplicate runs.** Every per-PR or per-issue agent workflow needs `concurrency: { group: <role>-<id>, cancel-in-progress: true }`. Without it, every label change + every keepalive tick can fire its own concurrent agent on the same PR — 3+ reworks reasoning about the same problem in parallel = pure token waste. With it, a newer fire cancels the older one (better context anyway).
-- **Per-role `--max-turns` matters more than feels.** Complex features need 75-100 turns; rework debugging needs 60-100. Set too low → agent runs out mid-thought. Set too high → runaway burns budget. Pair with **checkpoint-commit discipline** in prompts: commit + push at every logical step, so if max-turns hits, the next fire can resume from the latest checkpoint.
+### Quick one-liners
+
+```bash
+# "What's next?"
+python3 ~/SpraxelAiCompany/scripts/workmd.py top \
+  ~/GameProjects/infiltrators/WORK.md -n 5
+
+# "What shipped this week?"
+git -C ~/GameProjects/infiltrators log master --since='1 week ago' \
+  --oneline --grep='^feat:'
+
+# "What did the agents commit lately?"
+git -C ~/GameProjects/infiltrators log master --author='-bot@spraxel.ai' \
+  --since='1 week ago' --pretty='%h %an %s'
+
+# "Anything stuck?"
+ls ~/SpraxelAiCompany/.locks/  # each lockdir = an in-flight agent
+
+# "Revert something the overnight loop landed but broke things"
+cd ~/GameProjects/infiltrators
+git revert <sha> && git push origin master
+```
+
+### Uninstall
+
+```bash
+bash ~/SpraxelAiCompany/scripts/install_daemon.sh stop
+cd ~/GameProjects/infiltrators && bash scripts/install_local_tests.sh stop
+```
 
 ---
 
-## Where we are vs the plan, today (2026-05-24)
+## WORK.md cheat sheet
 
-Plan-vs-shipped by phase:
+Three sections separated by two dividers (10+ `-` or `=`):
 
-| Phase | Status | Notes |
-|---|---|---|
-| Phase 0 — Godot headless validation | ✅ | DebugBoot, Tracer, `--demo-feature` work |
-| Phase 1 — Spine | ✅ | Producer, PM, Developer, Reviewer, Concierge, sync script, schedules |
-| Phase 1.x — Merge orchestration | ✅ | PM v7 fill-the-cap, auto-merge.yml chain, OAuth, GUT, state-in-issue |
-| Phase 2 — Quality + autonomy | 🟡 | Playtester ✅, Triager ✅, Janitor ✅. **Scenario coverage is thin** (only `hide_box`, `wall_knock`; plan called for 3-5 covering existing features) |
-| Phase 3 — Creative loop | 🟡 | Blogger ✅, Designer ✅, Asset Librarian ✅, Demo Creator ❌ (issue #11 filed, awaiting Developer) |
-| Continuous flow | ✅ | auto-merge chain + PM fill-the-cap |
-| Cost tracking | ❌ | costs.yaml + Concierge surfacing — designed, not built |
-| Hugo publish | 🟡 | Blogger writes drafts; publish workflow not wired |
-| `run_mode: dryrun` honor | ❌ | Philosophy flag exists; no agent reads it |
+```
+# infiltrators — work tracking
 
-Plan verification checklist (10 items):
+## Shipped (previous releases)
+v0.3 — pushing mechanic
+v0.2 — character switch lock-out
+----------
+## Shipped since last release         ← overnight loop appends here (chronological)
+[game-feature] p1 Run button + stamina bar
+[bug] p0 Stairs teleport fixed
+==========
+## Todo                               ← overnight loop picks from top
+[game-feature] p0 Diving stealth in water
+[bug] p0 Extraction zone broken
+[game-feature] p1 Skill tree system
+  300 skills, 3 levels each, dependency chains
+  Lock characters into archetypes based on starting skills
+[idea] [feature] p2 Sleeping-gas grenade item  ← Designer drop; overnight SKIPS this
+```
 
-1. Dictation → Issue ✅
-2. Issue → PR ✅
-3. PR → Reviewer ✅
-4. Merge → WORK.yaml ⚠️ (sync.yml runs on push; not stress-tested with the new auto-merge chain)
-5. Morning digest ✅
-6. Release cut ⚠️ (CEO-manual until MCP gains `create_release`)
-7. Cost cap ❌ (declared in Philosophy, not enforced)
-8. Headless Playtester ✅
-9. Triager validation ✅
-10. Janitor compaction ⚠️ (runs; compaction loop not stress-tested at scale)
+Tag reference:
+
+| Tag | Meaning | Overnight picks? |
+|-----|---------|------------------|
+| `pN` (p0..p3) | Priority — p0 urgent, p3 nice-to-have | yes (sorted by priority) |
+| `[bug]` | Repro of broken behavior | yes |
+| `[feature]` | System / tooling / UX | yes |
+| `[game-feature]` | Player-facing mechanic | yes |
+| `[chore]` | Refactor / docs / deps | yes |
+| `[idea]` | Designer drop, CEO triage needed | **NO** (must remove tag first) |
+| `[cold]` | Janitor archived as stale | **NO** (must remove tag first) |
 
 ---
 
-## What's next
+## The agent roster
 
-Right now (background, autonomous):
+| Agent | Cadence | Model | What it does |
+|-------|---------|-------|--------------|
+| **overnight_dev** | nightly 23:00 → 06:00 PT | n/a (shell) | Loops up to 10 features. Branches → Developer → tests → Reviewer → merge. |
+| **developer** | called by overnight | sonnet | Implements one WORK.md item end-to-end on a feature branch. |
+| **reviewer** | called by overnight | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). |
+| **triager** | daily 05:00 PT | haiku | Reads overnight test failures, dedupes, appends `[bug]` items to ## Todo. |
+| **morning-briefer** | daily 06:00 PT | haiku | Writes MORNING.md — 10 features to play-test, decisions to make, escalations. |
+| **pm** | daily 07:00 PT | haiku | Reorders top of ## Todo by priority and bug/feature balance. |
+| **designer** | weekly Fri 07:00 PT | sonnet | Proposes 4-6 `[idea]`-tagged items for CEO triage. |
+| **blogger** | weekly Sat 10:00 PT | sonnet | Drafts devlog from week's commits, pushes `blog/<date>` branch. |
+| **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items, prunes branches + logs. |
+| **asset-librarian** | monthly 1st 08:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
+| **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. |
+| **demo-creator** | (stub — deferred) | — | "Video taker" — recording feature demos. Not yet implemented. |
 
-- PM v7 fired at 16:02 UTC → up to 4 Developers spinning up on #6, #7, #8, #9
-- Auto-merge will chain in #10, #11 as the first PRs land clean
-- Sync workflow fires on the WORK.yaml push → queues ~75 new dictated lines into `pending-intake.md`
+---
 
-Once that settles (today or tomorrow), in priority order:
+## Troubleshooting
 
-1. **Drain `pending-intake.md`** — run `/spraxel-producer`. ~221 lines (146 old + ~75 new) to triage. Producer will dedup against `Game.md` and flag "looks already done" for items the live game already has. You batch-confirm.
-2. **Scenario coverage (Step 2.1 of the plan)** — file 3-5 issues for `scripts/scenarios/{stealth_takedown,character_select,plan_mode,save_load,…}.gd`. Lets Playtester actually find regressions instead of running 2 scenarios.
-3. **`run_mode: dryrun` honor** — thread through scheduled agent prompts as a guard clause. ~30 min. Saves runaway spend during off weeks.
-4. **`costs.yaml` + Concierge surfacing** — Janitor weekly cost report; Concierge embeds in morning digest. Plan called for this; you're flying blind today.
-5. **Hugo publish pipeline** — Blogger drafts at `blog/content/posts/draft-*.md`; needs a `gh-pages` deploy workflow. ~1 hour.
-6. **Demo Creator screenshot impl** — issue #11 already in the queue; one of today's Developers should land it.
+### "No agents are firing"
 
-Deferred until trigger conditions are met (see [`TODO.md`](TODO.md) for full list):
+```bash
+# Is the daemon loaded?
+launchctl list | grep com.spraxel.tick
+# → should print one line with the label
 
-- Release-tag automation: blocked on MCP `create_release` tool
-- Branch protection: blocked on GitHub Pro pricing
-- Reusable workflows: premature until a 2nd game adopts the framework
-- Witness/supervisor agent: only if stuck-work patterns emerge
+# Are ticks happening?
+tail -10 ~/SpraxelAiCompany/logs/tick/$(date +%Y-%m-%d).log
+# → should be one line per minute, with "tick" or "tick dispatched=..."
+
+# Is the system paused?
+ls ~/SpraxelAiCompany/.paused 2>/dev/null && echo "PAUSED — rm to resume"
+```
+
+### "Agent ran but did nothing"
+
+Check the agent log:
+
+```bash
+ls -t ~/SpraxelAiCompany/logs/<agent>/ | head -3 | while read f; do
+  echo "=== $f ==="; tail -20 ~/SpraxelAiCompany/logs/<agent>/$f
+done
+```
+
+Common causes:
+- Philosophy.md `run_mode: "dryrun"` — agents exit silently. Flip to `live`.
+- Claude session expired — re-run `claude login` in Claude Code.
+- Nothing to do (Janitor with no stale items, PM with no reorder needed).
+
+### "Overnight loop didn't ship anything"
+
+```bash
+# What did it try?
+ls -t ~/SpraxelAiCompany/logs/overnight/ | head -1 | xargs -I{} ls ~/SpraxelAiCompany/logs/overnight/{}
+
+# Recent escalations
+cat ~/GameProjects/infiltrators/.factory/escalations.md | tail -40
+```
+
+If `fail_streak: 3` appears in `~/SpraxelAiCompany/.cache/last-overnight.txt`,
+the Claude CLI hit 3 consecutive failures (likely rate limit or session
+expiry). Re-auth and re-run.
+
+### "I committed code at midnight and now overnight fails to push"
+
+The overnight loop fetches and rebases at start, but if you committed
+between its fetch and its push, the push fails. Easy fix: run a quick
+manual rebase next morning, or just wait — the next night picks up where
+it left off.
+
+### "WORK.md got corrupted by two agents writing at once"
+
+`workmd.py` uses an atomic mkdir-lock, so this shouldn't happen between
+agents. But manual `vim WORK.md` while an agent is mid-write **can**
+corrupt the file. Recovery:
+
+```bash
+cd ~/GameProjects/infiltrators
+git log --oneline -5 WORK.md
+git show <last-good-sha>:WORK.md > WORK.md.recovered
+diff WORK.md WORK.md.recovered
+# If recovery is good:
+mv WORK.md.recovered WORK.md && git add WORK.md && git commit -m "fix WORK.md"
+```
+
+---
+
+## Cost model
+
+| Resource | Cost |
+|----------|------|
+| `claude -p` invocations | Flat — included in Claude Max plan. No marginal cost per run. |
+| GitHub commits + pushes | $0 — unlimited on free private repos. |
+| GitHub Actions | $0 — we don't use them anymore. |
+| Anthropic `/schedule` routines | $0 — we don't use them anymore. |
+| LFS storage | $0 if you stay under 1 GB total LFS objects. |
+| Mac electricity | Marginal — overnight loop adds ~10-30 min of CPU per night. |
+
+The system's only **bounded** resource is your Claude Max weekly token
+quota. Sonnet runs (Developer, Designer, Blogger) consume most. If you hit
+the cap mid-week, all `claude -p` calls return 429 until the cap resets.
+See "Risks" below for mitigation.
+
+---
+
+## Risks
+
+- **Claude Max weekly cap**: 10 overnight Developer runs/night × 7 nights
+  = 70 Sonnet calls/week, plus Designer, Blogger, daily Concierge/PM/Triager
+  (Haiku, cheap). Should fit comfortably in the Max cap, but if you hit
+  it, the system 429s silently until reset.
+  *Mitigation*: monitor `~/SpraxelAiCompany/logs/<agent>/` for "rate limit"
+  in recent logs. Add to TODO: a simple `claude --version`-like daily
+  health check in `tick.sh`.
+
+- **launchd skips ticks on sleep**: if your Mac sleeps for an hour, the
+  daemon skips that hour. `RunAtLoad=true` so it resumes when you log in.
+  Overnight loop schedules at 23:00; if you closed the lid at 22:30 and
+  opened it at 09:00, you lost the night.
+  *Mitigation*: `sudo pmset -a sleep 0` if you want to keep the Mac awake;
+  or accept the occasional missed night.
+
+- **Bot identity leaks**: if an agent forgets to set `git -c user.email=...`
+  per-commit, it commits as the CEO. Each agent spec reiterates this in
+  `_shared.md`; the overnight wrapper also sets it explicitly on the
+  merge commit and the WORK.md update.
+
+- **Designer floods the queue**: 4-6 items every Friday × 52 weeks = 200+
+  unvetted ideas/year. The Janitor cold-archives 30+ day stale items, but
+  CEO triage at 5 min/Friday isn't sufficient long-term.
+  *Mitigation*: lower `cron: "0 7 * * 5"` to `"0 7 1,15 * 5"` (biweekly)
+  if it builds up.
+
+- **Reviewer over-blocks**: if the Reviewer agent gets pessimistic, it
+  exits 1 often and the overnight loop escalates everything. CEO has to
+  re-tune the spec.
+  *Mitigation*: regular review of `.factory/reviews/<branch>.md` files.
+  Most should be `clean`.
+
+---
+
+## What I'm NOT doing in this workflow
+
+- No GitHub Issues (deleted).
+- No GitHub Actions (deleted from both repos).
+- No `/schedule` Anthropic routines (you should delete them in claude.ai
+  Settings → Scheduled tasks; they're costing per-token).
+- No PR ceremony (overnight merges directly to master after Reviewer +
+  tests pass).
+- No `keepalive.yml` (no GH cron to keep alive).
+- No `cost-report.yml` (cost is flat).
+- No `factory-log.yml` (no event ledger; everything is in git log + logs/).
+- No `Concierge` / `Factory Daily Log issue #5` (replaced by MORNING.md).
+
+### Obsolete commands — DO NOT use
+
+If you have old notes from the GH-Actions days, these are all dead now. They
+either silently no-op or point at things that don't exist:
+
+```
+gh issue list ...           # no issues — WORK.md is the source of truth
+gh pr list / pr checkout    # no PRs — overnight merges directly to master
+gh run list / run watch     # no Actions — local launchd + claude -p instead
+gh workflow run ...         # no workflows
+gh pr edit --add-label X    # no labels driving anything
+```
+
+Anthropic `/schedule` routines (PM, Designer, Triager, Concierge, Janitor,
+Blogger, Asset Librarian, Keepalive :17/:47) — delete them in claude.ai →
+Settings → Scheduled tasks; they billed per token, separate from your Max
+plan.
+
+---
+
+## Files-of-truth (where to look for X)
+
+| What | Where |
+|------|-------|
+| Today's CEO routine | `~/GameProjects/infiltrators/MORNING.md` |
+| What's in flight / queued | `~/GameProjects/infiltrators/WORK.md` |
+| What's been shipped | git log + WORK.md `## Shipped *` sections |
+| Failed items waiting on you | `~/GameProjects/infiltrators/.factory/escalations.md` |
+| Last test run | `~/GameProjects/infiltrators/.factory/local-tests-status.json` |
+| Reviewer's notes per branch | `~/GameProjects/infiltrators/.factory/reviews/<branch>.md` |
+| Agent run logs | `~/SpraxelAiCompany/logs/<agent>/<ts>.log` |
+| Daemon ticks | `~/SpraxelAiCompany/logs/tick/<YYYY-MM-DD>.log` |
+| Schedule config | `~/SpraxelAiCompany/schedule.yaml` |
+| Game's design tenets | `~/GameProjects/infiltrators/Philosophy.md` |
+| Feature inventory | `~/GameProjects/infiltrators/Game.md` |

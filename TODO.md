@@ -1,63 +1,97 @@
 # Spraxel framework — open TODOs
 
-What's still unfinished, organized by status. Items get removed from this file when they ship.
+What's still unfinished after the offline migration. Items get removed when they ship.
 
-## Active — unblocked, working on
+## Active
 
-(empty — most recent active item shipped 2026-05-24)
+(empty — offline migration shipped 2026-05-25)
 
-## Blocked on external dependencies
+## Next up
 
-### MCP GitHub server is missing tools
+### Video taker / demo-creator agent
 
-Probe results from `infiltrators/.factory/probe-pm-tools.md` (2026-05-23). Each gap drives a deferred feature. Re-evaluate quarterly or when Anthropic announces MCP additions.
+`spraxel-demo-creator.md` is a stub. Goal: nightly screen recording of one
+shipped feature using `screencapture -V <s>` or `ffmpeg` against a Godot
+window driven by `--demo-feature=<slug>` boot mode. Outputs to
+`assets/demos/<feature>.mov`. Then either uploaded by hand or embedded into
+the weekly Blogger draft.
 
-| Missing tool | Blocks | Workaround in place |
-|---|---|---|
-| `mcp__github__create_milestone` / `update_milestone` / attach-to-issue | PM milestone work | PM v9 uses `ship-in:v0.<N>` labels (equivalent expressiveness) |
-| `mcp__github__create_release` | PM autonomous release tagging | `release-cut.yml` workflow (autonomous biweekly Monday + manual) — workflows can call the release API even though MCP can't |
-| `mcp__github__delete_branch` | Janitor stale-branch cleanup | ✅ Mitigated 2026-05-24 by `branch-cleanup.yml` workflow (Sunday 03:00 PT, after Janitor). Uses `git push --delete` via `GITHUB_TOKEN`. |
+Complexity: M. Blockers: needs a stable headless Godot window pattern that
+captures cleanly (Godot 4's `--headless` skips rendering — likely need a
+non-headless invocation with `--audio-driver Dummy --video-driver opengl3`
+on an off-screen window).
 
-Re-enable conditions: Anthropic ships the missing tool → enable in the agent file → next routine run picks it up (dynamic-fetch, see below). No routine config update needed.
+### Multi-game bootstrap
 
-### Branch protection on master
+`scripts/new_game.sh` works, but the offline workflow needs:
+- Copy `schedule.yaml` into each game's repo (one schedule per game).
+- Update the daemon plist to target the chosen game's WORK.md.
 
-Requires GitHub Pro on free private repos. CEO opted out — mitigation is layered: prompt-level "never push to master" rules in agent prompts + `tripwire.yml` workflow alerts on `claude[bot]` direct pushes. Upgrade when CEO decides Pro is worth the cost.
+For a second game, also: the daemon ticks the wrong WORK.md unless we
+either (a) shard one daemon per game or (b) extend `tick.sh` to iterate
+over multiple game-dir entries in `schedule.yaml`.
 
-### Hugo publish pipeline
+Defer until you actually start a second game.
 
-Waiting on CEO webspace decision. Blogger drafts to `blog/content/posts/draft-*.md`; the publish workflow targeting the chosen host hasn't been built. Tracks the user's "actually I might switch webspace" call.
+### Token usage backpressure
 
-## Deferred until trigger condition
+If `claude -p` starts returning 429 (Max weekly cap hit), the agents all
+silently fail. Add a daily health check in `tick.sh`:
 
-### Reusable workflows across N game repos
-
-Currently each game repo gets its own copies of `developer.yml`, `review.yml`, `sync.yml`, etc. via `new_game.sh`. When a 2nd game adopts the framework, GitHub's reusable-workflows feature lets the framework host the actual workflow YAML and game repos call it via a tiny shim:
-
-```yaml
-# infiltrators/.github/workflows/developer.yml (shim)
-on:
-  issues:
-    types: [labeled]
-jobs:
-  spawn:
-    uses: mdl16bit/SpraxelAiCompany/.github/workflows/developer-reusable.yml@main
-    if: github.event.label.name == 'status:ready'
-    secrets: inherit
+```bash
+# pseudo
+recent_errors=$(grep -l "rate limit\|429" logs/*/$(date +%Y-%m-%d)*.log | wc -l)
+if [ $recent_errors -gt 3 ]; then
+  echo "$(date)  RATE LIMIT detected — pausing 24h" >> logs/tick/$(date +%Y-%m-%d).log
+  touch .paused
+  # And: schedule rm of .paused for tomorrow.
+fi
 ```
 
-Trigger: 2nd game adopts the framework. Then migrate `developer.yml`, `review.yml`, `sync.yml`, `auto-merge.yml` (the multi-game ones).
+Defer until you've actually hit the cap.
 
-### Witness / supervisor agent
+### Email / push notifications
 
-Yegge's "supervisor that watches for stuck work" was deliberately cut from Phase 1 as premature. Revisit if a recurring class of stuck items emerges that PM v9's GUPP + the closed-PR-aware unstick logic doesn't catch. PM v9 already catches: PR-self-close (immediate), no-PR-after-24h (24h delay).
+Currently no external notification — you have to open MORNING.md yourself.
+If you want a "morning ping" on your phone: macOS Notification Center via
+`osascript -e 'display notification ...'` at 06:05 PT, or a simple iOS
+Shortcut watching `MORNING.md` via iCloud Drive.
 
-## Closed/decided — not implementing
+Defer until the routine feels under-attended.
 
-### Prompt caching for scheduled agents
+## Decided / closed
 
-Anthropic prompt-cache TTL is 5 minutes (1h extended is beta). `/schedule` routines fire on hour+ cadence (PM daily, others daily/weekly/monthly). The cache window never hits between routine fires. Per-fire cost is already low (~$0.05-0.20 depending on agent + model). Not worth the implementation effort. Revisit if Anthropic ships persistent (24h+) cache for scheduled agents.
+### Why no PR workflow?
 
-### Absolute $ tracking for agent spend
+Decided 2026-05-25: in a one-person studio, PRs add ceremony without value.
+Overnight loop does Developer → tests → Reviewer → merge in one shot. If a
+feature lands broken, `git revert` is cheap and you find out in the next
+play-test.
 
-CEO is on Claude Max (flat plan) — absolute dollars aren't useful. `costs.yaml` tracks per-agent activity as relative % (workflows × per-fire weight). CEO sees "where my Max budget is going" without dollar conversion.
+### Why no GitHub Issues?
+
+Decided 2026-05-25: WORK.md is simpler, faster, fully offline, and
+unifies the queue + ship log in one file. Editing WORK.md in any text
+editor is more pleasant than navigating GitHub UI.
+
+### Why no GitHub Actions?
+
+Decided 2026-05-25: marginal Actions cost (free-tier minutes) constrained
+us. All workflows are now local shell scripts. Loss: no auto-CI on PRs,
+but there are no PRs now.
+
+### Why no `/schedule` Anthropic routines?
+
+Decided 2026-05-25: `/schedule` bills per-token, separate from Max plan.
+`claude -p` headless on Max is flat-fee. Same agent, no marginal cost.
+
+### Why no Concierge agent?
+
+Decided 2026-05-25: renamed to morning-briefer, writes MORNING.md
+instead of a GH issue body. Concierge as a concept presupposed GH
+issues; morning-briefer presupposes a local file.
+
+### Why no Conflict-resolver / Auto-merge / Keepalive?
+
+Decided 2026-05-25: these existed to keep the GH-Actions cascade running.
+With no PRs and no event-driven chains, they vanished.

@@ -1,0 +1,34 @@
+# Spraxel local scheduler — single dial for all agent cadences.
+#
+# All cron expressions are evaluated in America/Los_Angeles.
+# Format: minute hour day-of-month month day-of-week (POSIX-ish; see scripts/cron_match.py).
+#
+# Edit this file freely — changes apply on the next tick (within 60s).
+# To pause everything: `touch ~/SpraxelAiCompany/.paused` (tick.sh no-ops while it exists).
+
+# Path to the game repo. The crew agents read/write WORK.md here.
+game_dir: ~/GameProjects/infiltrators
+
+# Crew agents: scheduled, write to WORK.md / MORNING.md / .factory/.
+agents:
+  morning_briefer: { cron: "0 6 * * *",  description: "06:00 PT daily — write MORNING.md digest" }
+  triager:         { cron: "0 5 * * *",  description: "05:00 PT daily — batch overnight test failures into ## Todo" }
+  pm:              { cron: "0 7 * * *",  description: "07:00 PT daily — re-sort ## Todo, balance bug/feature" }
+  designer:        { cron: "0 7 * * 5",  description: "Fri 07:00 PT — drop 4-6 ideas into ## Designer Inbox" }
+  janitor:         { cron: "0 2 * * 0",  description: "Sun 02:00 PT — cold-storage stale items, prune branches+logs" }
+  blogger:         { cron: "0 10 * * 6", description: "Sat 10:00 PT — draft weekly devlog from git log" }
+  asset_librarian: { cron: "0 8 1 * *",  description: "1st of month 08:00 PT — scan assets/" }
+
+# Overnight Developer loop. Fires once per night; loop self-terminates at hard_stop_pt or target_items.
+overnight:
+  start_cron:     "0 23 * * *"
+  hard_stop_pt:   "06:00"
+  target_items:   10
+  retry_per_item: 1
+  description: "23:00 PT → 06:00 PT or 10 features shipped"
+
+# Local tests (Godot scenarios + GUT). Already managed by ~/Library/LaunchAgents/com.spraxel.localtests.plist.
+# Listed here for visibility; the tick daemon does NOT fire it.
+local_tests:
+  managed_by:    launchd_separate
+  cadence:       "every 30 min while Mac awake"
