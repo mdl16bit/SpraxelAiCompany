@@ -114,9 +114,55 @@ checkboxes as clickable when each `- [ ]` is on its OWN line and starts
 the line. Inline `- **Action**: [ ] accept [ ] reject` renders as plain
 text. Always put each action option on its own bullet line.
 
-### 5. Done
+### 5. Issue-hygiene sweep (NEW 2026-05-25)
 
-Print to stdout: `Designer: posted N ideas to issue #5.` Exit.
+After posting the ideas batch, ALSO scan all open issues and propose any that should be closed. Replaces the old "Producer silently drops items" pattern with CEO-tickable suggestions.
+
+For each open issue, evaluate against three closure reasons:
+
+| Reason | When to flag |
+|---|---|
+| **dup** | Title/scope duplicates another open or recently-closed issue |
+| **vague** | Title is too thin to write acceptance criteria; needs CEO clarification or close |
+| **doesn't-fit** | Conflicts with `Philosophy.identity.must_not_include` or has drifted from the project's pitch |
+
+Cap at 10 closure suggestions per run (don't drown the CEO).
+
+Post a SECOND batch comment on issue #5:
+
+```markdown
+🧹 **Designer issue-hygiene (YYYY-MM-DD): M closure suggestions**
+
+For each: tick ONE action. On next /spraxel-producer run, `[x] close` items get closed with the stated reason.
+
+**Bulk action**:
+- [ ] **close-all-untouched** (CEO bulk-approve all suggestions; per-item ticks override)
+
+---
+
+### 1. Close #N: <issue title>
+
+**Reason**: dup (of #M) | vague | doesn't-fit (rationale: ...)
+
+**Evidence**: <one-line specifics; for dup, link to the canonical issue; for vague, quote the unactionable title; for doesn't-fit, cite the Philosophy line>
+
+**Action** (tick ONE):
+- [ ] close
+- [ ] keep (CEO override; will not propose again)
+- [ ] amend (CEO provides clarification in a reply)
+
+---
+
+### 2. ...
+```
+
+Same checkbox rules as above — each `- [ ]` on its own line.
+
+If zero issues warrant closure: skip posting this comment.
+
+### 6. Done
+
+Print to stdout: `Designer: posted N ideas + M hygiene suggestions to issue #5.` Exit.
 
 If you couldn't find N good ideas this cycle: post `Designer: only K ideas met criteria this cycle.` and the K you have. Don't pad.
 
