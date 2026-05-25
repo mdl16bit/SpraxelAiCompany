@@ -356,6 +356,48 @@ ls -t ~/SpraxelAiCompany/logs/morning-briefer/ | head -1 | xargs -I{} cat ~/Spra
 ls -t ~/SpraxelAiCompany/logs/overnight/ | head -1
 ```
 
+### Agent health check
+
+`scripts/health_check.sh` scans today's per-agent logs for errors (unknown
+model, rate limits, session expiry, fatal traces, etc.) and produces a
+markdown block suitable for MORNING.md. The morning-briefer agent runs
+this as **step 1** every day at 06:00 PT — the result appears at the top
+of MORNING.md.
+
+Run it yourself anytime to spot-check the system:
+
+```bash
+bash ~/SpraxelAiCompany/scripts/health_check.sh
+```
+
+Output looks like one of:
+
+```
+## ✓ Agent health — all clean
+12 agent run(s) today, no errors detected.
+```
+
+or
+
+```
+## ⚠️ Agent health — 2 of 14 run(s) flagged
+
+- **pm** (2026-05-26-0700):
+  `Error: unknown model "claude-haiku-99-99"`
+  log: `/Users/.../logs/pm/2026-05-26-0700.log`
+- **reviewer** (2026-05-26-0023):
+  `429: rate limit exceeded`
+  log: `/Users/.../logs/reviewer/2026-05-26-0023.log`
+```
+
+Patterns it flags: `unknown model`, `model not found`, `rate.?limit`,
+`quota exceeded`, `429`, `session expired`, `authentication failed`,
+`permission denied`, `fatal:`, `ERROR:`, `unhandled exception`,
+`Traceback`. Edit `scripts/health_check.sh` to tune the pattern list.
+
+The check is read-only and idempotent — run it before bed, in the
+morning, mid-day, whenever you want a quick "is anything broken?" view.
+
 ### Manually move an item
 
 ```bash
@@ -546,6 +588,8 @@ Tag reference:
 | `[chore]` | Refactor / docs / deps | yes |
 | `[idea]` | Designer drop, CEO triage needed | **NO** (must remove tag first) |
 | `[cold]` | Janitor archived as stale | **NO** (must remove tag first) |
+| `[manual]` or `MANUAL - ` prefix | CEO-only — needs human hands (controller test, art, music) | **NO** (skip until tag/prefix removed) |
+| `[needs-ceo]` | Developer added clarifying questions — CEO must answer | **NO** (skip until questions answered + tag removed) |
 
 ---
 
@@ -557,7 +601,7 @@ Tag reference:
 | **developer** | called by overnight | sonnet | Implements one WORK.md item end-to-end on a feature branch. |
 | **reviewer** | called by overnight | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). |
 | **triager** | daily 05:00 PT | haiku | Reads overnight test failures, dedupes, appends `[bug]` items to ## Todo. |
-| **morning-briefer** | daily 06:00 PT | haiku | Writes MORNING.md — 10 features to play-test, decisions to make, escalations. |
+| **morning-briefer** | daily 06:00 PT | haiku | Writes MORNING.md — runs `health_check.sh` first, then 10 features to play-test, decisions to make, escalations. |
 | **pm** | daily 07:00 PT | haiku | Reorders top of ## Todo by priority and bug/feature balance. |
 | **designer** | weekly Fri 07:00 PT | sonnet | Proposes 4-6 `[idea]`-tagged items for CEO triage. |
 | **blogger** | weekly Sat 10:00 PT | sonnet | Drafts devlog from week's commits, pushes `blog/<date>` branch. |
@@ -585,6 +629,18 @@ tail -10 ~/SpraxelAiCompany/logs/tick/$(date +%Y-%m-%d).log
 ls ~/SpraxelAiCompany/.paused 2>/dev/null && echo "PAUSED — rm to resume"
 ```
 
+### "Did any agent fail today?"
+
+First stop — the health check:
+
+```bash
+bash ~/SpraxelAiCompany/scripts/health_check.sh
+```
+
+If it says "all clean" and you still suspect something, scan the tick log
+for dispatches that didn't produce a follow-up log file. (Same output the
+morning briefer puts at the top of MORNING.md.)
+
 ### "Agent ran but did nothing"
 
 Check the agent log:
@@ -598,6 +654,8 @@ done
 Common causes:
 - Philosophy.md `run_mode: "dryrun"` — agents exit silently. Flip to `live`.
 - Claude session expired — re-run `claude login` in Claude Code.
+- Wrong model ID for the agent (claude-CLI errors with `unknown model`).
+  The health check catches this — `bash scripts/health_check.sh`.
 - Nothing to do (Janitor with no stale items, PM with no reorder needed).
 
 ### "Overnight loop didn't ship anything"
@@ -737,6 +795,7 @@ plan.
 | Reviewer's notes per branch | `~/GameProjects/infiltrators/.factory/reviews/<branch>.md` |
 | Agent run logs | `~/SpraxelAiCompany/logs/<agent>/<ts>.log` |
 | Daemon ticks | `~/SpraxelAiCompany/logs/tick/<YYYY-MM-DD>.log` |
+| Quick "is anything broken?" | `bash ~/SpraxelAiCompany/scripts/health_check.sh` |
 | Schedule config | `~/SpraxelAiCompany/schedule.yaml` |
 | Game's design tenets | `~/GameProjects/infiltrators/Philosophy.md` |
 | Feature inventory | `~/GameProjects/infiltrators/Game.md` |

@@ -47,6 +47,10 @@ Inline tags at the start of a title line are extracted automatically:
   CEO removes the `[idea]` tag to promote (item becomes shippable), or
   deletes the line to reject.
 - **`[cold]`** — Janitor moved a stale item out of active rotation.
+- **`[manual]`** or **`MANUAL - ` line prefix** — CEO-only work (controller
+  testing, sourcing music, hand-tuning art, anything the Developer agent
+  can't do). **Overnight skips these.** Remove the tag/prefix to make it
+  shippable, or just delete the line when done.
 
 Example:
 

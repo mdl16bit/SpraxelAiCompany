@@ -45,6 +45,19 @@ if [ ! -f "$spec" ]; then
   exit 4
 fi
 
+# Read the spec's model frontmatter field and map to a full Claude model ID.
+# Short names (haiku/sonnet/opus) map to the latest 4.x release. A full ID
+# (starts with "claude-") passes through unchanged. Missing field = Sonnet.
+model_short=$(awk '/^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$spec")
+case "${model_short:-sonnet}" in
+  haiku)  model_id="claude-haiku-4-5-20251001" ;;
+  sonnet) model_id="claude-sonnet-4-6"          ;;
+  opus)   model_id="claude-opus-4-7"            ;;
+  claude-*) model_id="$model_short"             ;;
+  *)      echo "run_agent: unknown model '$model_short' in $spec — defaulting to sonnet" >&2
+          model_id="claude-sonnet-4-6"          ;;
+esac
+
 # Pull game_dir from schedule.yaml (simple YAML extraction — no PyYAML required).
 game_dir=$(python3 - "$SCHEDULE" <<'PY'
 import sys, os, re
@@ -102,7 +115,7 @@ log="$LOGS_DIR/$agent/$ts.log"
 
 if [ "$dry_run" = "--dry-run" ]; then
   echo "Prompt written to: $log.prompt"
-  echo "Would run: claude -p (cwd=$game_dir, log=$log)"
+  echo "Would run: claude --model $model_id -p (cwd=$game_dir, log=$log)"
   exit 0
 fi
 
@@ -116,10 +129,10 @@ fi
 trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT INT TERM
 
 # Run claude headless. --dangerously-skip-permissions enables Bash/Edit/Write without prompts.
-# stdin = composed prompt, stdout/stderr → log.
-echo "run_agent: $agent → $log" >&2
+# stdin = composed prompt, stdout/stderr → log. Model is per-agent (see frontmatter).
+echo "run_agent: $agent ($model_id) → $log" >&2
 cd "$game_dir"
-if claude --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
+if claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
   echo "run_agent: $agent ok" >&2
   exit 0
 else

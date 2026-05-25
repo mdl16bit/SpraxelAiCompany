@@ -70,8 +70,50 @@ that after Reviewer + tests pass.
   output in the next prompt. Read it, fix the regression, commit again.
 - Reviewer flags blocking findings → overnight escalates the item; you
   don't get a retry. Be careful: a blocking review costs the item.
-- Spec is ambiguous → exit 1 with `developer: ambiguous spec — <what's missing>`
-  on stdout. Overnight escalates to `.factory/escalations.md`.
+
+## When you don't understand the item — ASK, don't guess
+
+If the item is ambiguous, under-specified, or has multiple reasonable
+interpretations, **do NOT implement a guess.** Instead, call `clarify` to
+tag the item `[needs-ceo]` and append your questions as indented details:
+
+```bash
+python3 ~/SpraxelAiCompany/scripts/workmd.py clarify <path>/WORK.md "<title substring>" \
+  --question "should starting skills be locked per character or random?" \
+  --question "tree view or graph view for the UI?" \
+  --question "do I scaffold the data structure first, or build the full 300-skill set?"
+```
+
+That:
+1. Adds `[needs-ceo]` to the item's title.
+2. Appends each question as an indented `Q (date): ...` line under the item.
+3. Overnight will skip the item until the CEO removes the tag.
+
+Then **commit WORK.md** with the developer bot identity and **exit 0** with stdout:
+```
+developer: needs-ceo — added <N> questions to WORK.md, item now [needs-ceo]
+```
+
+The overnight wrapper detects the `[needs-ceo]` tag and moves on without
+escalating. CEO sees the questions in MORNING.md and answers them by
+editing the item (replacing the questions with concrete specs), then
+removing the `[needs-ceo]` tag.
+
+**When to clarify instead of attempting:**
+- "Add a skill tree" with no list of skills, no UI specified → clarify.
+- "Improve graphics" with no concrete target → clarify.
+- "Fix the camera" with no repro of what's wrong → clarify.
+- "Add 500 class names" — that's an open-ended design choice → clarify.
+
+**When NOT to clarify (just implement):**
+- Concrete bug repro with expected behavior stated → implement, even if
+  you have to guess at one minor detail.
+- Self-contained feature with clear acceptance ("add a duck button that
+  halves character height, helps hide behind tables") → implement.
+- "Make X N% faster/larger/smaller" with specific numbers → implement.
+
+A good rule: if your first instinct is to **write a comment "// TODO: CEO
+needs to decide X"**, that's a clarify case. Make it a Q instead.
 
 ## Output
 

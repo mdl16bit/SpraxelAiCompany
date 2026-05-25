@@ -51,7 +51,9 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo)\]", re.I)
+# Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
+MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 
 
 @dataclass
@@ -77,6 +79,18 @@ class WorkItem:
     @property
     def is_cold(self) -> bool:
         return "cold" in self.tags
+
+    @property
+    def is_manual(self) -> bool:
+        """True if item is CEO-only — either tagged [manual] or starts with
+        a MANUAL prefix (e.g. 'MANUAL - test the game with controller')."""
+        return "manual" in self.tags or bool(MANUAL_PREFIX_RE.match(self.title))
+
+    @property
+    def is_needs_ceo(self) -> bool:
+        """True if Developer asked clarifying questions — needs CEO answers
+        before overnight will re-attempt it."""
+        return "needs-ceo" in self.tags
 
     def to_dict(self) -> dict:
         return {
@@ -431,14 +445,14 @@ def bump(path: Path, title: str, new_priority: str) -> WorkItem:
 def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> list[WorkItem]:
     """Return the first N eligible Todo items.
 
-    Eligible = not [idea], not [cold], not in skip_attempted.
-    Preserves file order (top of Todo is shipped next).
+    Eligible = not [idea], not [cold], not [manual]/MANUAL, not [needs-ceo],
+    not in skip_attempted. Preserves file order.
     """
     wm = parse(path)
     skip = {s.strip().lower() for s in (skip_attempted or [])}
     out: list[WorkItem] = []
     for it in wm.todo:
-        if it.is_idea or it.is_cold:
+        if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo:
             continue
         if it.title.strip().lower() in skip:
             continue
@@ -446,6 +460,39 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
         if len(out) >= n:
             break
     return out
+
+
+def clarify(path: Path, title: str, questions: list[str]) -> WorkItem:
+    """Tag an item with [needs-ceo] and append the Developer's clarifying
+    questions as indented detail lines under the item.
+
+    Overnight skips [needs-ceo] items. CEO answers the questions (edits the
+    item to add specifics), removes the [needs-ceo] tag, and overnight picks
+    it up again on the next run.
+    """
+    if not questions:
+        raise ValueError("clarify requires at least one --question")
+    with FileLock(path):
+        wm = parse(path)
+        section, idx = _find_in_all(wm, title)
+        if idx < 0:
+            raise ValueError(f"item not found: {title!r}")
+        item = getattr(wm, section)[idx]
+        # Prepend [needs-ceo] tag if not already present.
+        if not item.is_needs_ceo:
+            new_title = f"[needs-ceo] {item.title}"
+            item.title = new_title
+            if item.raw_lines:
+                item.raw_lines[0] = new_title
+        # Append each question as an indented detail line, prefixed with "Q:".
+        ts = time.strftime("%Y-%m-%d")
+        for q in questions:
+            q_line = f"Q ({ts}): {q.strip()}"
+            item.details.append(q_line)
+            if item.raw_lines:
+                item.raw_lines.append(f"  {q_line}")
+        path.write_text(serialize(wm))
+        return item
 
 
 # ---- CLI ----
@@ -492,6 +539,13 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("title")
     pb.add_argument("priority")
 
+    pc = sub.add_parser("clarify",
+        help="Developer tags an item [needs-ceo] and appends questions as indented details")
+    pc.add_argument("path")
+    pc.add_argument("title")
+    pc.add_argument("--question", action="append", required=True,
+        help="clarifying question (repeatable)")
+
     args = p.parse_args(argv)
     path = Path(os.path.expanduser(args.path))
 
@@ -535,6 +589,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "bump":
         item = bump(path, args.title, args.priority)
         print(f"bumped to {args.priority}: {item.title}")
+        return 0
+
+    if args.cmd == "clarify":
+        item = clarify(path, args.title, args.question)
+        print(f"clarified ({len(args.question)} questions): {item.title}")
         return 0
 
     return 1

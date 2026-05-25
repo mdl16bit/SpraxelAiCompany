@@ -9,7 +9,10 @@
 # item is escalated to .factory/escalations.md (with a log link) and removed
 # from Todo until the CEO resurrects it.
 
-set -uo pipefail
+set -o pipefail
+# NOTE: not using `set -u` — macOS bash 3.2 errors on empty-array refs like
+# "${arr[@]}" when arr is empty, which breaks our skip-list loop. We rely on
+# explicit initialization at the top of the file instead.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULE="$REPO_DIR/schedule.yaml"
@@ -173,6 +176,34 @@ for det in it.get('details', []):
       break
     fi
 
+    # Detect "needs-ceo clarification" — Developer ran clarify on the item
+    # instead of implementing. The item now has [needs-ceo] tag in WORK.md.
+    # That's a clean skip, not a failure. Don't run tests, don't escalate.
+    if python3 -c "
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+from workmd import parse, find_item
+wm = parse('$game_dir/WORK.md')
+for sec in (wm.todo, wm.current, wm.shipped):
+    idx = find_item(sec, '$next_title'.replace('[needs-ceo] ', ''))
+    if idx >= 0 and sec[idx].is_needs_ceo:
+        sys.exit(0)   # found, was clarified
+sys.exit(1)            # not clarified
+" 2>/dev/null; then
+      echo "overnight: ↪ developer clarified '$next_title' — moving on" >> "$item_log"
+      echo "overnight: ↪ clarified '$next_title'"
+      # The Developer should have committed WORK.md already, but push just in case.
+      git add WORK.md 2>/dev/null || true
+      git diff --cached --quiet || \
+        git -c user.email=overnight-bot@spraxel.ai -c user.name='Spraxel Overnight' \
+            commit --quiet -m "needs-ceo: clarifications on '$next_title'" 2>/dev/null
+      git push --quiet origin master 2>/dev/null || true
+      git checkout --quiet master
+      git branch -D "$branch" --quiet 2>/dev/null || true
+      outcome=clarified
+      break
+    fi
+
     # Run local tests (already managed by separate launchd; here we invoke directly).
     if bash "$game_dir/scripts/run_local_tests.sh" >> "$item_log" 2>&1; then
       :  # tests passed
@@ -215,8 +246,8 @@ for det in it.get('details', []):
     fi
   done
 
-  if [ "$outcome" != "ok" ]; then
-    # Escalate the item: drop from Todo, append to .factory/escalations.md.
+  if [ "$outcome" = "fail" ]; then
+    # Genuine failure — escalate (drop from Todo, append to escalations.md).
     git checkout --quiet master
     git branch -D "$branch" --quiet 2>/dev/null || true
     python3 "$WORKMD" escalate "$game_dir/WORK.md" "$next_title" \
@@ -227,6 +258,7 @@ for det in it.get('details', []):
     git push --quiet origin master 2>/dev/null || true
     echo "overnight: ✗ escalated '$next_title'"
   fi
+  # outcome=clarified or outcome=ok need no additional handling here.
 done
 
 # --- summary ---

@@ -20,3 +20,7 @@ cd ~/SpraxelAiCompany
 .locks/
 .cache/
 .paused
+logs/
+.locks/
+.cache/
+.paused

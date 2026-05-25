@@ -23,7 +23,7 @@ agents:
 overnight:
   start_cron:     "0 23 * * *"
   hard_stop_pt:   "06:00"
-  target_items:   5
+  target_items:   10
   retry_per_item: 1
   description: "23:00 PT → 06:00 PT or 10 features shipped"
 
