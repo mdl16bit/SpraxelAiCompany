@@ -131,6 +131,35 @@ jobs:
           prompt: |
             You are the **Spraxel Developer** agent. Implement issue #${{ needs.resolve.outputs.issue_number }} end-to-end on a new branch.
 
+            ## STEP 0 — FAIL-FAST: already-shipped detection (under 1 minute)
+
+            BEFORE reading any other context, check whether this issue is already implemented. The autopilot frequently dispatches Developers on issues whose work was completed via earlier PRs — your job is to detect this in <60 seconds and exit cleanly.
+
+            Run these in parallel:
+
+            ```bash
+            # 1. Has a PR closing this issue already merged?
+            gh pr list --repo ${{ github.repository }} --state merged --search "in:body \"closes #${{ needs.resolve.outputs.issue_number }}\" OR in:body \"fixes #${{ needs.resolve.outputs.issue_number }}\" OR in:title \"#${{ needs.resolve.outputs.issue_number }}\"" --json number,title,mergedAt --jq '.[0]'
+
+            # 2. Is there a Game.md feature block for this scope?
+            #    (Read the issue title first to know what to grep for)
+            gh issue view ${{ needs.resolve.outputs.issue_number }} --repo ${{ github.repository }} --json title --jq .title
+            grep -i -E "<key terms from title>" Game.md 2>/dev/null | head -5
+
+            # 3. Is there a debug-hook in scripts/systems/debug_boot.gd matching the issue's slug?
+            grep -i -E "demo-feature.*<slug>" scripts/systems/debug_boot.gd 2>/dev/null
+            ```
+
+            **If ANY of those three checks hits** (a merged PR exists, OR Game.md has the feature, OR debug_boot has the slug):
+            1. Read the existing implementation to verify scope match (don't read more than 2-3 files).
+            2. Post ONE comment on the issue: `_Developer: All acceptance criteria for this issue are already satisfied by PR #<N> (merged YYYY-MM-DD). Code lives at <paths>. Closing._`
+            3. Close the issue via `mcp__github__update_issue`.
+            4. Exit cleanly. **Do NOT create a branch.**
+
+            Skip this check ONLY if the issue's title explicitly says "expand" / "extend" / "polish" of an existing feature — those legitimately want more work on already-shipped code.
+
+            **Why this matters**: a full Developer fire on an already-done issue burns 20-50K tokens. The fail-fast path costs ~3K. Half of recent fires hit this case; please optimize for it.
+
             ## Your scope: THIS issue, nothing else
 
             You receive an issue number. Your scope is **that issue's body and acceptance criteria — ONLY**. Do NOT:

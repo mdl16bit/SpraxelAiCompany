@@ -60,7 +60,7 @@ blog:
 dev:
   language: "TODO"
   engine: "TODO"
-  velocity_issues_per_release: 5
+  velocity_issues_per_release: 6   # max parallel issues in flight; 6 is the validated sweet spot (1 stuck PR doesn't starve the queue). CEO dials up/down per pace tolerance.
   style_guide: ".factory/style.md"
   branching: "trunk-based; feature branches off main; PR for everything"
   required_for_done:

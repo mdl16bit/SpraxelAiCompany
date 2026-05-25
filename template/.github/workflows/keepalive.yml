@@ -78,20 +78,19 @@ jobs:
           set -euo pipefail
           # For each issue labeled status:claimed: check if any open PR's
           # branch name contains `issue-<N>` or title contains `(#<N>)` /
-          # `issue #<N>`. If none AND issue was last updated > 10 min ago
+          # `issue #<N>`. If none AND issue was last updated > 5 min ago
           # (gives a real Developer time to actually open the PR but
-          # quickly recovers slots from ghost claims left by failed runs):
-          # remove status:claimed.
-          # Was 30 min; tightened 2026-05-25 because ghost claims from
-          # bot-guard rejections were holding slots for too long.
+          # quickly recovers slots from ghost claims left by failed runs).
+          # Was 30 → 10 → 5 min (2026-05-25). Real Developers commit
+          # within 2-3 min of starting; 5 min is enough grace.
           NOW=$(date -u +%s)
           gh issue list --repo "$REPO" --state open --label status:claimed \
             --json number,updatedAt --jq '.[] | "\(.number) \(.updatedAt)"' | \
           while read -r N TS; do
             UPDATED=$(date -u -d "$TS" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$TS" +%s 2>/dev/null || echo 0)
             ELAPSED=$((NOW - UPDATED))
-            if [ "$ELAPSED" -lt 600 ]; then
-              continue  # < 10 min — Developer may still be opening the PR
+            if [ "$ELAPSED" -lt 300 ]; then
+              continue  # < 5 min — Developer may still be opening the PR
             fi
             # Look for any open PR referencing this issue
             PR_COUNT=$(gh pr list --repo "$REPO" --state open --search "in:title \"#$N\" OR in:title \"(#$N)\" OR in:body \"closes #$N\"" --json number --jq 'length')
@@ -125,8 +124,21 @@ jobs:
             local PR="$1" REASON="$2"
             local COUNT=$(gh pr view "$PR" --repo "$REPO" --json comments --jq "[.comments[] | select(.author.login == \"claude\") | select(.body | test(\"rework|address PR\")) | select(.createdAt > \"$CUTOFF\")] | length")
             if [ "${COUNT:-0}" -ge 4 ]; then
-              echo "::warning::PR #$PR has $COUNT rework iterations in 24h ($REASON) — escalating to status:needs-ceo"
+              echo "::warning::PR #$PR has $COUNT rework iterations in 24h ($REASON) — escalating to status:needs-ceo + freeing slot"
               gh pr edit "$PR" --repo "$REPO" --add-label "status:needs-ceo" 2>&1 | head -1
+              # MOVE-ON LOGIC: free the underlying issue's slot so other Developers
+              # can start on different issues while CEO reviews this stuck PR.
+              # PR stays open for CEO inspection; the source issue moves from
+              # status:claimed → status:blocked. status:blocked is NOT counted
+              # toward in_flight, so a slot is freed.
+              local SRC_ISSUE=$(gh pr view "$PR" --repo "$REPO" --json body,title --jq '"\(.title) \(.body)"' | grep -oE "#[0-9]+|(?<=closes #)[0-9]+|(?<=issue #)[0-9]+" | head -1 | tr -d '#')
+              if [ -n "$SRC_ISSUE" ]; then
+                echo "::notice::Freeing slot — moving source issue #$SRC_ISSUE from status:claimed → status:blocked"
+                gh issue edit "$SRC_ISSUE" --repo "$REPO" --remove-label "status:claimed" --add-label "status:blocked" 2>&1 | head -1
+                gh issue comment "$SRC_ISSUE" --repo "$REPO" --body "_Keepalive: PR #$PR escalated to CEO after $COUNT rework attempts. Moving this issue to status:blocked so other slots can open. CEO will unblock after resolving the PR._" >/dev/null
+              else
+                echo "::warning::Could not parse source issue # from PR #$PR — slot stays claimed"
+              fi
               return 0
             fi
             echo "::notice::Firing rework for stuck PR #$PR ($REASON; $COUNT prior iterations in 24h)"
