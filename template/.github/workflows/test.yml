@@ -1,12 +1,18 @@
 name: Tests
 
-# Runs GUT unit tests (test/unit/) AND every acceptance scenario in
-# scripts/scenarios/ via the --demo-feature debug hook. Labels the PR
-# tests:pass or tests:fail. PM consults the labels before merging.
+# AUTO-FIRE DISABLED 2026-05-25 — to reduce GH Actions runner-minute spend,
+# tests now run locally on CEO's Mac via scripts/run_local_tests.sh + launchd
+# cron every 30 minutes. See scripts/install_local_tests.sh for setup.
+#
+# This workflow is kept on workflow_dispatch only — CEO can manually trigger
+# a CI run when wanting to verify under a clean Ubuntu environment (e.g.,
+# before a release cut, or to confirm a flaky local result).
+#
+# When PR labels `tests:pass`/`tests:fail` are needed for auto-merge, those
+# now come from the local test runner posting to issue #5 + setting labels
+# via gh CLI (which runs from the CEO's authenticated Mac, no Actions cost).
 
 on:
-  pull_request:
-    types: [opened, ready_for_review, reopened, synchronize]
   workflow_dispatch:
     inputs:
       pr_number:

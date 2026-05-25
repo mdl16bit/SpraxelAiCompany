@@ -9,8 +9,10 @@ name: Playtest (nightly)
 # missed and surfacing degradation over time.
 
 on:
-  schedule:
-    - cron: '0 9 * * *'  # daily 02:00 PT (PDT) / 01:00 PT (PST)
+  # NIGHTLY CRON DISABLED 2026-05-25 — replaced by local Mac cron via
+  # scripts/run_local_tests.sh (fires every 30 min while Mac is awake).
+  # Keep workflow_dispatch + workflow_call so release-cut.yml can invoke
+  # this as a pre-tag smoke test, and CEO can fire manually if needed.
   workflow_dispatch:
   workflow_call:        # release-cut.yml calls this as a pre-tag smoke test
     outputs:

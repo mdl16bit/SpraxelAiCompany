@@ -13,16 +13,17 @@ name: Keepalive (fill the velocity cap)
 # No LLM cost — pure label manipulation via gh CLI + GITHUB_TOKEN.
 
 on:
-  schedule:
-    # GH cron is unreliable for this repo (high run volume = silent throttle).
-    # Kept as a backup; the primary trigger is the issue_comment path below.
-    - cron: '13,43 * * * *'
+  # GH SCHEDULE CRON REMOVED 2026-05-25 — was throttled anyway, and the
+  # CCR routine pair (Spraxel Keepalive trigger Infiltrators :17 + :47)
+  # drives keepalive twice/hour via issue_comment events. Pure GH-cron
+  # waste eliminated.
   workflow_dispatch: {}
-  # Primary autopilot trigger: an Anthropic /schedule CCR routine posts a
-  # comment with "KEEPALIVE-TICK" marker on the Factory Daily Log issue (#5)
-  # every hour. CCR routines run on Anthropic infra, completely independent
-  # of GitHub cron throttling. The MCP github comment-write uses an App
-  # token whose pushes DO cascade to workflows (unlike GITHUB_TOKEN).
+  # Primary autopilot trigger: Anthropic /schedule CCR routines post a
+  # comment with "KEEPALIVE-TICK" marker on the Factory Daily Log issue
+  # every 30 min (paired :17 + :47 cron). CCR runs on Anthropic infra,
+  # independent of GitHub cron throttling. The MCP github comment-write
+  # uses an App token whose events DO cascade to workflows (unlike
+  # GITHUB_TOKEN).
   issue_comment:
     types: [created]
 
