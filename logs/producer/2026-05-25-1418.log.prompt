@@ -1,0 +1,425 @@
+---
+name: spraxel-producer
+description: Producer (intake) agent for the Spraxel gamedev factory. Dispatch this when another agent or a scheduled job needs to drain `.factory/inbox/pending-intake.md` or `.factory/inbox/dictation/` and create GitHub Issues without an interactive CEO confirmation. For the CEO's interactive flow, the `spraxel-producer` skill is the entry point — this agent is the headless worker behind it.
+model: sonnet
+---
+
+> **Read also**: [`_shared.md`](_shared.md) — universal safety rails (dryrun guard, never push to master, never close own PR, escalation protocol, token efficiency). Applies to every agent.
+
+You are the Producer for the Spraxel gamedev factory, invoked in **headless mode**.
+
+The canonical workflow, conventions, and hard rules live in:
+**`~/SpraxelAiCompany/skills/spraxel-producer/SKILL.md`**
+
+Read that file first. Follow its instructions exactly, but skip the CEO-confirmation step and apply the headless-mode constraints (only auto-create issues that are unambiguous; leave anything that needs CEO judgment in `.factory/inbox/pending-intake.md` with a `[needs-ceo]` prefix).
+
+After processing, write a one-block summary to `.factory/inbox/today.md` so the Concierge can surface it in the morning digest. Be specific about deferrals — "3 items left for CEO triage (ambiguous priority on 2; possible dup of #67 on 1)" is more useful than "deferred some items."
+
+Token efficiency: do not reread the SKILL.md after the first read. Do not load full WORK.md.
+
+---
+## Today's runtime context
+
+Working directory: /Users/skinnyluigi/GameProjects/infiltrators
+Date: 2026-05-25 14:18 PDT
+
+### Philosophy.md (run_mode and budgets)
+---
+identity:
+  name: "Infiltrators"
+  pitch: "Lost Vikings × Gunpoint: 2D side-scrolling stealth/heist with 8 controllable thieves, multi-floor levels, plan-mode slow-mo, dark Front Mission tone."
+  must_include:
+    - "8 controllable thieves on the player team (Hacker, Acrobat, Bruiser, Sniper, Demolitionist, Disguiser, Medic, Pickpocket)"
+    - "non-lethal play is rewarded with bonus XP/score; some missions hard-fail on any kill"
+    - "multi-floor side-on levels (Gunpoint-style), vertical movement via stairs/ladders/vents"
+    - "real-time switching by default, with a Frozen-Synapse-style slow-mo plan mode (hold Tab, click to queue, release to resume)"
+    - "live SubViewport preview windows for the 7 inactive thieves in the HUD"
+  must_not_include:
+    - "procgen levels"
+    - "turn-based combat"
+    - "cute / anime portrait art"
+    - "perma-death of player thieves (downed/extract OK; permanent loss is out of scope)"
+
+cadence:
+  release: "biweekly mondays"      # CEO cuts the tag locally every other Monday; PM plans ship-in labels
+  pm: "daily 07:00; ship-in re-plan on release day"
+  concierge: "daily 06:00"
+  janitor: "sunday 02:00"           # phase 2
+  playtester: "on PR open; nightly 02:00"   # phase 2
+  designer: "daily 05:00"           # phase 3
+  blogger: "saturday 10:00"         # phase 3
+  demo_creator: "wed+sat 03:00"     # phase 3
+
+budgets:
+  monthly_usd_hard_cap: 250
+  by_agent_percent:
+    producer: 30
+    developer: 35
+    pm: 5
+    reviewer: 3
+    concierge: 3
+    playtester: 10                  # phase 2
+    janitor: 2                      # phase 2
+    designer: 10                    # phase 3
+    blogger: 3                      # phase 3
+    demo_creator: 2                 # phase 3
+  model_assignments:
+    producer: sonnet
+    developer: sonnet
+    pm: haiku                       # was sonnet — downgraded 2026-05-24 (mechanical work)
+    reviewer: haiku
+    concierge: haiku
+    playtester: sonnet              # phase 2
+    triager: haiku                  # phase 2
+    janitor: haiku                  # phase 2
+    designer: sonnet                # phase 3
+    blogger: sonnet                 # phase 3
+
+ceo:
+  do_not_disturb: ["00:00-07:30"]
+  approval_required_for:
+    - "bulk issue creation (>5)"
+    - "release cut"
+    - "playtester-found bugs (validate real-vs-not before issue creation)"
+    - "designer ideas (accept/reject/amend per idea)"
+  default_to_yes_after_hours: 24
+  headless_mode_default: false
+
+blog:
+  voice: "casual dev-log, first-person, opinionated, occasional retro-game reference, ~1000 words"
+  template: "blog/templates/devlog.md"
+  publish_target: "github-pages-hugo"
+
+dev:
+  language: "GDScript"
+  engine: "Godot 4.6.1"
+  godot_binary: "/Users/skinnyluigi/Downloads/Godot.app/Contents/MacOS/Godot"
+  main_scene: "res://scenes/game/title.tscn"
+  velocity_issues_per_release: 6   # bumped 3→6 (2026-05-25) — single biggest throughput knob; CEO can dial back if review burden gets heavy
+  style_guide: ".factory/style.md"
+  branching: "trunk-based; feature branches off main; PR for everything"
+  required_for_done:
+    - "tests pass"
+    - "new test added covering the change"
+    - "debug hook --demo-feature=<slug> works"
+    - "Game.md updated for new/changed features"
+    - "Reviewer pass green"
+
+### WORK.md (current state)
+Let's design a skill tree type system. The characters themselves are just people with gender, histories, names, flavor (history, favorite sayings, origins, ethnicities, etc).
+  Characters grow in different directions. Like in many games, their stats dictate what they'd be best at. Someone who is smart can be a hacker. Someone who is strong can be a bruiser.
+  Someone with charisma can be a charmer, etc
+  The game has a giant set of "class names" and it comes up with the appropriate class name for you based on your skill set. It will approximately give you the label is thinks best fits. This functionally does nothing, but is a fun flavor mechanic.
+  Based on the skill list and possible combos of skills, consider ~500 "class names" we could apply. In-game, as characters grow and their skill sets change, always re-check for the most appropriate class name and apply it in the character profile.
+  The skill tree system is like any other such tree (ie, tech tree in Civilization). Think of like 300 different skills; start by looking at the classes in the current system; each class should be a skill that can be learned. Each skill can also be leveled up. Make three levels of each skill.
+  Leveling up the skill improves how well they do it (hacker hacks faster, bruiser does more damage, charmer has a better success rate, sneaker sneaks by more efficiently.) Generally, push the skill to be faster / bigger numbers.
+  As a person uses a specific skill, they gain experience; enough experience and they can learn the skills in the skill tree that require mastery of dependency skills OR they can level up the skill they're using.
+  Each character, when generated has 3 skills; since certain skills in the skill tree can only be reached by mastery of previous skills, this locks characters into archetypes depending on the skills they start with (since there's no way to learn the base skill you didn't start with)
+  Some (many?) skills in the skill tree have multiple dependencies that must exist before they can be learned.
+  Ask me any questions you have and I'll clarify everything.
+Often when I walk into a guard's view, I don't get caught. I should certainly be seen if I cross through the guards flashlight area, or walk right in front of them in well lit areas. Same with the camera. If a character is "staring forward", then they should see on both sides, though they'll have a limited range. Fix this. They still often don't see me when I walk right into their line of site. They see me when they suddenly turn towards me and I'm in the line of site. I want them to detect me when I walk directly towards them.
+I press quit on the active game window, and line 71 triggers this error: Invalid access to property or key 'world_2d' on a base object of type 'Nil'.
+Make this change: Jumping should be a skill. When people have the jump skill, they can jump about 65% what the character can currently jump. When they don't have the jump skill, they can still jump but only 30% of the jumping power of the current characters
+You can push through people; when you walk "through" them, either have your character walk in front or behind the enemy (or friend) character.
+Disallow jumping onto people's heads and standing on their heads; you can never stand on their heads. If you (or an enemy) fall a medium distance from above onto another character, that character gets knocked out. If you (or an enemy) fall a large distance onto another character, then both characters die.
+Any character can fall to their death. Characters (good + bad) can jump over holes; you can also push people around and push them off ledges (where they fall short distances and take a little damage, or fall far distances to their death). Falls within approx one average body height = no damage. Higher than that, but lower than 3.5 approx average body heights = take damage; ramp the damage by length of the fall. Higher than 3.5 = death from the fall
+Characters should die more easily from getting shot. (Make bullet shots 1.6x as powerful). Shots from close up are instant-kill
+The enemies seem to hear me jump, but they should hear me LAND; that's the loud part.
+When a character dies, make them no longer selectable. Take them out of the rotation; when they die, if you were manually controlling them, switch the manual control to a different character. Currently, when the character I'm controlling dies, I can still move them around as if they didn't die
+Preview windows are re-sizing to fit the full character name... Don't do this. Make the name part two lines in size so that the name can wrap onto the next line and fit.
+Add ability to tab-cycle through characters. Like, a button that means "next character" and behaves exactly like alt+tab on Windows
+Fix broken preview windows - static
+Add horizontal lines in the static, like, staticy horizontal lines that kind of move up and down. Hard to explain the effect. Like, the poor reception results in horizontal lines that move around in the view
+Change character movement (friend + foe) so you slightly accelerate from a stationary position into the current movement speed
+When I jump into someone, there's this brief jerking in the character movement/screen that shouldn't happen. Some weird bug? Can you fix it?
+Add a "run" button that let's you run; it makes you move at 1.5x speed, but you have a stamina bar that drains when you run. If it drains completely, your character stops to catch their breath. The bar refills really slowly. Also, running is really loud and the noise tips off the guards, etc
+Change how the camera works. It basically moves quite quickly to where it's supposed to be and then slows down into the right spot. (Kind of like the NHL94 camera?) The main effect of this is that when you switch characters (or my current character dies, and I switch automatically), the screen should fly over to that character, not instantly snap there
+Make sure characters walk in front of windows! It seemed like sometimes they were behind the window which doesn't make sense
+Stop that ducking thing the characters do altogether. Change it so when two friendlies pass each other (both controllable characters), they just nod at each other.
+When the character you are controlling dies, lock the selection+ camera on the dying character for 3/4 of a second before forcing it to switch characters automatically.
+  During this brief lockout, you can still manually switch off the now dead character normally
+When a character that is not selected is seen or hurt, flash their preview so it's obvious. Flash it the entire time they're seen; if they're hurt, flash it for 3 seconds
+Make pushing work differently.
+  If you press R and then start pushing a character, it's a very slow push, almost like you're pushing a boulder
+  If you are already moving and you press R and hold it at least 2/3 of a second, it's a "shove"; you literally bump the character forward, as though they jumped forward. You lose movement when this happens, but movement re-begins right away if you are still holding forward. Add a cooldown (visible draining bar) of two seconds before you can do this again
+In some missions you are not allowed to kill any civilians; the mission insta-fails. Insta-fail is fine, but don't end the gameplay. In the top right, show a "Mission failed" message; the mission will end when you get all your characters out of there (ie, move all living members back to the extraction point)
+  Fix extraction... same bug is still there.
+Show a blank preview for extracted characters, not static. Static is only for dead characters
+Add a duck mechanic - everyone can duck (helps hide behind tables and stuff)
+Add a skill to dodge bullets
+There should be a button to toggle displaying view cones one and off
+Fix guards seeing you in their view cone
+  Next, check that the guards really see you when you walk into their view cones!
+  Fix in-view-get-caught
+When everyone dies, the level should "end". If the mission objectives were achieved, it's success (even tho everyone is dead), and if they were not achieved, it's a failure.
+Guards have a suspicious mode like metal gear (Hmmm? Whats that?) - if you make noise, or if you graze by them
+End the mission when everyone is dead/extracted - it's a success if the success criteria was met; otherwise it's a failure
+Add this: Guards/enemies have different "levels" - this affects reaction time, bullet accuracy and other things. Guards for simple smalltown banks are low level, military establishments are high level, big banks are medium, famous art galleries are elite, etc.
+Some guards have flash lights in dark areas. Sometimes that's not the case
+Certain areas should be noisy. There are different floor types in the game. Some special types of floors are noisy (stepping through water, stepping on bouncy floors). In that case, generally, the enemies should hear character footsteps. Add different types of floor:
+  Outdoor ground (quiet)
+  Grass (quiet)
+  Gravel (medium loud)
+  Flooring (medium loud)
+  Carpet (mostly quiet)
+  Concrete (medium quiet)
+  Anything else you can think of that is reasonable
+  Some land is perfectly quiet (outdoor areas)
+  Some skills help reduce the noise you make walking across floors (you can walk normally without triggering detection). Add this skill if it doesn't already exist
+Make civilians/guards/NPCs freak out when they find a dead body or knocked out person (you get detected when it happens)
+Currently, when everyone dies, the mission ends super instantly. Delay that a bit. Let the level continue for  1.5 seconds while the last character dies, and THEN pop the "Mission failed" dialog 
+When you enter a stage, show the stage name at first with a really cool font, and then have it separate out; the top half of the words fly off to the left, and the bottom half fly off to the right.
+Make sure all controls are configurable.
+laser trip wire (metal gear)
+Fix sudden level end after death (again???)
+Extraction ultimately ending the level is broken again --- level doesn't end, once one person has left extraction zone, all characters gain the ability to extract
+In the "office hours" level, make it possible to climb up to the second floor - the ladder is blocked at the top, so I can only climb up so far, and then I hit my head on the ceiling. Also, make it look a little more like a ladder
+Add water (lakes, pools, etc). Characters can swim in water. If a character treads water, there's no problem, but if they dive under, they get an oxygen bar that runs out in 10 seconds. If it runs out and the character has line of sight to the surface of the water and it's close, they'll automatically pop up to the surface. Otherwise, they start taking damage and eventually drown.
+Make a stage with a water area so I can test it
+Diving in the water hides you from enemies
+For swimming characters, When you are at the edge of the body of water, the action button (E) should get you to crawl back out of the water onto the land. Obviously this won't work when the ledge it too high, but if the land can be reached by the character, they can climb out. Climbing out of water is a bit slow. There's an animation, and it takes about a second.
+Add tables, desks, and ducts to the levels (and level editor). Then, add the ability to crawl under tables, desks, etc and into ducts.
+For now, we have the ability do "ducked walking" where you can walk while you duck. When ducking and stationary, have the characters behave as they do now. When ducking and moving, the sprite (/state) instead becomes a crawling one (until you stop moving). Make it like swimming for now; basically just the same sprite, but horizontal
+If you crouch and walk into a space and release the crouch button, stay crouched until you can uncrouch (like in Mario). I tested this under the table; if I release the duck button, my character should stay ducked/crawling
+Kill four bars on launch, characters dropping in, extraction site skewed
+Guards can't see through walls (I think it already works this way) - but cut their flash light type view cone things too, so that they don't pass through walls
+Characters don't get blocked on desks or tables. You can still crawl under them as you do now, but if you walk up to them, you just walk in front. It's useful to crawl under them to avoid detection (you can't be seen under a table or desk).
+Add ducts (add to office hours)
+Get rid of terrible motto at start
+Guards still really suck at seeing you. They should clue in better. Iterate + Polish this. Ask for the current algorithm.  Fix line-of-sight bugs (ducking behind tables, in flash light, etc)
+Make them react a little slower!
+Make game fullscreen-able; add options on menu to do so. It still doesn't really seem to work. I've seen it sort of work (?), but when I press the green button on the running app's menu bar (to full screen it), the rendered game screen does not expand to fill the screen / window area
+When you hover over someone with the mouse, display the keyboard number that will allow me to switch to them.
+Show character stats when you right-click on them. Don't pause the game (the logic keeps running), but create a little modal dialog window with their profile picture and stats and some flavor text. It's okay if a bunch of that is just placeholders
+When I left click on a character on my team, it switches control to them
+----------------------------------------------------------------------------------------------------------------
+Make sure all the levels run and work, and you can exit out of them without triggering errors
+
+When I right click on a character/enemy, i get a profile with stats/info/flavor, and a portrait. (Game does not pause.. it pops up on a modal window)
+
+
+Improve gfx - sprite sheets! With legit animations!     Generate four sprite sheets: a modern high-tech male spy-thief, a modern high-tech female spy-thief, a bank security guard, and a shapely secretary in a mini skirt. Each should have walk cycles, gun shooting, ducking, crawling, ladder climbing, swimming, and death-by-gunfire sprites
+Improve music
+Fix SFX so they don't suck shit
+Make sure level editor is fully featured - how do i launch, et
+Craft a good level
+
+----------------------------------------------------------------------------------------------------------------
+Test the game with controller
+
+Unit Tests for each feature! That I can run and should never fail  -  install this and use it -> https://github.com/bitwes/Gut
+
+Some missions go from point A to point B (extraction point is not starting point) - imagine you parachuted in or something
+
+Character portraits
+
+Run and slide! (Under a closing door)
+That mi1 gum?
+Characters communicating with eachother
+Two characters press a button at the same time
+Time your shots to the thunder / clock tower so guards arent tipped off
+Cutscenes
+PRODUCTION VALUE PASS: Add level editor ** Make way better
+PRODUCTION VALUE PASS: Flow / Story / Cutscene editor
+PRODUCTION VALUE PASS: Portrait dropin template
+PRODUCTION VALUE PASS: Sprite sheet drop in template (make one and I'll replace with files -> tell me what to do)
+PRODUCTION VALUE PASS: AI editor
+PRODUCTION VALUE PASS: UI editor
+
+Floors that aren't just rects - pass a renderable bitmap and that is also the collision mask
+
+Add a small window representing the whole map -- sometimes there's fog of war
+
+Push enemies in the water
+Add dogs
+Add drones
+Add guns on the cameras (MGS)
+You can get changed (change clothes) - wear a suit to mix in the office, etc. Change as appropriate (again, a skill maybe)
+Skill: disguise; steal others' identities. Some people are harder to copy -> level up the skill to get better at this!
+Mission coordinator guy helps assess the level (shows you the map) and tell you what skills you'll need ahead of time. Some levels cant be assessed (you cant know the map ahead of time)
+If you're running when you get shot, you should really fly (it happened during the demo)
+Add ability to block people (and shots) like a riot police person with a shield. Enemies sometimes can do that. Main characters sometimes can
+Add boxes you can hide under (like in Metal Gear Solid) (#3)
+Different gear -> you can choose gear options too - snorkeling gear helps you swim. bullet proof armor. But badguys will find discarded gear and get suspicious
+I was able to jump into characters and send them flying like crazy. Cool charge move... maybe make it a skill, and like, don't make it so crazy
+  Body armor protects you from shots but slows you down
+You can throw stuff to make sounds in other areas to distract guards
+Elevators (they can crush you / enemies from top or bottom)
+Knock on walls  (like in Metal Gear Solid) (#1)
+Add a "Look out" ability (what would they do exactly? I want more people doing things like Lost Vikings, less like Metal Gear)
+Let's add some sort of "you're currently caught" mode, like how when you get caught in Metal Gear Solid, red klaxons go off and stuff. Ideally you can beat the whole level without being seen. Getting caught will lower your score. There's three levels of caught-ness: Green (you have not been detected), Yellow (isolated detection; one person has seen you, but if you take them out or disable them, or lock them away, you go back to green), or red (everyone knows you're there. Multiple people have seen you, or an alarm has tripped, etc)
+Press (and hold?) a button to put everything into planning mode (which is super slowed down, but not completely stopped). Limit how often you can do this (maybe a cool down timer after you've used planning mode once)
+So, I love the fast paced nature, and this will definitely be a real time strategy, but I'd like to expand the options you have for characters you're not currently controlling.
+  Uncontrolled characters should have multiple options:
+  1. Do nothing (ie, you never gave them any commands)
+  2. You can set one of multiple queued commands (Move to X location, wait 2 minutes, pick lock, move back). Character will follow this plan unless disturbed. Maybe you can specify a backup plan too
+  3. Dragon Quest IV-type strategies, where you give the character a fairly vague strategy and it tries its best (patrol this area), (snipe anyone that walks by), (stay hidden), etc
+  It would be cool if a menu popped up on a character when you right click on them and you can set these things, or set multiple instructions using a visual flow chart that you could give them.
+  When you control a character (tab over to them, or click on them), they stop doing this strategy and you manually control everything they do
+Test the Level editor; make sure it works great. If it doesn't, re-work it so that it does
+Rewind / playback (w/o pauses).  Ability to "save/ replay" the levels. Sharable videos; Share online
+
+Dialog - characters talk, think aloud, etc
+
+
+
+FFT Level lore
+Add quotable characters, iconic elements (mgs)
+Cybershadow level of fluidity / feel
+Awesome music
+    controller
+    music
+    sfx
+    talking / story
+    some more bg art
+    templatable
+        text/saying
+        level flavor
+        story
+        music
+        cut scenes
+        ----
+        multiplayer
+
+
+
+
+Planning -- look through all the skills we have right now -- different character types can team up and have co-skills they do together
+    --  you can form different teams as you go
+    ------ what about that "full planning mode and then hit play" approach!?
+    --- make a level editor
+    --- multiplayer / sharing / ask 
+
+
+Timed activities (hacking takes 3 seconds with a countdown meter. Don't get caught!)
+Sometimes it takes multiple characters -- multiple hackers to hack a system (cuts down on time)
+
+You can then save strategies like that so you can build a strategy ahead of time and employ it any time, even with a key stroke
+
+Abilities: Drilling a door with a countdown
+Shooting a cable (some noise) and then multiple people can cross on it
+
+Never make missions fail right away, let everyone flail around and try and run away. When a mission is irrevokably failed, display a permanent mark on the screen indicating so, but continue playing. The player still needs to get their players out of there
+
+Build a save/load system. You can have any number of saved games. Keep a mission log as you play that tracks all the missions, the
+  rank/score for each, who participated, who died, etc. It also tracks when people join or leave. It also saves a personal history
+  for all the characters. It tracks their level growth, acquisition of skills, etc.
+
+Entire team entering levels in crazy ways - swim in and discard swim gear, parachute in, crawl in, jump off a plane or off the neighboring building, etc
+
+
+Cold and hot areas -- gear can protect you and keep you warm --- some winter areas and you need to sneak in with minimal clothes, etc
+
+
+sometimes there's bad reception and you cant call the guy, or each other
+
+sometimes there's multiple concurrent operations (basically you're doing two levels at once, with a map between them or something)
+
+
+cats, animals that can screw everything up, or maybe you strap something to them and they breing stuff along (use mice)
+
+hacker can hack into the cameras and we get a preview of what the camera sees (then they can hack that on repeat loop like in speed)
+sniper view also
+
+
+King Arthurs World - what can i steal?
+KAW-style bow and arrow targetting (for gun, other things)
+
+
+Items you can find and use (steal a taser and tase someone. steal a key. move a box so you can get up into a vent, etc)
+
+
+Characters have a "mood" (just for fun? Does it do something?)
+Characters have a 履歴 - updates as you play. even if they die, you have a file on them and their history (stats are there too.. birthdays, etc)
+Characters have personality (just for fun/flavor/story maybe?)
+Missions should have a bunch of flavor text around them - describe the area, the history, the bad blood, why items have value, etc
+
+Add metal gear style "teaching" - you have a dedicated monitoring person back at base that chimes in and informs you of going-ons or sudden changes (are they in a van outside? Can they get blown up?) - you can call them too and ask / have them search for stuff - like luther in MI series
+
+Water leaks blasting water everywhere
+Better "planning" where you pause and tell all your characters where to go
+    Levels should be designed to REQUIRE this!!
+
+Skill trees!
+  design it (somehow) so that there's character archtypes -- you cant be a bruiser AND a hacker... or maybe you could, but it slows you down
+    Mission Impossible on NES?
+    FF5 ish system?
+Levels have different skill requirements (you cant beat the level if none of your people have the needed skills)
+  Maybe: levels only become available when your band of pepole have the skills needed?
+  Maybe: there's a boss person that can analyze the job and determine what skills are needed? (and maybe some skills are RECOMMENDED)]
+you can send as many ppl as you want in, but getting caught ruins everything
+Decide what to do about civilian deaths
+
+Add leveling, experience, you can level up those specific skills too
+
+Make the levels really really interesting / story based
+Metal Gear style "your guy was really the bad guy"
+Metal Gear style exciting / awesome music
+
+Add charmer -> Reload Office Hours and look at the secretary at her desk — short flared hem, visible legs from knee to foot. If you lure her with a Charmer or have her chase you, the side-facing poses keep the same bare-legs detail and the bust still juts only on the facing side.
+
+
+Interogation - you can tie up and put people in the closet, interogate them for info, "threaten them" to get the info
+names of characters
+
+
+
+
+
+For art style, use grok / whatever to generate some art styles:
+  Watercolor society artwork
+  Kim jg
+  Ootomo
+  Others
+  Disco ely
+
+
+
+
+  Comic book game
+
+  Look up comic book games
+
+
+
+Optimize everything (convert to C# or whatever you have to do)
+
+
+
+
+sometimes racing anther team trying to steal
+  thats an interesting multiplayer schenario -- steal first and/or bust it up for the other team (get them caught)
+add the rope hang down like in mission impossible 1
+
+permadeth? You can fail a mission but gtf outta there, so sometimes you should fight back with guns to save your people even if the mission failed
+some missions have less strict requirements (you can get seen as long as you kill/knock out/run away after that)
+hacker can hack into the cameras and we get a preview of what the camera sees (then they can hack that on repeat loop like in speed)
+mission dependencies and clusters (five missions in a row kind of acting as one mission)
+DECIDE: How do you beat the game?
+Skill: cloaking?
+
+
+
+
+
+Interesting levels:
+  -pushing people off ledges
+  -pushing people off ledges onto other people
+  -scale the ceiling above guards
+  -drop / push things from above so they fall on other characters
+  -lots of charcater coordination required (timing) - someone pushes from above, and in the 3 second window when that person is knocked out, the second character has to run through. Lots of tension!!
+  Lots of tension!!
+
+  Bad guys doing trap type stuff too! Like the elevator hacker that gets crushed in MI1!
+
+
+
+Level ideas:
+    -decomissioned cargo dock with three levels
+    banks
+    factories
+    art museums
+    "the pentagon"
+---
+Do your role's work now per the spec above. Tools: Bash, Read, Edit, Write, Grep, Glob.
+Write to files under /Users/skinnyluigi/GameProjects/infiltrators as your spec describes. Print one short status line to stdout.
