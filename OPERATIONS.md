@@ -6,7 +6,7 @@ How to drive the Spraxel factory day-to-day. Companion to [`README.md`](README.m
 
 ## Mental model
 
-You are the CEO. You don't write code, run CI, or push commits. You **dictate**, **tick checkboxes**, and **eyeball merges**. A roster of agents owns the rest. State lives in **GitHub Issues** (canonical) and in `WORK.md` (a human-friendly mirror). Issue **#5** on `mdl16bit/infiltrators` is the **Factory Daily Log** — a perpetual dashboard where every bot posts updates. Open that on your phone first thing in the morning and you'll see everything.
+You are the CEO. You don't write code, run CI, or push commits. You **dictate**, **tick checkboxes**, and **eyeball merges**. A roster of agents owns the rest. State lives in **GitHub Issues** (canonical) and in `WORK.yaml` (a human-friendly mirror). Issue **#5** on `mdl16bit/infiltrators` is the **Factory Daily Log** — a perpetual dashboard where every bot posts updates. Open that on your phone first thing in the morning and you'll see everything.
 
 ---
 
@@ -34,7 +34,7 @@ cut the tag yourself (MCP server lacks `create_release`):
 cd ~/GameProjects/infiltrators
 gh release create v0.<N> --generate-notes
 python3 ~/SpraxelAiCompany/scripts/sync_work_md.py --repo-dir . --release-cut v0.<N> --apply
-git add WORK.md && git commit -m "release: v0.<N>" && git push
+git add WORK.yaml && git commit -m "release: v0.<N>" && git push
 ```
 
 Next PM run sees the new tag, rolls any unfinished `ship-in:v0.<N>`
@@ -49,7 +49,7 @@ Two distinct labels — keep them straight:
 
 | Agent | Type | Model | Cadence | What it does |
 |---|---|---|---|---|
-| **Producer** | Crew, interactive | Opus | on `/spraxel-producer` | Turns your dictation / WORK.md prose into clean GH Issues with acceptance criteria. The only agent you talk to directly. |
+| **Producer** | Crew, interactive | Opus | on `/spraxel-producer` | Turns your dictation / WORK.yaml prose into clean GH Issues with acceptance criteria. The only agent you talk to directly. |
 | **PM** | Crew, scheduled | Sonnet | daily 07:00 PT | GUPP (un-stick stuck claims), spawns Developers up to velocity cap, posts daily summary on issue #5. |
 | **Developer** | Worker, on-demand | Sonnet | fires on `status:ready` label | Implements one issue end-to-end: code, tests, scenarios, Game.md update, opens PR. One per issue, no memory across runs. |
 | **Reviewer** | Worker, on PR | Haiku | fires on PR open | Reads diff, labels `reviewed:clean` or `reviewed:blocking`, posts findings. |
@@ -58,7 +58,7 @@ Two distinct labels — keep them straight:
 | **Concierge** | Crew, scheduled | Haiku | daily 06:00 PT | Rewrites issue #5 body with today's digest (pending merges, intake counts, Designer batches, anomalies). |
 | **Playtester** | Workflow, scheduled | n/a | nightly 02:00 PT | Re-runs scenarios on master; posts 🐛 comments on issue #5 if anything fails. |
 | **Triager** | Crew, scheduled | Haiku | daily 05:00 PT | Dedupes the previous 24h of 🐛 comments on issue #5 into one tickable bug batch. |
-| **Janitor** | Crew, scheduled | Haiku | weekly Sun 02:00 PT | Closes 30-day-stale issues, deletes merged branches (when MCP allows), reports WORK.md ↔ Issues drift. |
+| **Janitor** | Crew, scheduled | Haiku | weekly Sun 02:00 PT | Closes 30-day-stale issues, deletes merged branches (when MCP allows), reports WORK.yaml ↔ Issues drift. |
 | **Designer** | Crew, scheduled | Sonnet | weekly Fri 07:00 PT | Proposes 4-6 new feature ideas as a tickable batch on issue #5. |
 | **Blogger** | Crew, scheduled | Sonnet | weekly Sat 10:00 PT | Drafts a markdown devlog post from the week's merged PRs; opens a PR. |
 | **Asset Librarian** | Crew, scheduled | Haiku | monthly 1st 08:00 PT | Scans `assets/` for orphans, broken refs, license gaps. |
@@ -135,7 +135,7 @@ Anywhere from 9 AM to whenever:
 
 Anytime you have ideas — drop them as you go:
   - Phone dictation → file in .factory/inbox/dictation/
-  - Text-type into WORK.md (bottom section, below dividers)
+  - Text-type into WORK.yaml — add `- title: <your line>` under the `todo:` section. `sync_work_yaml.py` queues it to `pending-intake.md` on push; next Producer run drains.
   - /spraxel-producer in any Claude Code session, dump prose
   - `gh issue create` if you already know exactly what you want
 
@@ -154,7 +154,7 @@ End of day (optional):
 Monday
   08:00 AM   release-cut.yml — biweekly autonomous tag cut. If PRs
              merged since last tag: auto-creates v0.<N>, generates
-             notes, lifts WORK.md middle → shipped. Posts 🚢 on #5.
+             notes, lifts WORK.yaml middle → shipped. Posts 🚢 on #5.
              No action needed unless you want to amend the notes.
 
 Tuesday-Thursday
@@ -177,7 +177,7 @@ Saturday
 
 Sunday
   02:00 AM   Janitor: closes 30-day-stale issues, compacts #5
-             comments if > 100, reports WORK.md ↔ Issues drift.
+             comments if > 100, reports WORK.yaml ↔ Issues drift.
   03:00 AM   branch-cleanup.yml: deletes merged feature branches.
              Both post summaries on issue #5.
 
@@ -209,10 +209,13 @@ Come back → activity detected, auto-resumes.
 
 | Command | What it does |
 |---|---|
-| `/spraxel-producer` (or `/producer`) | Drain dictation, WORK.md intake, Designer/Triager checked batches → polished GH Issues. The only skill you invoke regularly. |
+| `/spraxel-inbox` (or `/inbox`) | Morning read-only triage: surfaces unticked Designer ideas / Triager bugs / stuck PRs / `for:ceo` queue / Concierge digest highlights from Issue #5. One-screen "what needs my attention" view. Doesn't modify anything. |
+| `/spraxel-producer` (or `/producer`) | Drain dictation, WORK.yaml intake, Designer/Triager checked batches → polished GH Issues. The only skill that writes. |
 | `/schedule` | Manage `/schedule` routines (the cloud-scheduled agents). Use to list / update / fire a routine on-demand. See "Manual overrides" below. |
 
-When you say `/something`, Claude Code matches against the available skills list. The Spraxel skill is `skills/spraxel-producer/SKILL.md` — symlinked into `~/.claude/skills/`.
+When you say `/something`, Claude Code matches against the available skills list. The Spraxel skills live in `skills/spraxel-<name>/SKILL.md` and are symlinked into `~/.claude/skills/`.
+
+**Original plan vs reality**: `process.txt` (the bootstrap doc) referenced `/director` and `/inbox` as separate skills. Today: `/director` → `/spraxel-producer` (renamed during build); `/inbox` → `/spraxel-inbox` (built later as a read-only sidekick; the original write-capable inbox flow merged into Producer's batch-checkbox processing).
 
 ---
 
@@ -247,7 +250,7 @@ Currently CEO-manual (MCP server lacks `create_release`):
 cd ~/GameProjects/infiltrators
 gh release create v0.<N> --generate-notes
 python3 ~/SpraxelAiCompany/scripts/sync_work_md.py --repo-dir . --release-cut v0.<N> --apply
-git add WORK.md && git commit -m "release: v0.<N>" && git push
+git add WORK.yaml && git commit -m "release: v0.<N>" && git push
 ```
 
 After that, `auto-merge.yml` will label future merges as `release:v0.<N+1>`.
@@ -280,7 +283,7 @@ cd ~/GameProjects/infiltrators        # or ~/SpraxelAiCompany
 git add . && git commit -m "..." && git push
 ```
 
-Tripwire ignores. `sync.yml` may fire if you touched `WORK.md` or `pending-intake.md`; it's idempotent and cheap.
+Tripwire ignores. `sync.yml` may fire if you touched `WORK.yaml` or `pending-intake.md`; it's idempotent and cheap.
 
 ### Branch + PR like the agents do
 
@@ -465,7 +468,7 @@ To resume: regenerate the OAuth token (`/login` in any Claude Code session, copy
 
 ### "I dictated some ideas, what now?"
 
-1. Drop the transcript in `.factory/inbox/dictation/<YYYY-MM-DD-walk>.txt`. (Or paste into WORK.md.)
+1. Drop the transcript in `.factory/inbox/dictation/<YYYY-MM-DD-walk>.txt`. (Or paste into WORK.yaml.)
 2. Run `/spraxel-producer` in a Claude Code session.
 3. Producer reads the dictation, drafts a numbered issue batch, asks you to confirm. Say `all` or pick numbers to amend.
 4. Issues are created with `acceptance criteria` checkboxes. PM picks them up on its next 07:00 run (or you fire PM now via `/schedule` → Run now).
@@ -619,7 +622,7 @@ In `~/SpraxelAiCompany/` (framework, public):
 |---|---|
 | `agents/spraxel-*.md` | Agent definitions (source of truth). Symlinked to `~/.claude/agents/`. |
 | `skills/spraxel-producer/SKILL.md` | The interactive Producer skill. |
-| `scripts/sync_work_md.py` | WORK.md ↔ GH Issues bidirectional sync. Also supports `--seed` and `--release-cut`. |
+| `scripts/sync_work_md.py` | WORK.yaml ↔ GH Issues bidirectional sync. Also supports `--seed` and `--release-cut`. |
 | `scripts/new_game.sh` | Bootstrap a new game repo with the framework. |
 | `template/` | What `new_game.sh` copies in. |
 | `TODO.md` | Deferred work + MCP server gaps + post-mortems. |
@@ -631,8 +634,8 @@ In `~/GameProjects/infiltrators/` (the game, private):
 |---|---|
 | `Philosophy.md` | Identity, must_include/exclude, cadences, model assignments, velocity cap. |
 | `Game.md` | Canonical feature/controls catalog. Every feature ships a block here. |
-| `WORK.md` | Three-section human-friendly mirror of GH Issues. |
-| `.factory/inbox/pending-intake.md` | Sync's queue of WORK.md lines waiting for Producer. |
+| `WORK.yaml` | Three-section human-friendly mirror of GH Issues. |
+| `.factory/inbox/pending-intake.md` | Sync's queue of WORK.yaml lines waiting for Producer. |
 | `.factory/inbox/dictation/` | Phone-dictated transcripts. Producer drains. |
 | `.factory/memory/<role>.md` | Per-agent compacted memory. Janitor maintains. |
 | `.github/workflows/*.yml` | CI: developer / review / test / playtest / blogger / sync / tripwire / auto-merge. |
@@ -776,7 +779,7 @@ Cutoff is configurable via `INACTIVITY_DAYS` in the workflow's env. Default 5.
 - **Cost knob #1 is `model_assignments` in Philosophy.md.** Move a Sonnet agent to Haiku → ~80% cost drop for that agent.
 - **MCP server gaps**: no `create_milestone`, no `create_release`, no `delete_branch`. The system works around all three; see TODO.md's gap table.
 - **Two prompt copies for scheduled agents**: the framework file at `agents/spraxel-<role>.md` is the source of truth; the cloud routine has a copy embedded in its config. Edit the framework file first, then sync to the routine via `/schedule` → Update. (TODO: dynamic fetch.)
-- **`WORK.md` parser is divider-count-sensitive**: 0 dividers → everything is todo; 1 → shipped/todo; 2+ → shipped/current/todo. Put new dictation **below** the last divider so sync queues it.
+- **`WORK.yaml` parser is divider-count-sensitive**: 0 dividers → everything is todo; 1 → shipped/todo; 2+ → shipped/current/todo. Put new dictation **below** the last divider so sync queues it.
 - **Hard CEO gates** (the system will never act without your tick): bulk issue creation, release cuts, designer-idea acceptance, p0-priority work, bug "real or not" calls.
 
 ### CI hardening lessons learned (2026-05-25)
@@ -811,7 +814,7 @@ Plan verification checklist (10 items):
 1. Dictation → Issue ✅
 2. Issue → PR ✅
 3. PR → Reviewer ✅
-4. Merge → WORK.md ⚠️ (sync.yml runs on push; not stress-tested with the new auto-merge chain)
+4. Merge → WORK.yaml ⚠️ (sync.yml runs on push; not stress-tested with the new auto-merge chain)
 5. Morning digest ✅
 6. Release cut ⚠️ (CEO-manual until MCP gains `create_release`)
 7. Cost cap ❌ (declared in Philosophy, not enforced)
@@ -827,7 +830,7 @@ Right now (background, autonomous):
 
 - PM v7 fired at 16:02 UTC → up to 4 Developers spinning up on #6, #7, #8, #9
 - Auto-merge will chain in #10, #11 as the first PRs land clean
-- Sync workflow fires on the WORK.md push → queues ~75 new dictated lines into `pending-intake.md`
+- Sync workflow fires on the WORK.yaml push → queues ~75 new dictated lines into `pending-intake.md`
 
 Once that settles (today or tomorrow), in priority order:
 
