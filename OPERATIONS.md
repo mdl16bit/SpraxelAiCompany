@@ -116,11 +116,16 @@ Continuous (every 30 min, 24/7):
                      clear. CEO can manually flip back to "live" anytime.
 
 When you wake up (~7-9 AM PT or whenever):
-  ★ Phone in hand, coffee. Open issue #5.   ~5-15 min total.
-    - Read "Awaiting CEO review" section. Tick any Designer/Triager
-      checkboxes. Producer hits the system on its next /producer run.
-    - Read "CEO production work" section. Note today's options.
-    - Glance at "Yesterday's activity %" to see what burned credits.
+  ★ At your desk: run `/spraxel-inbox` (or `/inbox`) in a Claude Code session.   ~5-15 min total.
+    On phone: open Issue #5 in the GitHub app — same content, no slash command.
+    The skill surfaces: unticked Designer ideas / Triager bug batches / stuck PRs
+    needing CEO decision / for:ceo production queue / Concierge digest highlights.
+
+    - Tick `[x] accept` / `[x] reject` / `[x] amend` on Designer/Triager batches
+      directly on GitHub (web or app). Reply `Amend #N: <text>` for amended items.
+    - Note today's CEO production-queue options (art, music, design questions).
+    - Run `/spraxel-producer` later in the day to drain accepted/amended ticks
+      into real issues.
 
 Anywhere from 9 AM to whenever:
   Pick from CEO production queue and work on something for as long
