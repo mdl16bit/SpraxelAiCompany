@@ -1,11 +1,23 @@
 name: WORK.yaml sync
 
-# Runs on push when WORK.yaml or pending-intake.md changes. Clones the
-# SpraxelAiCompany framework to get the latest sync_work_yaml.py, parses
-# WORK.yaml, queues unannotated todo items into pending-intake.md.
+# Bidirectional sync between WORK.yaml and GitHub Issues.
 #
-# Migrated from sync_work_md.py (Markdown divider parser) on 2026-05-24.
-# WORK.md preserved as WORK.md.legacy for reference; not actively read.
+# Two directions:
+#   1. WORK.yaml → pending-intake.md (queue raw todo items for Producer)
+#   2. GH Issues → WORK.yaml (backfill issue numbers, move closed-via-PR
+#      items from todo → current section)
+#
+# Both directions run on every fire. sync_work_yaml.py is idempotent;
+# extra fires just no-op when nothing changed.
+#
+# Fires on:
+#   - push to WORK.yaml / pending-intake.md (CEO edits or producer drains)
+#   - issue lifecycle (opened, closed, reopened) — backfill direction
+#   - PR closed (in case the close cascade-closed an issue)
+#   - workflow_dispatch for manual fire
+#
+# Migrated from sync_work_md.py on 2026-05-24. WORK.md preserved as
+# WORK.md.legacy.
 
 on:
   push:
@@ -13,7 +25,18 @@ on:
     paths:
       - 'WORK.yaml'
       - '.factory/inbox/pending-intake.md'
+  issues:
+    types: [opened, closed, reopened]
+  pull_request:
+    types: [closed]
   workflow_dispatch:
+
+# Serialize all fires — only the latest matters since each run picks up
+# every pending change. Saves runs when 30 issues open at once (e.g.,
+# after a /spraxel-producer drain).
+concurrency:
+  group: work-yaml-sync
+  cancel-in-progress: true
 
 permissions:
   contents: write
