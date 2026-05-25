@@ -40,15 +40,59 @@ that after Reviewer + tests pass.
    (What / Controls / Debug hook / Trace events / Test scenario / Acceptance).
    If the item is a `[bug]` or `[chore]`, skip Game.md.
 
-5. **Test scenario** (if the item is a `[game-feature]` or any `[feature]`):
-   add a scenario file at `scripts/scenarios/<slug>.gd` that exits 0 on
-   success. The overnight loop's local-tests step will run it.
+5. **Write a GUT unit test — ALWAYS, no exceptions.** Every commit must
+   add or update at least one test file under `test/unit/`. The test must
+   exercise the new behavior — not just instantiate the class. For:
+   - **`[feature]` / `[game-feature]`**: a new `test/unit/test_<slug>.gd`
+     that calls the new methods/asserts the new state transitions.
+   - **`[bug]`**: a regression test that fails on master without your fix
+     and passes with it. Name it `test/unit/test_<bug-slug>_regression.gd`
+     (or extend the existing module's test).
+   - **`[chore]`**: usually a refactor — extend or update the existing
+     tests covering the changed module to prove behavior didn't drift.
 
-6. **Commit**. Stage relevant files only (no `git add .`). Commit with the
+   GUT test pattern (4.x):
+   ```gdscript
+   extends GutTest
+   func test_<behavior>() -> void:
+       var obj = <class_name>.new()
+       obj.<method>(<args>)
+       assert_eq(obj.<state>, <expected>, "<plain-English failure message>")
+   ```
+
+   No test = the commit is **not done**. Re-attempt or escalate via clarify
+   if you can't figure out how to test it.
+
+6. **Scenario file** (for `[game-feature]` / `[feature]` only): add
+   `scripts/scenarios/<slug>.gd` that exits 0 on success and prints
+   `SCENARIO <slug> PASS` or `SCENARIO <slug> FAIL`. Used by the overnight
+   loop and by the CEO during the morning play-test.
+
+7. **Run the local test suite — ALWAYS, before you commit.** Execute:
+   ```bash
+   bash scripts/run_local_tests.sh
+   ```
+   Wait for it to finish. Then:
+   - **If all tests pass** → proceed to commit.
+   - **If only YOUR new/changed tests fail** → fix your code, re-run, repeat.
+   - **If pre-existing tests fail** (unrelated to your change — e.g., a
+     scenario that was already broken on master) → don't fix them; that's
+     project tech-debt, not your scope. But **note them in the commit
+     message body**: `pre-existing failures: drill-door, hide-box (not
+     touched by this change)`.
+   - **If `run_local_tests.sh` itself errors** (no exit code, hangs, shell
+     syntax error) → escalate via `clarify` — something is wrong with the
+     test harness that the CEO needs to look at.
+
+8. **Commit**. Stage relevant files only (no `git add .`). Commit with the
    developer bot identity (see _shared.md). Commit message: `feat: <title>`
-   or `fix: <title>`. Do NOT push — overnight handles it.
+   or `fix: <title>`. The body should include:
+   - One line of what changed.
+   - A list of test files added/modified: `tests: + test_<slug>.gd`.
+   - Pre-existing test failures noted above (if any).
+   Do NOT push — overnight handles it.
 
-7. **Exit 0** if you committed. Exit 1 if you genuinely cannot implement
+9. **Exit 0** if you committed. Exit 1 if you genuinely cannot implement
    (specify why in the last stdout line — overnight uses this for the
    escalation log).
 

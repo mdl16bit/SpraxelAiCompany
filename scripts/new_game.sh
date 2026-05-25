@@ -60,7 +60,7 @@ copy_if_missing() {
 }
 
 # Top-level stub files (skipped if they already exist)
-for f in Philosophy.md Game.md WORK.md; do
+for f in Philosophy.md Game.md WORK.md .gitignore; do
     copy_if_missing "$TEMPLATE_DIR/$f" "$TARGET/$f"
 done
 
@@ -70,11 +70,21 @@ for d in memory inbox inbox/dictation inbox/decisions inbox/playtest artifacts; 
     [ -e "$TARGET/.factory/$d/.gitkeep" ] || touch "$TARGET/.factory/$d/.gitkeep"
 done
 
-# Local test runner — installable launchd job (every 30 min while Mac awake).
+# Test + scenario scaffolding (Developer agent expects these to exist).
+for d in test/unit scripts/scenarios; do
+    mkdir -p "$TARGET/$d"
+    [ -e "$TARGET/$d/.gitkeep" ] || touch "$TARGET/$d/.gitkeep"
+done
+
+# Local test runner + unit test runner — installable launchd job (every 30 min
+# while Mac awake) plus a fast on-demand GUT runner.
 mkdir -p "$TARGET/scripts"
 copy_if_missing "$TEMPLATE_DIR/scripts/install_local_tests.sh" "$TARGET/scripts/install_local_tests.sh"
-copy_if_missing "$TEMPLATE_DIR/scripts/run_local_tests.sh" "$TARGET/scripts/run_local_tests.sh"
-chmod +x "$TARGET/scripts/install_local_tests.sh" "$TARGET/scripts/run_local_tests.sh" 2>/dev/null || true
+copy_if_missing "$TEMPLATE_DIR/scripts/run_local_tests.sh"   "$TARGET/scripts/run_local_tests.sh"
+copy_if_missing "$TEMPLATE_DIR/scripts/run_unit_tests.sh"    "$TARGET/scripts/run_unit_tests.sh"
+chmod +x "$TARGET/scripts/install_local_tests.sh" \
+         "$TARGET/scripts/run_local_tests.sh" \
+         "$TARGET/scripts/run_unit_tests.sh" 2>/dev/null || true
 
 # Placeholder substitution: {{GAME_NAME}}, {{CEO_LOGIN}}.
 python3 - "$NAME" "${CEO:-}" "$TARGET" <<'PY'
@@ -106,33 +116,33 @@ echo "    (only one game can be the active target at a time.)"
 
 cat <<EOF
 
-done. next steps:
-  1. Edit $TARGET/Philosophy.md with the project pitch + constraints
-  2. Edit $TARGET/Game.md with current features + controls
-  3. Edit $TARGET/WORK.md with the roadmap (3 sections, 2 dashed lines)
-  4. Seed GH Issues from WORK.md:
-       python3 $FRAMEWORK_DIR/scripts/sync_work_md.py --repo-dir $TARGET --seed --apply
+done. next steps to wire this game into the offline Spraxel system:
 
-  5. Set up GitHub Actions secret CLAUDE_CODE_OAUTH_TOKEN:
-       gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <owner>/<repo>
-     (Use 'claude /login' to obtain a token if needed.)
+  1. Edit $TARGET/Philosophy.md
+     - Fill in the project pitch, must_include, must_not_include lists.
+     - Set dev.godot_binary to the absolute path of your Godot binary.
+     - Confirm run_mode is "live" (set to "dryrun" to pause all agents).
 
-  6. Open the "Factory Daily Log" pinned issue (#5 ideally):
-       gh issue create --title "Factory Daily Log" --body "Pinned daily ops log." --repo <owner>/<repo>
-       gh issue pin <issue-number>
+  2. Edit $TARGET/Game.md with current features + controls.
 
-  7. Set up the Anthropic /schedule CCR routine to drive keepalive
-     reliably (GH cron is throttled for active repos):
+  3. Edit $TARGET/WORK.md with the roadmap (3 sections, 2 dashed lines).
+     Format spec: ~/SpraxelAiCompany/docs/WORK_MD_FORMAT.md
 
-       In a Claude Code session, run:  /schedule
-       Choose: create
-       Name: <Game> Keepalive trigger (hourly)
-       Cron: 17 * * * *   (hourly at :17 past)
-       Model: claude-haiku-4-5-20251001
-       Repo source: github.com/<owner>/<repo>
-       Prompt: copy from docs/ccr-keepalive-routine.md
+  4. Point the Spraxel daemon at this game:
+       \$EDITOR ~/SpraxelAiCompany/schedule.yaml
+       # change: game_dir: $TARGET
 
-     This routine posts a "KEEPALIVE-TICK" comment on the Factory Daily Log
-     issue every hour, which fires keepalive.yml via issue_comment event.
-     Bypasses GH cron's "fairness throttling" for noisy repos.
+  5. Install the daemon (idempotent — safe to re-run):
+       bash ~/SpraxelAiCompany/scripts/install_daemon.sh
+
+  6. Install the local-tests cron in THIS repo:
+       cd $TARGET && bash scripts/install_local_tests.sh
+
+  7. Verify both are loaded:
+       launchctl list | grep com.spraxel
+
+  8. (Optional) Open MORNING.md by running the morning-briefer once:
+       bash ~/SpraxelAiCompany/scripts/run_agent.sh morning-briefer
+
+For day-to-day operation, see ~/SpraxelAiCompany/OPERATIONS.md.
 EOF

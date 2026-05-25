@@ -256,34 +256,82 @@ You're asleep. `overnight_dev.sh` is shipping features.
 
 ---
 
-## Setup (one-time)
+## Setup — adding a new game
 
-1. **Install the daemon**:
-   ```bash
-   bash ~/SpraxelAiCompany/scripts/install_daemon.sh
-   ```
-   This drops `~/Library/LaunchAgents/com.spraxel.tick.plist` and starts it.
-   First tick fires immediately (RunAtLoad=true).
+If you're starting a fresh game and want to wire it into the Spraxel
+factory, the bootstrap is one script + a few config edits:
 
-2. **Install local tests** (separate launchd job, runs every 30 min):
-   ```bash
-   cd ~/GameProjects/infiltrators
-   bash scripts/install_local_tests.sh
-   ```
+```bash
+# 1. Create the game repo (or use an existing one)
+mkdir ~/GameProjects/my-new-game && cd ~/GameProjects/my-new-game
+git init
 
-3. **Verify**:
-   ```bash
-   launchctl list | grep com.spraxel
-   # → com.spraxel.tick (and com.spraxel.localtests)
+# 2. Apply the Spraxel framework template
+bash ~/SpraxelAiCompany/scripts/new_game.sh ~/GameProjects/my-new-game \
+  --name "My New Game" --ceo your-github-login
 
-   bash ~/SpraxelAiCompany/scripts/install_daemon.sh status
-   ```
+# This drops in:
+#   Philosophy.md           ← edit run_mode, dev.godot_binary, must_include
+#   Game.md                 ← feature inventory; bots append blocks here
+#   WORK.md                 ← work tracking (3 sections, 2 dashed-line dividers)
+#   .gitignore              ← Godot cache, .uid files, etc.
+#   .factory/               ← runtime state dirs
+#   scripts/install_local_tests.sh
+#   scripts/run_local_tests.sh      ← full GUT + scenarios + status JSON
+#   scripts/run_unit_tests.sh       ← fast unit-test only runner
+#   test/unit/.gitkeep              ← Developer agent puts GUT tests here
+#   scripts/scenarios/.gitkeep      ← Developer agent puts scenario tests here
 
-4. **Confirm Claude is logged in**:
-   ```bash
-   claude --version
-   # If session expired, run `claude login` in a Claude Code window.
-   ```
+# 3. Edit Philosophy.md: set the godot binary path
+$EDITOR ~/GameProjects/my-new-game/Philosophy.md
+# Change:  dev.godot_binary: "/Users/.../Godot.app/Contents/MacOS/Godot"
+# Confirm: run_mode: "live"
+```
+
+Then wire the framework's daemon to point at this game:
+
+```bash
+# 4. Tell the daemon which game to target
+$EDITOR ~/SpraxelAiCompany/schedule.yaml
+# Change:  game_dir: ~/GameProjects/my-new-game
+
+# 5. Install (or re-install) the daemon — idempotent
+bash ~/SpraxelAiCompany/scripts/install_daemon.sh
+
+# 6. Install the local-tests cron in THIS game repo
+cd ~/GameProjects/my-new-game
+bash scripts/install_local_tests.sh
+```
+
+Verify everything is loaded:
+
+```bash
+launchctl list | grep com.spraxel
+# Expect TWO lines:
+#   com.spraxel.tick          (1-min daemon dispatching all agents)
+#   com.spraxel.localtests    (30-min Godot test runner)
+
+bash ~/SpraxelAiCompany/scripts/install_daemon.sh status
+
+claude --version
+# If session expired, run `claude login` in a Claude Code window.
+```
+
+Note: the daemon targets ONE game at a time (the `game_dir` in
+`schedule.yaml`). For a second game running in parallel you'd need a
+second daemon — that's not yet supported. See TODO.md.
+
+## Setup — first time on this Mac (existing infiltrators game)
+
+If you're setting up Spraxel for the first time on a Mac and the game
+repo (infiltrators) is already cloned:
+
+```bash
+bash ~/SpraxelAiCompany/scripts/install_daemon.sh
+cd ~/GameProjects/infiltrators && bash scripts/install_local_tests.sh
+launchctl list | grep com.spraxel        # → expect 2 entries
+claude --version                          # → confirms Claude CLI is logged in
+```
 
 ---
 
@@ -320,6 +368,43 @@ The daemon keeps ticking but `tick.sh` and `run_agent.sh` and
 ```bash
 rm ~/SpraxelAiCompany/.paused
 ```
+
+### Interrupt protocol — when you need to do a one-off mid-run
+
+If you need to make a manual change while overnight is running (a real
+bug emergency, a play-test reveal, anything), use the interrupt scripts.
+They safely pause the system, preserve in-flight Developer work, and
+get you to a clean master in one command:
+
+```bash
+# Pause system + kill in-flight overnight + stash Developer work + checkout master
+bash ~/SpraxelAiCompany/scripts/interrupt.sh
+
+# ...now you can edit code, commit, test on master...
+
+# When you're done and your change is committed + pushed:
+bash ~/SpraxelAiCompany/scripts/resume.sh
+# → restores the pre-interrupt branch + stash, unpauses daemon
+
+# Or, if you want to discard the in-flight Developer work permanently:
+bash ~/SpraxelAiCompany/scripts/resume.sh --drop
+```
+
+What `interrupt.sh` does:
+1. `touch .paused` (block new agent dispatches)
+2. SIGTERM all `overnight_dev.sh / run_agent.sh / claude -p` processes
+3. Clear stale lockdirs
+4. `git stash` any uncommitted work in the game repo (preserves it)
+5. `git checkout master && git pull --ff-only`
+6. Record state to `.cache/last-interrupt.txt` for `resume.sh`
+
+What `resume.sh` does:
+1. Read `.cache/last-interrupt.txt`
+2. Checkout the pre-interrupt branch (if any)
+3. Pop the stash (if any)
+4. `rm .paused` → next tick fires normally
+
+Both scripts are idempotent and refuse to overwrite dirty state.
 
 ### Pause one agent only
 
@@ -598,7 +683,7 @@ Tag reference:
 | Agent | Cadence | Model | What it does |
 |-------|---------|-------|--------------|
 | **overnight_dev** | nightly 23:00 → 06:00 PT | n/a (shell) | Loops up to 10 features. Branches → Developer → tests → Reviewer → merge. |
-| **developer** | called by overnight | sonnet | Implements one WORK.md item end-to-end on a feature branch. |
+| **developer** | called by overnight | sonnet | Implements one WORK.md item end-to-end on a feature branch. **Always adds a GUT test under `test/unit/` and runs `bash scripts/run_local_tests.sh` before committing.** No test = the commit is not done. |
 | **reviewer** | called by overnight | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). |
 | **triager** | daily 05:00 PT | haiku | Reads overnight test failures, dedupes, appends `[bug]` items to ## Todo. |
 | **morning-briefer** | daily 06:00 PT | haiku | Writes MORNING.md — runs `health_check.sh` first, then 10 features to play-test, decisions to make, escalations. |
@@ -797,5 +882,9 @@ plan.
 | Daemon ticks | `~/SpraxelAiCompany/logs/tick/<YYYY-MM-DD>.log` |
 | Quick "is anything broken?" | `bash ~/SpraxelAiCompany/scripts/health_check.sh` |
 | Schedule config | `~/SpraxelAiCompany/schedule.yaml` |
+| Bootstrap a new game | `bash ~/SpraxelAiCompany/scripts/new_game.sh <dir>` |
+| Pause + preserve in-flight work | `bash ~/SpraxelAiCompany/scripts/interrupt.sh` |
+| Resume after a manual change | `bash ~/SpraxelAiCompany/scripts/resume.sh` |
 | Game's design tenets | `~/GameProjects/infiltrators/Philosophy.md` |
 | Feature inventory | `~/GameProjects/infiltrators/Game.md` |
+| WORK.md format spec | `~/SpraxelAiCompany/docs/WORK_MD_FORMAT.md` |

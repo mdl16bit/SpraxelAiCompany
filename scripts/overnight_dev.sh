@@ -167,13 +167,21 @@ for det in it.get('details', []):
     else
       rc=$?
       echo "overnight: developer FAILED rc=$rc on attempt $attempt" >> "$item_log"
-      if [ "$rc" -eq 1 ]; then
-        # claude CLI failure (vs item-level blocker reported via exit 0 + status)
-        fail_streak=$((fail_streak + 1))
-      fi
+      # ANY non-zero exit counts toward the streak — that includes signal
+      # kills (rc=137/143 from pkill SIGTERM/SIGKILL) and claude crashes
+      # (rc=1). Previously only rc=1 counted, so a process kill would
+      # cascade through every item without tripping the brake.
+      fail_streak=$((fail_streak + 1))
       [ "$attempt" -lt 2 ] && continue
       outcome=fail
       break
+    fi
+    # Also: if .paused appeared mid-loop, exit before doing more damage.
+    if [ -e "$PAUSED_FLAG" ]; then
+      echo "overnight: paused mid-run — exiting" >> "$item_log"
+      echo "overnight: paused mid-run after working on '$next_title'"
+      outcome=skip
+      break 2  # break out of attempt loop AND the outer while
     fi
 
     # Detect "needs-ceo clarification" — Developer ran clarify on the item
