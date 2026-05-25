@@ -1,0 +1,62 @@
+name: Conflict detector (auto-label)
+
+# When master moves (a merge — bot or CEO — or a direct push), GitHub
+# asynchronously recomputes the `mergeable` field on every open PR.
+# This workflow waits a beat then labels any PR that's now in
+# CONFLICTING state, which triggers conflict-resolver.yml.
+#
+# Closes the CEO-click-merge gap: if you hit the green Merge button
+# on PR #N and GitHub refuses with a conflict warning, you don't have
+# to do anything — when the master state finally allows a sibling PR
+# to merge (or you push something else to master), this detector
+# sweeps and labels #N for the resolver.
+#
+# Also runs hourly as a fallback in case GitHub's mergeability
+# re-computation is slow, plus workflow_dispatch for manual sweeps.
+
+on:
+  push:
+    branches: [master, main]
+  schedule:
+    - cron: '17 * * * *'   # hourly fallback
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: write   # needed to chain-fire conflict-resolver.yml via workflow_dispatch
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for GitHub mergeability recompute
+        # The `mergeable` field is computed asynchronously by GitHub
+        # after a base-branch push. ~30-60s is usually enough; some
+        # repos take longer. We sleep 90s to be safe.
+        run: sleep 90
+
+      - name: Label CONFLICTING PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          NEW=$(gh pr list --repo "$REPO" --state open \
+            --json number,title,mergeable,labels \
+            --jq '.[] | select(.mergeable == "CONFLICTING") | select((.labels | map(.name)) | contains(["merge-conflict"]) | not) | "\(.number)|\(.title)"')
+
+          if [ -z "$NEW" ]; then
+            echo "No new conflicting PRs."
+            exit 0
+          fi
+
+          echo "$NEW" | while IFS='|' read -r PR TITLE; do
+            echo "::notice::Labeling PR #$PR ($TITLE) as merge-conflict"
+            gh pr edit "$PR" --repo "$REPO" --add-label "merge-conflict"
+            gh pr comment "$PR" --repo "$REPO" --body "🔀 **Conflict-detector**: PR is in \`CONFLICTING\` state after master moved. Labeled \`merge-conflict\` and chain-firing \`conflict-resolver.yml\` (GITHUB_TOKEN doesn't chain workflows via labels, so explicit trigger)."
+            # GitHub Actions rule: workflows fired by GITHUB_TOKEN don't trigger
+            # other workflows via their event. Use workflow_dispatch explicitly
+            # to chain conflict-resolver.yml on the just-labeled PR.
+            gh workflow run conflict-resolver.yml --repo "$REPO" -F pr_number="$PR" || echo "::warning::failed to chain-fire conflict-resolver for PR #$PR"
+          done

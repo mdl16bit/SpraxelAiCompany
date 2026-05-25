@@ -1,0 +1,65 @@
+name: OAuth token validity probe
+
+# Weekly Saturday 09:00 PT no-op claude-code-action that just responds
+# with "OK". If it fails authentication: posts 🔑 alert on Factory Daily
+# Log issue #5. Catches CLAUDE_CODE_OAUTH_TOKEN revocation / expiration
+# silently before all LLM workflows start mysteriously failing.
+
+on:
+  schedule:
+    - cron: '0 16 * * 6'  # Saturday 16:00 UTC = 09:00 PT (PDT)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+jobs:
+  dryrun-guard:
+    uses: ./.github/workflows/_dryrun-guard.yml
+
+  probe:
+    needs: dryrun-guard
+    if: needs.dryrun-guard.outputs.dryrun != 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true   # don't fail the workflow run; we want to detect failure
+    outputs:
+      success: ${{ steps.probe.outputs.success }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: probe
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: --model claude-haiku-4-5-20251001 --dangerously-skip-permissions --max-turns 2
+          show_full_output: true
+          prompt: |
+            This is the OAuth token probe. Respond with EXACTLY the string `OK` and nothing else, then exit. No tool calls, no file reads, no analysis. Just `OK`.
+
+      - name: Record success
+        if: success()
+        run: echo "success=true" >> "$GITHUB_OUTPUT"
+
+  alert-on-failure:
+    needs: probe
+    if: always() && needs.probe.outputs.success != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post 🔑 alert on Factory Daily Log
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          LOG=$(gh issue list --repo "$REPO" --search "Factory Daily Log in:title" --state open --json number --jq '.[0].number')
+          LOG=${LOG:-5}
+          gh issue comment "$LOG" --repo "$REPO" --body "🔑 **OAuth token probe FAILED** at $(date -u +%Y-%m-%dT%H:%MZ). The \`CLAUDE_CODE_OAUTH_TOKEN\` secret may have been revoked or expired. All LLM-using workflows (Developer, Reviewer, Blogger, Conflict-resolver, Developer-rework) will fail until the token is refreshed.
+
+          **To fix**: \`/login\` in any local Claude Code session to generate a new OAuth token, then:
+          \`\`\`bash
+          gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo ${{ github.repository }}
+          \`\`\`
+          (paste via stdin when prompted; never argv)
+
+          Re-run this workflow with \`workflow_dispatch\` to verify."

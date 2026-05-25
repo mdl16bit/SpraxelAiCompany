@@ -1,0 +1,187 @@
+name: Health dashboard (daily)
+
+# Daily 05:30 PT (12:30 UTC), 30 min before Concierge. Aggregates the
+# state of the autopilot over the past 24h:
+#   - Per-workflow success rate
+#   - status:needs-ceo issue/PR count
+#   - Cost trend (today vs 7-day avg)
+#   - OAuth probe last-run status
+#   - Stuck claims, stuck PRs
+#
+# Posts a 🩺 comment on Factory Daily Log issue #5 BEFORE Concierge's
+# 06:00 digest, so CEO sees system health alongside today's work.
+
+on:
+  schedule:
+    - cron: '30 12 * * *'  # 12:30 UTC = 05:30 PT (PDT) / 04:30 PT (PST)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+  pull-requests: read
+
+jobs:
+  dryrun-guard:
+    uses: ./.github/workflows/_dryrun-guard.yml
+
+  dashboard:
+    needs: dryrun-guard
+    if: needs.dryrun-guard.outputs.dryrun != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute health metrics
+        id: metrics
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY' > /tmp/dashboard.md
+          import datetime, json, os, subprocess, statistics
+          import yaml
+          from collections import defaultdict
+          from pathlib import Path
+
+          repo = os.environ["REPO"]
+          now_utc = datetime.datetime.utcnow()
+          since_24h = (now_utc - datetime.timedelta(hours=24)).isoformat() + "Z"
+
+          def gh(args):
+              return subprocess.check_output(["gh"] + args, text=True)
+
+          # 1. Workflow success rate over past 24h, per workflow.
+          runs = json.loads(gh([
+              "api", f"/repos/{repo}/actions/runs?created=>{since_24h}&per_page=100",
+              "--paginate", "--slurp",
+          ]))
+          all_runs = []
+          for page in runs:
+              all_runs.extend(page.get("workflow_runs", []))
+
+          by_wf = defaultdict(lambda: {"total": 0, "failed": 0, "skipped": 0})
+          for r in all_runs:
+              wf = r.get("name") or r.get("path", "").split("/")[-1]
+              if not wf: continue
+              by_wf[wf]["total"] += 1
+              if r["conclusion"] == "failure": by_wf[wf]["failed"] += 1
+              elif r["conclusion"] == "skipped": by_wf[wf]["skipped"] += 1
+
+          # 2. status:needs-ceo issues + PRs
+          needs_ceo_issues = len(json.loads(gh(["issue", "list", "--repo", repo,
+              "--label", "status:needs-ceo", "--state", "open", "--json", "number"])))
+          needs_ceo_prs = len(json.loads(gh(["pr", "list", "--repo", repo,
+              "--label", "status:needs-ceo", "--state", "open", "--json", "number"])))
+
+          # 3. Stuck PRs (open > 6h without merge or close)
+          stuck_prs = 0
+          prs = json.loads(gh(["pr", "list", "--repo", repo, "--state", "open",
+              "--limit", "50", "--json", "number,createdAt,updatedAt"]))
+          cutoff = now_utc - datetime.timedelta(hours=6)
+          for pr in prs:
+              upd = datetime.datetime.fromisoformat(pr["updatedAt"].replace("Z", "+00:00"))
+              if upd.replace(tzinfo=None) < cutoff:
+                  stuck_prs += 1
+
+          # 4. Cost trend (from .factory/costs.yaml)
+          cost_trend = ""
+          p = Path(".factory/costs.yaml")
+          if p.exists():
+              try:
+                  d = yaml.safe_load(p.read_text())
+                  log = d.get("daily_log", [])
+                  if log:
+                      today = log[0]
+                      prev7 = [r for r in log[1:8]]
+                      if prev7:
+                          today_total = today.get("weighted_total", 0)
+                          avg = statistics.mean(r.get("weighted_total", 0) for r in prev7)
+                          if avg > 0:
+                              ratio = today_total / avg
+                              if ratio > 2.0:
+                                  cost_trend = f"📈 SPIKE: today's activity is {ratio:.1f}× the 7-day average"
+                              elif ratio < 0.3 and today_total > 0:
+                                  cost_trend = f"📉 Quiet: today is {ratio:.1f}× the 7-day average"
+                              else:
+                                  cost_trend = f"~normal: today is {ratio:.1f}× the 7-day average"
+              except Exception as e:
+                  cost_trend = f"(could not parse costs.yaml: {e})"
+
+          # 5. Render markdown
+          out = ["# 🩺 Factory health — " + now_utc.strftime("%Y-%m-%d %H:%MZ"), ""]
+
+          # Workflows
+          total_runs = sum(v["total"] for v in by_wf.values())
+          total_failed = sum(v["failed"] for v in by_wf.values())
+          overall_rate = (1 - total_failed / total_runs) * 100 if total_runs else 100
+          health_icon = "✅" if overall_rate >= 95 else ("⚠️" if overall_rate >= 80 else "🚨")
+          out.append(f"## {health_icon} Workflows (past 24h)")
+          out.append(f"- Overall success: **{overall_rate:.0f}%** ({total_runs - total_failed}/{total_runs} succeeded)")
+          # Sort by failed-then-total desc to surface problem workflows
+          problem_wfs = sorted(by_wf.items(), key=lambda kv: (-kv[1]["failed"], -kv[1]["total"]))[:8]
+          for wf, stats in problem_wfs:
+              if stats["failed"] > 0:
+                  out.append(f"- ❌ **{wf}**: {stats['failed']}/{stats['total']} failed")
+          out.append("")
+
+          # Escalations
+          if needs_ceo_issues + needs_ceo_prs > 0:
+              out.append(f"## 🆘 Needs-CEO escalations: {needs_ceo_issues + needs_ceo_prs}")
+              out.append(f"- {needs_ceo_issues} issue(s), {needs_ceo_prs} PR(s) labeled `status:needs-ceo`")
+              out.append(f"- [View →](https://github.com/{repo}/issues?q=is%3Aopen+label%3Astatus%3Aneeds-ceo)")
+              out.append("")
+
+          # Stuck PRs
+          if stuck_prs > 0:
+              out.append(f"## ⏳ Stuck PRs: {stuck_prs}")
+              out.append(f"- {stuck_prs} open PR(s) with no activity > 6h")
+              out.append("")
+
+          # Cost trend
+          if cost_trend:
+              out.append(f"## 💰 Activity trend")
+              out.append(f"- {cost_trend}")
+              out.append("")
+
+          # OAuth probe last result
+          probe_runs = [r for r in all_runs if r.get("name") == "OAuth token validity probe"]
+          if probe_runs:
+              last = sorted(probe_runs, key=lambda r: r["created_at"], reverse=True)[0]
+              ok = last["conclusion"] in ("success", None)
+              out.append(f"## 🔑 OAuth probe")
+              out.append(f"- Last probe: {last['created_at'][:16]} → {'✅ OK' if ok else '🚨 FAILED'}")
+              out.append("")
+
+          # All-green: skip the post entirely (silence > noise).
+          # The CEO does not need a daily "everything is fine" comment cluttering
+          # issue #5; that just inflates Triager + Concierge read costs downstream.
+          all_green = (
+              total_failed == 0
+              and needs_ceo_issues + needs_ceo_prs == 0
+              and stuck_prs == 0
+          )
+          if all_green:
+              # Sentinel for the next workflow step. /tmp/dashboard.md stays empty.
+              Path("/tmp/dashboard-skip.flag").write_text("all-green\n")
+              print(f"Health dashboard: all-green at {now_utc.strftime('%Y-%m-%d %H:%MZ')} — skipping post to issue #5.")
+          else:
+              print("\n".join(out))
+          PY
+          if [ -f /tmp/dashboard-skip.flag ]; then
+            echo "::notice::all-green — health dashboard suppressed"
+          else
+            cat /tmp/dashboard.md
+          fi
+
+      - name: Post to Factory Daily Log
+        if: ${{ hashFiles('/tmp/dashboard-skip.flag') == '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          LOG=$(gh issue list --repo "$REPO" --search "Factory Daily Log in:title" --state open --json number --jq '.[0].number')
+          LOG=${LOG:-5}
+          gh issue comment "$LOG" --repo "$REPO" --body-file /tmp/dashboard.md

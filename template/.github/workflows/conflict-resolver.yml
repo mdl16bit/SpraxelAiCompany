@@ -1,0 +1,164 @@
+name: Conflict resolver
+
+# Fires when a PR is labeled `merge-conflict` (auto-applied by
+# auto-merge.yml when its merge attempt fails due to a conflict, or
+# manually applied by the CEO). Spawns the Developer agent on the
+# EXISTING PR branch with a rebase + conflict-resolution prompt.
+# Force-pushes the resolved branch when done.
+#
+# If the conflict is semantically unresolvable, the agent aborts the
+# rebase and adds `status:needs-ceo` for manual review.
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to resolve"
+        required: true
+
+# At most one conflict-resolver per PR at a time.
+concurrency:
+  group: conflict-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  dryrun-guard:
+    runs-on: ubuntu-latest
+    outputs:
+      dryrun: ${{ steps.check.outputs.dryrun }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if grep -qE '^run_mode:\s*"dryrun"' Philosophy.md; then
+            echo "dryrun=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Philosophy.run_mode=dryrun — skipping conflict-resolver"
+          fi
+
+  resolve:
+    needs: dryrun-guard
+    if: ${{ (github.event.label.name == 'merge-conflict' || github.event_name == 'workflow_dispatch') && needs.dryrun-guard.outputs.dryrun != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR number + branch
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.pull_request.number || '' }}" ]; then
+            PR="${{ github.event.pull_request.number }}"
+          else
+            PR="${{ github.event.inputs.pr_number }}"
+          fi
+          DATA=$(gh pr view "$PR" --repo "$REPO" --json headRefName,baseRefName,title,body)
+          BRANCH=$(echo "$DATA" | python3 -c "import json,sys; print(json.load(sys.stdin)['headRefName'])")
+          BASE=$(echo "$DATA" | python3 -c "import json,sys; print(json.load(sys.stdin)['baseRefName'])")
+          TITLE=$(echo "$DATA" | python3 -c "import json,sys; print(json.load(sys.stdin)['title'])")
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Try simple auto-rebase first (no LLM call if it works)
+        id: simple-rebase
+        env:
+          BRANCH: ${{ steps.pr.outputs.branch }}
+          BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          git config user.email "conflict-resolver-bot@spraxel.ai"
+          git config user.name "Conflict Resolver"
+          git fetch origin "$BASE"
+          if git rebase "origin/$BASE"; then
+            git push --force-with-lease origin "$BRANCH"
+            echo "resolved=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Clean rebase succeeded for $BRANCH against $BASE — no LLM needed"
+          else
+            git rebase --abort 2>/dev/null || true
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            echo "Clean rebase produced conflicts — escalating to Developer agent"
+          fi
+
+      - name: Remove merge-conflict label (simple rebase path)
+        if: steps.simple-rebase.outputs.resolved == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pr }}
+        run: |
+          gh pr edit "$PR" --repo "$REPO" --remove-label "merge-conflict" 2>/dev/null || true
+          gh pr comment "$PR" --repo "$REPO" --body "🔧 Conflict-resolver: clean rebase against \`${{ steps.pr.outputs.base }}\` succeeded. No semantic conflicts; LLM not invoked. Branch force-pushed."
+
+      - name: Spawn Developer agent for semantic resolution
+        if: steps.simple-rebase.outputs.resolved != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: --model claude-sonnet-4-6 --dangerously-skip-permissions --max-turns 40
+          allowed_bots: "claude[bot],github-actions[bot]"
+          show_full_output: true
+          prompt: |
+            You are the **Spraxel conflict-resolver agent**. PR #${{ steps.pr.outputs.pr }} (`${{ steps.pr.outputs.title }}`) on branch `${{ steps.pr.outputs.branch }}` has a merge conflict with `${{ steps.pr.outputs.base }}` that a plain rebase couldn't auto-resolve. Your job: resolve it preserving BOTH (a) the original feature intent and (b) any new code from `${{ steps.pr.outputs.base }}`.
+
+            ## CRITICAL constraints
+
+            - The PR's branch is your scratch space. NEVER push to `${{ steps.pr.outputs.base }}` (master). NEVER use `git push --force` without `--with-lease`.
+            - You are NOT implementing new functionality. You are RECONCILING what's already on the branch with what's now on `${{ steps.pr.outputs.base }}`.
+            - If the conflict is semantically irreconcilable (a function the PR depends on was deleted on master; the PR's data model conflicts with a new schema; etc.) — do NOT guess. Abort and escalate.
+
+            ## Workflow
+
+            1. The PR branch is already checked out at the head. Confirm with `git status` + `git log --oneline -5`.
+            2. Read the PR body via `gh pr view ${{ steps.pr.outputs.pr }} --json body --jq .body` so you understand the feature's intent and acceptance criteria.
+            3. `git fetch origin ${{ steps.pr.outputs.base }}`
+            4. `git rebase origin/${{ steps.pr.outputs.base }}`
+            5. For each conflict:
+               - Read the file. Inspect the `<<<<<<<` / `=======` / `>>>>>>>` markers.
+               - Decide a resolution preserving both intents. Prefer minimal merges over rewrites — the original Developer's code is presumed correct in its scope; master's code is presumed correct in its scope; reconcile at the boundary.
+               - `git add <file>` after editing.
+               - `git rebase --continue` (will prompt for a commit message — `git rebase --continue --no-edit` if you want default).
+            6. After the rebase completes: `git push --force-with-lease origin ${{ steps.pr.outputs.branch }}`
+            7. Post ONE comment on the PR (use `gh pr comment ${{ steps.pr.outputs.pr }} --body "..."`) explaining each resolution decision in 1-2 lines. Reference file paths + line ranges.
+            8. Remove the `merge-conflict` label: `gh pr edit ${{ steps.pr.outputs.pr }} --remove-label merge-conflict`.
+
+            ## Escalation path (if conflict is unresolvable)
+
+            - `git rebase --abort`
+            - `gh pr comment ${{ steps.pr.outputs.pr }} --body "🚫 Conflict-resolver unable to safely reconcile. Reason: ..." ` — be specific about what broke (function `X` no longer exists in `${{ steps.pr.outputs.base }}`; data shape mismatch in `Y.gd`; etc.)
+            - `gh pr edit ${{ steps.pr.outputs.pr }} --add-label status:needs-ceo`
+            - DO NOT push anything.
+
+            ## Token efficiency
+
+            - You don't need to re-read the entire codebase. Read ONLY conflicting files + the PR body.
+            - Skip non-conflicting files entirely.
+            - Don't run tests — that's the CI's job after you push.
+
+      - name: Final status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pr }}
+          SIMPLE: ${{ steps.simple-rebase.outputs.resolved }}
+        run: |
+          LABELS=$(gh pr view "$PR" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')
+          echo "PR #$PR final labels: $LABELS"
+          if echo "$LABELS" | grep -q "merge-conflict"; then
+            echo "::warning::PR #$PR still labeled merge-conflict after run"
+          fi

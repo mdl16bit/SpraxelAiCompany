@@ -1,0 +1,272 @@
+name: Keepalive (fill the velocity cap)
+
+# Continuous-flow safety net. Auto-merge.yml chains the next issue on
+# each PR merge, but if all in-flight Developers get stuck or PRs sit
+# in conflict for hours, the chain can stall. Keepalive runs every
+# 30 minutes — if there are open issues AND the in-flight cap has
+# room, it spawns Developers to fill the gap.
+#
+# Crucially: the system never idles while work exists. PM v9's daily
+# 7 AM PT run does the planning + initial spawn; keepalive ensures
+# slots stay full all day.
+#
+# No LLM cost — pure label manipulation via gh CLI + GITHUB_TOKEN.
+
+on:
+  schedule:
+    # GH cron is unreliable for this repo (high run volume = silent throttle).
+    # Kept as a backup; the primary trigger is the issue_comment path below.
+    - cron: '13,43 * * * *'
+  workflow_dispatch: {}
+  # Primary autopilot trigger: an Anthropic /schedule CCR routine posts a
+  # comment with "KEEPALIVE-TICK" marker on the Factory Daily Log issue (#5)
+  # every hour. CCR routines run on Anthropic infra, completely independent
+  # of GitHub cron throttling. The MCP github comment-write uses an App
+  # token whose pushes DO cascade to workflows (unlike GITHUB_TOKEN).
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: write   # needed to chain-fire developer-rework.yml via workflow_dispatch
+
+jobs:
+  dryrun-guard:
+    runs-on: ubuntu-latest
+    outputs:
+      dryrun: ${{ steps.check.outputs.dryrun }}
+      velocity: ${{ steps.check.outputs.velocity }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if grep -qE '^run_mode:\s*"dryrun"' Philosophy.md; then
+            echo "dryrun=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Philosophy.run_mode=dryrun — skipping keepalive"
+          fi
+          # Pull the velocity cap from Philosophy.md (default 3 if not parseable)
+          V=$(grep -E '^\s+velocity_issues_per_release:' Philosophy.md | grep -oE '[0-9]+' | head -1)
+          echo "velocity=${V:-3}" >> "$GITHUB_OUTPUT"
+
+  unstick-and-spawn:
+    needs: dryrun-guard
+    # Accept the run for any of the legitimate trigger paths:
+    #  - schedule (GH cron — unreliable but kept as backup)
+    #  - workflow_dispatch (manual fire from CLI or claude.ai)
+    #  - issue_comment on issue #5 containing "KEEPALIVE-TICK" (the
+    #    Anthropic /schedule CCR routine's hourly tick)
+    # Other issue_comment events (regular discussions on issue #5 or
+    # any other issue) must NOT fire keepalive.
+    if: |
+      needs.dryrun-guard.outputs.dryrun != 'true' &&
+      (
+        github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'issue_comment' && github.event.issue.number == 5 && contains(github.event.comment.body, 'KEEPALIVE-TICK'))
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unstick ghost claims (status:claimed but no open PR)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # For each issue labeled status:claimed: check if any open PR's
+          # branch name contains `issue-<N>` or title contains `(#<N>)` /
+          # `issue #<N>`. If none AND issue was last updated > 10 min ago
+          # (gives a real Developer time to actually open the PR but
+          # quickly recovers slots from ghost claims left by failed runs):
+          # remove status:claimed.
+          # Was 30 min; tightened 2026-05-25 because ghost claims from
+          # bot-guard rejections were holding slots for too long.
+          NOW=$(date -u +%s)
+          gh issue list --repo "$REPO" --state open --label status:claimed \
+            --json number,updatedAt --jq '.[] | "\(.number) \(.updatedAt)"' | \
+          while read -r N TS; do
+            UPDATED=$(date -u -d "$TS" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$TS" +%s 2>/dev/null || echo 0)
+            ELAPSED=$((NOW - UPDATED))
+            if [ "$ELAPSED" -lt 600 ]; then
+              continue  # < 10 min — Developer may still be opening the PR
+            fi
+            # Look for any open PR referencing this issue
+            PR_COUNT=$(gh pr list --repo "$REPO" --state open --search "in:title \"#$N\" OR in:title \"(#$N)\" OR in:body \"closes #$N\"" --json number --jq 'length')
+            if [ "$PR_COUNT" -gt 0 ]; then continue; fi
+            # Also check branch-name pattern
+            BRANCH_PR=$(gh pr list --repo "$REPO" --state open --json number,headRefName --jq "[.[] | select(.headRefName | test(\"issue-$N([^0-9]|$)\"))] | length")
+            if [ "$BRANCH_PR" -gt 0 ]; then continue; fi
+            echo "::warning::Unsticking ghost claim #$N (no open PR after ${ELAPSED}s)"
+            gh issue edit "$N" --repo "$REPO" --remove-label status:claimed 2>&1 | head -1
+            gh issue comment "$N" --repo "$REPO" --body "_Keepalive: status:claimed for ${ELAPSED}s with no open PR — Developer run may have errored. Removing label so next spawn can retry._" >/dev/null
+          done
+
+      - name: Retry stuck PRs (reviewed:blocking / tests:fail without recent rework)
+        # `continue-on-error`: if chain-firing fails (permissions hiccup, etc.)
+        # don't block the spawn step that runs after.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e   # don't exit on single PR's chain-fire failure
+          set -uo pipefail
+          # Per-PR rework throttle. Counts CLAUDE-bot rework comments on
+          # the PR in the past 24h (each successful developer-rework leaves
+          # a "rework: address PR #N feedback" comment). If 4+, escalate
+          # to status:needs-ceo. The OLD logic counted GLOBAL rework runs
+          # across the repo which incorrectly flagged any PR after the
+          # 4th rework anywhere — bug fixed here.
+          CUTOFF=$(date -u -d '-24 hours' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)
+          check_and_fire() {
+            local PR="$1" REASON="$2"
+            local COUNT=$(gh pr view "$PR" --repo "$REPO" --json comments --jq "[.comments[] | select(.author.login == \"claude\") | select(.body | test(\"rework|address PR\")) | select(.createdAt > \"$CUTOFF\")] | length")
+            if [ "${COUNT:-0}" -ge 4 ]; then
+              echo "::warning::PR #$PR has $COUNT rework iterations in 24h ($REASON) — escalating to status:needs-ceo"
+              gh pr edit "$PR" --repo "$REPO" --add-label "status:needs-ceo" 2>&1 | head -1
+              return 0
+            fi
+            echo "::notice::Firing rework for stuck PR #$PR ($REASON; $COUNT prior iterations in 24h)"
+            gh workflow run developer-rework.yml --repo "$REPO" -F pr_number="$PR" 2>&1 | head -1
+          }
+          gh pr list --repo "$REPO" --state open --label "reviewed:blocking" --json number --jq '.[].number' | while read PR; do
+            [ -z "$PR" ] && continue
+            check_and_fire "$PR" "reviewed:blocking"
+          done
+          gh pr list --repo "$REPO" --state open --label "tests:fail" --json number,labels --jq '.[] | select((.labels | map(.name)) | any(. == "reviewed:blocking") | not) | .number' | while read PR; do
+            [ -z "$PR" ] && continue
+            check_and_fire "$PR" "tests:fail"
+          done
+
+      - name: Compute slots + find eligible issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VELOCITY: ${{ needs.dryrun-guard.outputs.velocity }}
+        run: |
+          set -euo pipefail
+
+          # 1. Determine current ship-in version (highest release tag + 1, or v0.1)
+          LATEST=$(gh release list --repo "$REPO" --limit 50 --json tagName \
+            --jq '[.[].tagName | select(test("^v0\\.[0-9]+$")) | sub("^v0\\."; "") | tonumber] | max // 0')
+          NEXT=$((LATEST + 1))
+          SHIP_IN="ship-in:v0.$NEXT"
+          echo "current ship-in label: $SHIP_IN; velocity: $VELOCITY"
+
+          # 2. Count in-flight (status:ready OR status:claimed) — after unstick step ran
+          IN_FLIGHT=$(gh issue list --repo "$REPO" --state open --limit 100 \
+            --json labels --jq '[.[] | select((.labels | map(.name)) | any(. == "status:ready" or . == "status:claimed"))] | length')
+          SLOTS=$((VELOCITY - IN_FLIGHT))
+          echo "in-flight: $IN_FLIGHT; slots available: $SLOTS"
+
+          if [ "$SLOTS" -le 0 ]; then
+            echo "::notice::velocity cap full ($IN_FLIGHT / $VELOCITY); no spawn needed"
+            exit 0
+          fi
+
+          # 3. Find candidates in priority order:
+          #    a) Current ship-in bucket (kind:feature/bug, no status, no priority:p0, no for:ceo)
+          #    b) Tail (unplanned eligible issues — auto-promote by adding ship-in label)
+          # Note: gh's --jq doesn't accept --arg (that's a jq CLI flag, not gh).
+          # Use shell interpolation. Escape jq's own $L as \$L to keep it literal in jq.
+          CANDIDATES=$(gh issue list --repo "$REPO" --state open --limit 100 \
+            --json number,labels \
+            --jq "
+              [.[] | select(
+                (.labels | map(.name)) as \$L |
+                (any(\$L[]; . == \"kind:feature\" or . == \"kind:bug\")) and
+                (any(\$L[]; . == \"status:ready\" or . == \"status:claimed\" or . == \"status:blocked\") | not) and
+                (any(\$L[]; . == \"priority:p0\") | not) and
+                (any(\$L[]; . == \"for:ceo\") | not) and
+                (any(\$L[]; . == \"$SHIP_IN\"))
+              )] | sort_by(
+                  (.labels | map(.name)
+                    | if any(. == \"priority:p1\") then 1
+                      elif any(. == \"priority:p2\") then 2
+                      elif any(. == \"priority:p3\") then 3
+                      else 9 end),
+                  (.labels | map(.name)
+                    | if any(. == \"kind:bug\") then 0 else 1 end),
+                  .number
+                ) | .[].number")
+
+          # If current bucket is empty, promote from tail
+          if [ -z "$CANDIDATES" ]; then
+            echo "::notice::current bucket empty; promoting from tail"
+            TAIL=$(gh issue list --repo "$REPO" --state open --limit 100 \
+              --json number,labels \
+              --jq '
+                [.[] | select(
+                  (.labels | map(.name)) as $L |
+                  (any($L[]; . == "kind:feature" or . == "kind:bug" or . == "kind:chore")) and
+                  (any($L[]; . == "status:ready" or . == "status:claimed" or . == "status:blocked") | not) and
+                  (any($L[]; . == "priority:p0") | not) and
+                  (any($L[]; . == "for:ceo") | not) and
+                  (any($L[]; startswith("ship-in:")) | not)
+                )] | sort_by(
+                    (.labels | map(.name)
+                      | if any(. == "priority:p1") then 1
+                        elif any(. == "priority:p2") then 2
+                        elif any(. == "priority:p3") then 3
+                        else 9 end),
+                    (.labels | map(.name)
+                      | if any(. == "kind:bug") then 0 else 1 end),
+                    .number
+                  ) | .[].number')
+            if [ -n "$TAIL" ]; then
+              gh label create "$SHIP_IN" --repo "$REPO" --color "5319e7" --description "PM planning: targets this release" 2>/dev/null || true
+              for N in $TAIL; do
+                gh issue edit "$N" --repo "$REPO" --add-label "$SHIP_IN" 2>&1 | head -1
+                echo "$N" >> /tmp/promoted.txt
+              done
+              CANDIDATES=$(echo "$TAIL")
+            fi
+          fi
+
+          # 4. Spawn up to SLOTS Developers.
+          #
+          # CRITICAL: GitHub Actions does NOT cascade label-add events
+          # triggered by GITHUB_TOKEN. So `gh issue edit --add-label
+          # status:ready` alone does NOT fire developer.yml. We must
+          # explicitly dispatch the workflow (workflow_dispatch IS an
+          # allowed exception per GitHub's docs).
+          #
+          # Sequence per spawned issue:
+          #   1. Add status:ready label (state machine + in-flight count)
+          #   2. Inspect issue labels — route content vs gameplay
+          #   3. gh workflow run developer{,-content}.yml -F issue_number=$N
+          SPAWNED=0
+          for N in $CANDIDATES; do
+            if [ "$SPAWNED" -ge "$SLOTS" ]; then break; fi
+            # Read labels to decide routing
+            LABELS=$(gh issue view "$N" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+            if echo "$LABELS" | grep -q "area:content"; then
+              TARGET="developer-content.yml"
+              ROUTE="content (Haiku)"
+            else
+              TARGET="developer.yml"
+              ROUTE="gameplay (Sonnet)"
+            fi
+            echo "::notice::keepalive: spawning #$N → $TARGET ($ROUTE, slot $((SPAWNED+1))/$SLOTS)"
+            # State machine: status:ready first (so in-flight count is correct
+            # for the next keepalive run; the dispatched Developer will swap
+            # it to status:claimed within ~10s).
+            gh issue edit "$N" --repo "$REPO" --add-label "status:ready" 2>&1 | head -1
+            # Actual fire: workflow_dispatch with the issue number as input.
+            if gh workflow run "$TARGET" --repo "$REPO" -F issue_number="$N" 2>&1 | head -1; then
+              gh issue comment "$N" --repo "$REPO" --body "_Keepalive: dispatched \`$TARGET\` ($ROUTE), slot $((SPAWNED+1))/$SLOTS at $(date -u +%H:%M\ UTC). Velocity cap: $VELOCITY._" >/dev/null
+              SPAWNED=$((SPAWNED + 1))
+            else
+              echo "::warning::keepalive: gh workflow run $TARGET for #$N failed — removing status:ready to retry next tick"
+              gh issue edit "$N" --repo "$REPO" --remove-label "status:ready" 2>/dev/null || true
+            fi
+          done
+
+          if [ "$SPAWNED" -gt 0 ]; then
+            echo "::notice::keepalive spawned $SPAWNED Developer(s)"
+          else
+            echo "::notice::keepalive: no eligible issues to spawn (in-flight=$IN_FLIGHT, slots=$SLOTS, candidates empty)"
+          fi

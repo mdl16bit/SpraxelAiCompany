@@ -1,0 +1,185 @@
+name: Playtest (nightly)
+
+# Nightly Playtester: runs the full scenario suite + GUT tests against
+# master, posts any failures (regressions or new bugs) on the Factory
+# Daily Log issue #5 so the morning Concierge digest surfaces them.
+#
+# Distinct from test.yml (per-PR): playtest.yml runs against MASTER on a
+# schedule, with the goal of catching regressions that PR-time tests
+# missed and surfacing degradation over time.
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # daily 02:00 PT (PDT) / 01:00 PT (PST)
+  workflow_dispatch:
+  workflow_call:        # release-cut.yml calls this as a pre-tag smoke test
+    outputs:
+      passed:
+        description: "true if all scenarios + GUT tests passed"
+        value: ${{ jobs.playtest.outputs.passed }}
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  dryrun-guard:
+    runs-on: ubuntu-latest
+    outputs:
+      dryrun: ${{ steps.check.outputs.dryrun }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if grep -qE '^run_mode:\s*"dryrun"' Philosophy.md; then
+            echo "dryrun=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Philosophy.run_mode=dryrun — skipping Playtester"
+          fi
+
+  playtest:
+    needs: dryrun-guard
+    if: needs.dryrun-guard.outputs.dryrun != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.report.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true  # Asset .json files are LFS-tracked; without this Godot can't parse them
+
+      - name: Cache Godot binary
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/godot
+          key: godot-4.6.1-linux-x86_64
+
+      - name: Install Godot 4.6.1
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.6.1-stable/Godot_v4.6.1-stable_linux.x86_64.zip
+          unzip -q Godot_v4.6.1-stable_linux.x86_64.zip
+          sudo mv Godot_v4.6.1-stable_linux.x86_64 /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+
+      - name: Editor import (populate class_name cache)
+        run: timeout 60 godot --editor --headless --path . --quit-after 30 || true
+
+      - name: Run GUT unit tests
+        id: gut
+        run: |
+          set -uo pipefail
+          output=$(godot --headless --path . \
+            -s res://addons/gut/gut_cmdln.gd \
+            -gdir=res://test/unit \
+            -ginclude_subdirs \
+            -gexit 2>&1)
+          gut_exit=$?
+          echo "$output"
+          # Capture key output lines for the alert comment
+          echo "$output" | grep -E "^(Tests|Scripts|Passing|Failing|Asserts|All tests)" > /tmp/gut-summary.txt || true
+          if ! echo "$output" | grep -qE "^Totals|Run Summary"; then
+            echo "::error::GUT produced no summary"
+            echo "GUT_BROKEN" > /tmp/gut-summary.txt
+            exit 1
+          fi
+          exit $gut_exit
+
+      - name: Run acceptance scenarios
+        id: scenarios
+        run: |
+          shopt -s nullglob
+          set -uo pipefail
+          fail=0
+          : > /tmp/scenario-failures.txt
+          for scenario in scripts/scenarios/*.gd; do
+            base=$(basename "$scenario" .gd)
+            if [ "$base" = "_base" ]; then continue; fi
+            slug=$(echo "$base" | tr '_' '-')
+            echo "::group::scenario $slug"
+            output=$(godot --headless --path . -- --demo-feature="$slug" --trace-file="/tmp/$slug.jsonl" --quit-after=10 2>&1)
+            echo "$output"
+            if echo "$output" | grep -qE "^(ERROR:|SCRIPT ERROR|Parse error)"; then
+              echo "::error::scenario $slug had script errors"
+              echo "- $slug: script error / parse error in output" >> /tmp/scenario-failures.txt
+              fail=1
+            elif echo "$output" | grep -qE "SCENARIO .* FAIL"; then
+              echo "::error::scenario $slug printed FAIL"
+              echo "- $slug: scenario printed FAIL" >> /tmp/scenario-failures.txt
+              fail=1
+            elif ! echo "$output" | grep -qE "SCENARIO .* PASS"; then
+              echo "::error::scenario $slug silent (no PASS line)"
+              echo "- $slug: silent (no PASS line emitted)" >> /tmp/scenario-failures.txt
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $fail
+
+      - name: Report passed/failed
+        id: report
+        if: always()
+        run: |
+          # The previous step's status determines pass/fail. Set output
+          # so workflow_call callers (release-cut.yml) can decide.
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post Playtester report to Factory Daily Log (on failure)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find the pinned Factory Daily Log issue (default to #5)
+          LOG_ISSUE=$(gh issue list --repo ${{ github.repository }} \
+            --search "Factory Daily Log in:title" --state open \
+            --json number --jq '.[0].number')
+          LOG_ISSUE=${LOG_ISSUE:-5}
+
+          GUT_SUMMARY=$(cat /tmp/gut-summary.txt 2>/dev/null || echo "(no GUT summary captured)")
+          SCEN_FAILURES=$(cat /tmp/scenario-failures.txt 2>/dev/null || echo "(no scenario failures recorded)")
+
+          gh issue comment "$LOG_ISSUE" --repo ${{ github.repository }} --body "$(cat <<EOF
+          🐛 **Playtester (nightly) failed** — $(date -u +%Y-%m-%d)
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Commit on master: \`${{ github.sha }}\`
+
+          ## GUT summary
+          \`\`\`
+          $GUT_SUMMARY
+          \`\`\`
+
+          ## Scenario failures
+          $SCEN_FAILURES
+
+          A human triager (or the CEO) should look. Triager agent will
+          dedup + batch these into the morning digest if it's wired.
+          EOF
+          )"
+
+      - name: Post Playtester clean on success
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Only post a clean comment once per day — skip if a clean
+          # one already exists for today.
+          LOG_ISSUE=$(gh issue list --repo ${{ github.repository }} \
+            --search "Factory Daily Log in:title" --state open \
+            --json number --jq '.[0].number')
+          LOG_ISSUE=${LOG_ISSUE:-5}
+
+          TODAY=$(date -u +%Y-%m-%d)
+          # Look at the most recent few comments to see if Playtester already posted today
+          if gh issue view "$LOG_ISSUE" --repo ${{ github.repository }} \
+              --json comments --jq ".comments | map(select(.body | contains(\"Playtester (nightly)\") and contains(\"$TODAY\"))) | length" \
+              | grep -q "^[1-9]"; then
+            echo "Playtester already posted today; skipping clean comment."
+            exit 0
+          fi
+
+          gh issue comment "$LOG_ISSUE" --repo ${{ github.repository }} --body "✅ Playtester (nightly) clean — $TODAY. All scenarios + GUT tests passed on master \`${{ github.sha }}\`."

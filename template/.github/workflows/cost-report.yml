@@ -1,0 +1,175 @@
+name: Cost report (daily)
+
+# Refreshes .factory/costs.yaml every day with relative per-agent activity %.
+# Counts workflow runs over the past 24h, weights them by per-fire cost
+# estimate, and rolls up into mtd totals. No absolute $ — the CEO is on
+# Claude Max (flat plan), so only the per-agent SHARE of activity matters.
+#
+# /schedule routines (PM, Concierge, etc.) aren't visible to gh api runs,
+# so we estimate their fire count from cron cadence (daily = 1, weekly
+# = 1/7, monthly = 1/30 per day). Rough but proportional.
+
+on:
+  schedule:
+    # 23:00 PT (PDT) = 06:00 UTC the next day
+    - cron: '0 6 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute yesterday's per-agent activity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import datetime, json, os, re, subprocess, yaml
+          from pathlib import Path
+
+          repo = os.environ["REPO"]
+          now_utc = datetime.datetime.utcnow()
+          pt_offset = datetime.timedelta(hours=-7)   # PDT close enough
+          pt_now = now_utc + pt_offset
+          yesterday_pt = (pt_now - datetime.timedelta(days=1)).date()
+          period = yesterday_pt.strftime("%Y-%m")
+          since = (now_utc - datetime.timedelta(hours=24)).isoformat() + "Z"
+
+          # Fetch workflow runs.
+          out = subprocess.check_output([
+              "gh", "api", "-H", "Accept: application/vnd.github+json",
+              f"/repos/{repo}/actions/runs?created=>{since}&per_page=100",
+              "--paginate",
+          ], text=True)
+          decoder = json.JSONDecoder()
+          objs, idx, out = [], 0, out.strip()
+          while idx < len(out):
+              while idx < len(out) and out[idx].isspace():
+                  idx += 1
+              if idx >= len(out):
+                  break
+              obj, end = decoder.raw_decode(out, idx)
+              objs.append(obj); idx = end
+          runs = []
+          for o in objs:
+              runs.extend(o.get("workflow_runs", []))
+
+          # Map workflow file → agent key.
+          # Workflows we know about live in .github/workflows/<name>.yml.
+          WORKFLOW_TO_AGENT = {
+              "developer.yml": "developer",
+              "review.yml": "reviewer",
+              "test.yml": "test",
+              "playtest.yml": "playtester",
+              "blogger.yml": "blogger",
+              "auto-merge.yml": "auto-merge",
+              "sync.yml": "sync",
+              "tripwire.yml": "tripwire",
+              "cost-report.yml": "cost-report",
+          }
+
+          fires = {}
+          for r in runs:
+              if r.get("status") != "completed":
+                  continue
+              path = (r.get("path") or "").split("/")[-1]
+              agent = WORKFLOW_TO_AGENT.get(path)
+              if not agent:
+                  continue
+              fires[agent] = fires.get(agent, 0) + 1
+
+          # Add /schedule routine fires from cron cadence (one-day window).
+          # If we crossed a Monday/Sunday/1st, the weekly/monthly routines fired.
+          dow = yesterday_pt.weekday()   # 0=Mon ... 6=Sun
+          dom = yesterday_pt.day
+          # Daily routines fire every day
+          fires["pm"] = fires.get("pm", 0) + 1
+          fires["concierge"] = fires.get("concierge", 0) + 1
+          fires["triager"] = fires.get("triager", 0) + 1
+          # Designer weekly (Fri = weekday 4)
+          if dow == 4: fires["designer"] = fires.get("designer", 0) + 1
+          # Janitor weekly (Sun = weekday 6)
+          if dow == 6: fires["janitor"] = fires.get("janitor", 0) + 1
+          # Asset Librarian monthly (1st)
+          if dom == 1: fires["asset_librarian"] = fires.get("asset_librarian", 0) + 1
+
+          # Load existing costs.yaml.
+          p = Path(".factory/costs.yaml")
+          data = yaml.safe_load(p.read_text())
+          weights = data.get("weights", {})
+
+          # Compute weighted total + pct breakdown.
+          weighted_total = sum(fires.get(k, 0) * weights.get(k, 0) for k in fires)
+          pct_today = {}
+          if weighted_total > 0:
+              for k, n in fires.items():
+                  pct_today[k] = round((n * weights.get(k, 0) / weighted_total) * 100)
+
+          row = {
+              "date": yesterday_pt.isoformat(),
+              "fires": dict(sorted(fires.items())),
+              "weighted_total": weighted_total,
+              "pct_today": dict(sorted(pct_today.items(), key=lambda kv: -kv[1])),
+          }
+          print("computed row:", json.dumps(row, indent=2))
+
+          # Reset MTD if month boundary crossed.
+          if data.get("mtd_period") != period:
+              data["mtd_period"] = period
+              data["mtd_total_weighted_fires"] = 0
+              data["by_agent_mtd_pct"] = {k: 0 for k in data.get("by_agent_mtd_pct", {})}
+
+          # Upsert today's row.
+          log = data.get("daily_log") or []
+          log = [r for r in log if r.get("date") != row["date"]]
+          log.append(row)
+          log = sorted(log, key=lambda r: r["date"], reverse=True)[:30]
+          data["daily_log"] = log
+
+          # Recompute MTD: sum weighted fires across all in-period rows.
+          period_rows = [r for r in log if r["date"].startswith(period)]
+          mtd_weighted = sum(r["weighted_total"] for r in period_rows)
+          mtd_fires_by_agent = {}
+          for r in period_rows:
+              for k, n in r.get("fires", {}).items():
+                  mtd_fires_by_agent[k] = mtd_fires_by_agent.get(k, 0) + n
+          mtd_pct = {}
+          if mtd_weighted > 0:
+              for k, n in mtd_fires_by_agent.items():
+                  mtd_pct[k] = round((n * weights.get(k, 0) / mtd_weighted) * 100)
+          data["mtd_total_weighted_fires"] = mtd_weighted
+          # Preserve original key order in by_agent_mtd_pct; fill in counts.
+          existing = data.get("by_agent_mtd_pct", {})
+          for k in existing:
+              existing[k] = mtd_pct.get(k, 0)
+          # Add any new agents we discovered.
+          for k, v in mtd_pct.items():
+              if k not in existing:
+                  existing[k] = v
+          data["by_agent_mtd_pct"] = existing
+
+          p.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
+          print("wrote", p)
+          PY
+
+      - name: Commit if changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.email "cost-report-bot@spraxel.ai"
+          git config user.name "Cost Report"
+          git add .factory/costs.yaml
+          if git diff --cached --quiet; then
+            echo "no changes to commit"
+          else
+            git commit -m "cost-report: refresh activity % for $(date -u +%Y-%m-%d)"
+            git push
+          fi

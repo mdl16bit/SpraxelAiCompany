@@ -779,6 +779,15 @@ Cutoff is configurable via `INACTIVITY_DAYS` in the workflow's env. Default 5.
 - **`WORK.md` parser is divider-count-sensitive**: 0 dividers → everything is todo; 1 → shipped/todo; 2+ → shipped/current/todo. Put new dictation **below** the last divider so sync queues it.
 - **Hard CEO gates** (the system will never act without your tick): bulk issue creation, release cuts, designer-idea acceptance, p0-priority work, bug "real or not" calls.
 
+### CI hardening lessons learned (2026-05-25)
+
+- **`GITHUB_TOKEN` does NOT cascade events.** When a workflow uses `GITHUB_TOKEN` to add a label, the resulting `pull_request: labeled` event does NOT fire other workflows. GH built this as a security guard (prevents bot infinite loops). The exception: **`workflow_dispatch` IS allowed.** Pattern: when a workflow needs to trigger another, use `gh workflow run <other>.yml -F <input>=<value>` instead of relying on label cascade. All keepalive + auto-merge + test.yml chain-fires use this.
+- **`actions/checkout` doesn't pull LFS by default.** Set `lfs: true` on every checkout step in workflows that touch LFS-tracked files (asset JSONs, binary data, etc.). Without it, the runner gets text pointer files starting with `version https://git-lfs.github...` which Godot/parsers choke on with confusing errors.
+- **`claude-code-action@v1` rejects `github-actions[bot]` actor by default.** The bot guard refuses to run when triggered by a non-human actor. Set `allowed_bots: "claude[bot],github-actions[bot]"` on every claude-code-action that's dispatched via `gh workflow run` (which uses the `github-actions[bot]` identity).
+- **GH cron is throttled for active repos.** Per GH's "fairness across the platform" policy, scheduled fires get dropped for repos with high run volume. Workaround: drive keepalive from an Anthropic `/schedule` CCR routine that posts a marker comment, fires keepalive via `issue_comment` event. See [`docs/ccr-keepalive-routine.md`](docs/ccr-keepalive-routine.md) for setup. GH cron stays as a backup.
+- **Concurrency groups prevent duplicate runs.** Every per-PR or per-issue agent workflow needs `concurrency: { group: <role>-<id>, cancel-in-progress: true }`. Without it, every label change + every keepalive tick can fire its own concurrent agent on the same PR — 3+ reworks reasoning about the same problem in parallel = pure token waste. With it, a newer fire cancels the older one (better context anyway).
+- **Per-role `--max-turns` matters more than feels.** Complex features need 75-100 turns; rework debugging needs 60-100. Set too low → agent runs out mid-thought. Set too high → runaway burns budget. Pair with **checkpoint-commit discipline** in prompts: commit + push at every logical step, so if max-turns hits, the next fire can resume from the latest checkpoint.
+
 ---
 
 ## Where we are vs the plan, today (2026-05-24)

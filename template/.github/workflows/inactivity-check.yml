@@ -1,0 +1,181 @@
+name: CEO inactivity check (auto-dryrun)
+
+# Auto-pauses the factory when the CEO has been inactive for N days,
+# auto-resumes when activity returns. Definition of "activity":
+#   - commits to master authored by {{CEO_LOGIN}} (the CEO)
+#   - issue/PR comments by {{CEO_LOGIN}} on this repo
+#   - issue/PR/label edits by {{CEO_LOGIN}}
+#
+# If the most-recent CEO activity is older than INACTIVITY_DAYS, flips
+# Philosophy.md `run_mode: "live"` -> `run_mode: "dryrun"`. Tagged with
+# `# auto-set by inactivity-check` so the next active run knows to flip back.
+#
+# Commits as github-actions[bot] (NOT claude[bot]) — tripwire.yml only
+# fires on claude[bot], so this writes to master cleanly.
+
+on:
+  schedule:
+    - cron: '0 14 * * *'  # daily 14:00 UTC = 07:00 PT (PDT) / 06:00 PT (PST)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+env:
+  CEO_LOGIN: {{CEO_LOGIN}}
+  INACTIVITY_DAYS: 5
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect most-recent CEO activity
+        id: activity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import datetime, json, os, subprocess
+
+          repo = os.environ["REPO"]
+          ceo = os.environ["CEO_LOGIN"]
+          cutoff_days = int(os.environ["INACTIVITY_DAYS"])
+
+          def gh(args):
+              return subprocess.check_output(["gh"] + args, text=True)
+
+          latest_ts = None
+          src = None
+
+          # Commits by CEO on master in past 30 days
+          out = gh(["api", f"/repos/{repo}/commits?author={ceo}&per_page=5"])
+          for c in json.loads(out):
+              ts = c["commit"]["author"]["date"]
+              if not latest_ts or ts > latest_ts:
+                  latest_ts = ts; src = f"commit {c['sha'][:7]}"
+
+          # Recent issue comments by CEO
+          out = gh(["api", f"/repos/{repo}/issues/comments?per_page=30&sort=created&direction=desc"])
+          for c in json.loads(out):
+              if c["user"]["login"] != ceo: continue
+              ts = c["created_at"]
+              if not latest_ts or ts > latest_ts:
+                  latest_ts = ts; src = f"issue-comment #{c['issue_url'].split('/')[-1]}"
+              break  # comments are sorted desc; we only need the first match
+
+          # Recent issues / PRs touched by CEO (created or updated)
+          out = gh(["api", f"/repos/{repo}/issues?creator={ceo}&state=all&per_page=5&sort=updated&direction=desc"])
+          for i in json.loads(out):
+              ts = i["updated_at"]
+              if not latest_ts or ts > latest_ts:
+                  latest_ts = ts; src = f"issue #{i['number']} updated"
+              break
+
+          if not latest_ts:
+              # Fail-safe: never auto-pause if we can't read anything.
+              print("active=true  (no activity data; refusing to auto-pause)")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("active=true\nsrc=fail-safe-default\n")
+              exit(0)
+
+          now = datetime.datetime.now(datetime.timezone.utc)
+          last = datetime.datetime.fromisoformat(latest_ts.replace("Z", "+00:00"))
+          days = (now - last).total_seconds() / 86400
+          active = days < cutoff_days
+          print(f"latest CEO activity: {latest_ts} ({days:.1f} days ago, {src})")
+          print(f"active={active} (cutoff={cutoff_days}d)")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"active={'true' if active else 'false'}\n")
+              f.write(f"days={days:.1f}\n")
+              f.write(f"src={src}\n")
+          PY
+
+      - name: Inspect current Philosophy.md
+        id: philosophy
+        run: |
+          if grep -qE '^run_mode:\s*"dryrun"\s*#\s*auto-set by inactivity-check' Philosophy.md; then
+            echo "state=auto-dryrun" >> "$GITHUB_OUTPUT"
+          elif grep -qE '^run_mode:\s*"dryrun"' Philosophy.md; then
+            echo "state=manual-dryrun" >> "$GITHUB_OUTPUT"
+          elif grep -qE '^run_mode:\s*"live"' Philosophy.md; then
+            echo "state=live" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=unknown" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Flip Philosophy.run_mode if needed
+        id: flip
+        env:
+          ACTIVE: ${{ steps.activity.outputs.active }}
+          STATE: ${{ steps.philosophy.outputs.state }}
+          DAYS: ${{ steps.activity.outputs.days }}
+          SRC: ${{ steps.activity.outputs.src }}
+        run: |
+          set -euo pipefail
+          # State transitions:
+          #   inactive + live          -> flip to auto-dryrun
+          #   active   + auto-dryrun   -> flip back to live
+          #   inactive + auto-dryrun   -> no-op (already paused)
+          #   active   + live          -> no-op (normal)
+          #   *        + manual-dryrun -> no-op (CEO set it deliberately)
+          today=$(date -u +%Y-%m-%d)
+          if [ "$ACTIVE" = "false" ] && [ "$STATE" = "live" ]; then
+            python3 - <<PY
+          from pathlib import Path
+          p = Path("Philosophy.md"); t = p.read_text()
+          new = t.replace('run_mode: "live"', f'run_mode: "dryrun"   # auto-set by inactivity-check on {"$today"} ({"$DAYS"}d idle, last activity: {"$SRC"})')
+          p.write_text(new)
+          PY
+            echo "action=auto-pause" >> "$GITHUB_OUTPUT"
+          elif [ "$ACTIVE" = "true" ] && [ "$STATE" = "auto-dryrun" ]; then
+            python3 - <<PY
+          from pathlib import Path, PurePath
+          import re
+          p = Path("Philosophy.md"); t = p.read_text()
+          new = re.sub(r'run_mode:\s*"dryrun"\s*#\s*auto-set by inactivity-check[^\n]*', 'run_mode: "live"', t)
+          p.write_text(new)
+          PY
+            echo "action=auto-resume" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=no-op" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit + push if changed
+        if: steps.flip.outputs.action != 'no-op'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTION: ${{ steps.flip.outputs.action }}
+          DAYS: ${{ steps.activity.outputs.days }}
+        run: |
+          git config user.email "inactivity-bot@spraxel.ai"
+          git config user.name "Inactivity Check"
+          git add Philosophy.md
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+          else
+            git commit -m "inactivity-check: ${ACTION} (${DAYS}d since CEO activity)"
+            git push
+          fi
+
+      - name: Post status comment on Factory Daily Log
+        if: steps.flip.outputs.action != 'no-op'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTION: ${{ steps.flip.outputs.action }}
+          DAYS: ${{ steps.activity.outputs.days }}
+          SRC: ${{ steps.activity.outputs.src }}
+        run: |
+          LOG=$(gh issue list --repo ${{ github.repository }} --search "Factory Daily Log in:title" --state open --json number --jq '.[0].number' 2>/dev/null)
+          LOG=${LOG:-5}
+          if [ "$ACTION" = "auto-pause" ]; then
+            BODY="💤 **Inactivity check: factory auto-paused.** CEO inactive ${DAYS} days (cutoff 5d, last activity: ${SRC}). Philosophy.md flipped to \`run_mode: \"dryrun\"\`. Will auto-resume when CEO activity returns."
+          else
+            BODY="🟢 **Inactivity check: factory auto-resumed.** CEO activity detected ${DAYS} days ago (${SRC}). Philosophy.md flipped back to \`run_mode: \"live\"\`."
+          fi
+          gh issue comment "$LOG" --repo ${{ github.repository }} --body "$BODY"

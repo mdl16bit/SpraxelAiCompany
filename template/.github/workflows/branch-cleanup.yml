@@ -1,0 +1,112 @@
+name: Branch cleanup (merged feature branches)
+
+# Fills the MCP `delete_branch` gap. Janitor agent flags merged branches
+# but can't delete them (MCP server doesn't expose the tool). This
+# workflow does the actual deletion via gh CLI with GITHUB_TOKEN.
+#
+# Runs every other day at 10:00 UTC / 03:00 PT (was weekly Sundays; bumped
+# 2026-05-25 because branches accumulate fast at our spawn rate). Also
+# workflow_dispatch for manual cleanup.
+#
+# Deletes feature branches that are:
+# - merged into master (have a closed-merged PR with that head branch)
+# - NOT master, main, gh-pages, or any release/* branch
+# - NOT have an open PR
+
+on:
+  schedule:
+    - cron: '0 10 */2 * *'  # Every other day, 10:00 UTC = 03:00 PT
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  dryrun-guard:
+    runs-on: ubuntu-latest
+    outputs:
+      dryrun: ${{ steps.check.outputs.dryrun }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if grep -qE '^run_mode:\s*"dryrun"' Philosophy.md; then
+            echo "dryrun=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Philosophy.run_mode=dryrun — skipping branch cleanup"
+          fi
+
+  cleanup:
+    needs: dryrun-guard
+    if: needs.dryrun-guard.outputs.dryrun != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find + delete merged feature branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # List all remote branches.
+          git fetch --prune origin
+          REMOTE_BRANCHES=$(git branch -r | grep -E 'origin/(feat|feature|claude|blog)/' | sed 's|origin/||' | tr -d ' ' | sort -u)
+
+          DELETED=0
+          SKIPPED=0
+          LOG=""
+          for BRANCH in $REMOTE_BRANCHES; do
+            # Skip protected names defensively
+            case "$BRANCH" in
+              master|main|gh-pages|release/*) continue ;;
+            esac
+            # Skip if any OPEN PR uses this branch as head
+            OPEN_PR_COUNT=$(gh pr list --repo "$REPO" --state open --head "$BRANCH" --json number --jq 'length')
+            if [ "$OPEN_PR_COUNT" -gt 0 ]; then
+              echo "  skip $BRANCH (has open PR)"
+              SKIPPED=$((SKIPPED + 1))
+              continue
+            fi
+            # Find a closed-merged PR with this branch
+            MERGED=$(gh pr list --repo "$REPO" --state merged --head "$BRANCH" --json number --jq 'length')
+            if [ "$MERGED" -lt 1 ]; then
+              echo "  skip $BRANCH (no merged PR — orphan branch, leaving for CEO)"
+              SKIPPED=$((SKIPPED + 1))
+              continue
+            fi
+            echo "  delete $BRANCH (merged)"
+            git push origin --delete "$BRANCH"
+            DELETED=$((DELETED + 1))
+            LOG="${LOG}- \`$BRANCH\`\n"
+          done
+
+          echo "deleted=$DELETED skipped=$SKIPPED"
+          echo "DELETED=$DELETED" >> "$GITHUB_ENV"
+          echo "SKIPPED=$SKIPPED" >> "$GITHUB_ENV"
+          # Multi-line env var for the comment
+          {
+            echo "DELETION_LOG<<EOF_LOG"
+            printf "%b" "$LOG"
+            echo EOF_LOG
+          } >> "$GITHUB_ENV"
+
+      - name: Report to Factory Daily Log
+        if: env.DELETED != '0' || env.SKIPPED != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          LOG=$(gh issue list --repo "$REPO" --search "Factory Daily Log in:title" --state open --json number --jq '.[0].number')
+          LOG=${LOG:-5}
+          BODY="🧹 **Branch cleanup**: deleted $DELETED merged feature branches; skipped $SKIPPED (open PRs or no merged PR)."
+          if [ "$DELETED" -gt 0 ]; then
+            BODY="$BODY
+
+          Deleted:
+          ${DELETION_LOG}"
+          fi
+          gh issue comment "$LOG" --repo "$REPO" --body "$BODY"

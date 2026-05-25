@@ -1,0 +1,171 @@
+name: Factory event log
+
+# Hourly aggregator. Polls GitHub for what happened in the past hour
+# (issues opened/closed, PRs opened/merged/closed, releases created,
+# workflow runs completed) and appends one JSONL line per event to
+# .factory/history/events.jsonl. Commits if non-empty.
+#
+# Provides the permanent history archive that:
+#  - The CEO can grep retrospectively ("what happened last Tuesday?")
+#  - generate_release_notes.py reads to compose release notes
+#  - Janitor archives monthly to .factory/history/archive/YYYY-MM.jsonl
+
+on:
+  schedule:
+    - cron: '7 * * * *'   # hourly at :07 past
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect + append events
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p .factory/history
+          touch .factory/history/events.jsonl
+
+          python3 <<'PY'
+          import datetime, json, os, subprocess
+          from pathlib import Path
+
+          repo = os.environ["REPO"]
+          now_utc = datetime.datetime.utcnow()
+          # Window slightly wider than the hour to handle clock skew
+          since = (now_utc - datetime.timedelta(hours=1, minutes=10)).isoformat() + "Z"
+          today_str = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          jl = Path(".factory/history/events.jsonl")
+          existing_ids = set()
+          if jl.exists():
+              for line in jl.read_text().splitlines()[-1000:]:  # last 1000 events
+                  try:
+                      e = json.loads(line)
+                      existing_ids.add(e.get("uid", ""))
+                  except: pass
+
+          def gh(args):
+              return subprocess.check_output(["gh"] + args, text=True)
+
+          new_events = []
+
+          # Issues opened
+          out = gh(["issue", "list", "--repo", repo, "--state", "all", "--limit", "100",
+                   "--search", f"created:>{since}", "--json", "number,title,createdAt,author,labels"])
+          for i in json.loads(out):
+              uid = f"issue.opened:{i['number']}"
+              if uid in existing_ids: continue
+              new_events.append({
+                  "uid": uid,
+                  "timestamp": i["createdAt"],
+                  "type": "issue.opened",
+                  "actor": i["author"]["login"],
+                  "payload": {"number": i["number"], "title": i["title"],
+                              "labels": [l["name"] for l in i["labels"]]}
+              })
+
+          # Issues closed
+          out = gh(["issue", "list", "--repo", repo, "--state", "closed", "--limit", "100",
+                   "--search", f"closed:>{since}", "--json", "number,title,closedAt,labels"])
+          for i in json.loads(out):
+              uid = f"issue.closed:{i['number']}"
+              if uid in existing_ids: continue
+              new_events.append({
+                  "uid": uid,
+                  "timestamp": i["closedAt"],
+                  "type": "issue.closed",
+                  "payload": {"number": i["number"], "title": i["title"],
+                              "labels": [l["name"] for l in i["labels"]]}
+              })
+
+          # PRs merged
+          out = gh(["pr", "list", "--repo", repo, "--state", "merged", "--limit", "100",
+                   "--search", f"merged:>{since}", "--json", "number,title,mergedAt,headRefName,author"])
+          for p in json.loads(out):
+              uid = f"pr.merged:{p['number']}"
+              if uid in existing_ids: continue
+              new_events.append({
+                  "uid": uid,
+                  "timestamp": p["mergedAt"],
+                  "type": "pr.merged",
+                  "actor": p["author"]["login"],
+                  "payload": {"number": p["number"], "title": p["title"], "branch": p["headRefName"]}
+              })
+
+          # PRs closed-without-merge
+          out = gh(["pr", "list", "--repo", repo, "--state", "closed", "--limit", "100",
+                   "--search", f"closed:>{since} -is:merged", "--json", "number,title,closedAt"])
+          for p in json.loads(out):
+              uid = f"pr.closed:{p['number']}"
+              if uid in existing_ids: continue
+              new_events.append({
+                  "uid": uid,
+                  "timestamp": p["closedAt"],
+                  "type": "pr.closed",
+                  "payload": {"number": p["number"], "title": p["title"]}
+              })
+
+          # Releases
+          out = gh(["release", "list", "--repo", repo, "--limit", "10", "--json", "tagName,publishedAt,name"])
+          for r in json.loads(out):
+              if r["publishedAt"] < since: continue
+              uid = f"release.cut:{r['tagName']}"
+              if uid in existing_ids: continue
+              new_events.append({
+                  "uid": uid,
+                  "timestamp": r["publishedAt"],
+                  "type": "release.cut",
+                  "payload": {"tag": r["tagName"], "name": r.get("name", "")}
+              })
+
+          # Workflow failures (just the conclusion=failure)
+          out = gh(["run", "list", "--repo", repo, "--status", "failure", "--created", f">{since}",
+                   "--limit", "30", "--json", "workflowName,createdAt,databaseId,event"])
+          for r in json.loads(out):
+              uid = f"workflow.failed:{r['databaseId']}"
+              if uid in existing_ids: continue
+              new_events.append({
+                  "uid": uid,
+                  "timestamp": r["createdAt"],
+                  "type": "workflow.failed",
+                  "payload": {"workflow": r["workflowName"], "event": r["event"], "run_id": r["databaseId"]}
+              })
+
+          # Append
+          if new_events:
+              new_events.sort(key=lambda e: e["timestamp"])
+              with jl.open("a") as f:
+                  for e in new_events:
+                      f.write(json.dumps(e) + "\n")
+              print(f"appended {len(new_events)} event(s)")
+          else:
+              print("no new events")
+          PY
+
+      - name: Commit if changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.email "factory-log-bot@spraxel.ai"
+          git config user.name "Factory Log"
+          git add .factory/history/events.jsonl
+          if git diff --cached --quiet; then
+            echo "no new events to commit"
+          else
+            COUNT=$(git diff --cached --stat .factory/history/events.jsonl | grep -oE '[0-9]+ insertion' | head -1)
+            git commit -m "factory-log: append events ($COUNT)"
+            git push
+          fi

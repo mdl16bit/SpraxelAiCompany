@@ -1,0 +1,55 @@
+name: Direct-push tripwire
+
+# Detects when claude[bot] (Developer or PM in headless context) pushes
+# directly to master, bypassing the PR + test + review pipeline. Posts
+# an alert comment on the pinned Factory Daily Log issue (#5). Doesn't
+# block — branch protection requires GitHub Pro on private repos and
+# the CEO opted out. This is detection-only.
+
+on:
+  push:
+    branches: [master, main]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  alert-on-bot-direct-push:
+    if: github.actor == 'claude[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find Factory Daily Log issue
+        id: log
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NUM=$(gh issue list --repo ${{ github.repository }} \
+            --search "Factory Daily Log in:title" \
+            --state open \
+            --json number --jq '.[0].number')
+          echo "issue=${NUM:-5}" >> $GITHUB_OUTPUT
+
+      - name: Alert on the log issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ steps.log.outputs.issue }} \
+            --repo ${{ github.repository }} \
+            --body "$(cat <<EOF
+          ⚠️ **Direct push to \`master\` from \`claude[bot]\` detected**
+
+          - Commit: \`${{ github.sha }}\`
+          - Compare: ${{ github.event.compare }}
+          - Triggered by: ${{ github.event_name }}
+
+          This bypasses the PR / test / review pipeline. If unintended:
+
+          \`\`\`
+          git revert ${{ github.sha }} -m 1
+          git push origin master
+          \`\`\`
+
+          Long-term fix: branch protection on master (blocked on GitHub Pro until CEO chooses to enable). See \`SpraxelAiCompany/TODO.md\`.
+          EOF
+          )"

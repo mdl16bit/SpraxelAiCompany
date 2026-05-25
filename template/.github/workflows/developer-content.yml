@@ -1,0 +1,152 @@
+name: Developer (content variant — Haiku)
+
+# Per-archetype developer for issues labeled `area:content`. Same trigger
+# as developer.yml (status:ready label) but uses Haiku (cheaper) and a
+# tighter prompt focused on content/data/JSON/dialog work. Examples of
+# good `area:content` issues:
+#   - "Author 30 guard conversation entries in JSON"
+#   - "Populate level mission .tres with new objective copy"
+#   - "Add scenario test for X feature (test code only)"
+#
+# For gameplay implementation, the full Sonnet developer.yml fires.
+
+on:
+  issues:
+    types: [labeled]
+  # workflow_dispatch is the path keepalive.yml + auto-merge.yml use to
+  # chain-spawn the content variant. See developer.yml for the rationale
+  # (GITHUB_TOKEN doesn't cascade label events; workflow_dispatch does).
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number (must have area:content label)"
+        required: true
+        type: string
+
+# At most one content-Developer per issue at a time.
+concurrency:
+  group: developer-content-issue-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  dryrun-guard:
+    uses: ./.github/workflows/_dryrun-guard.yml
+
+  resolve:
+    needs: dryrun-guard
+    if: |
+      needs.dryrun-guard.outputs.dryrun != 'true' &&
+      (
+        (github.event_name == 'issues' && github.event.label.name == 'status:ready' && contains(github.event.issue.labels.*.name, 'area:content'))
+        || github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      issue_number: ${{ steps.r.outputs.number }}
+      skip: ${{ steps.r.outputs.skip }}
+    steps:
+      - id: r
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            N="${{ github.event.inputs.issue_number }}"
+            # Defensive: if caller dispatched here on a non-content issue,
+            # bounce so it doesn't get Haiku-tier treatment when it needs Sonnet.
+            LABELS=$(gh issue view "$N" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')
+            if ! echo "$LABELS" | grep -q "area:content"; then
+              echo "::warning::Issue #$N has no area:content — should have been dispatched to developer.yml. Skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            N="${{ github.event.issue.number }}"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "number=$N" >> "$GITHUB_OUTPUT"
+          echo "::notice::developer-content.yml resolved issue #$N (event=${{ github.event_name }})"
+
+  develop-content:
+    needs: [dryrun-guard, resolve]
+    if: needs.resolve.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Swap status label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ needs.resolve.outputs.issue_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue edit "$ISSUE" --repo "$REPO" \
+            --remove-label "status:ready" 2>/dev/null || true
+          gh issue edit "$ISSUE" --repo "$REPO" \
+            --add-label "status:claimed"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        id: claude
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: --model claude-haiku-4-5-20251001 --dangerously-skip-permissions --max-turns 20
+          allowed_bots: "claude[bot],github-actions[bot]"
+          branch_prefix: "content/"
+          show_full_output: true
+          prompt: |
+            You are the **Spraxel Developer** in **content mode** — Haiku-tier, tight scope. Issue #${{ needs.resolve.outputs.issue_number }} is labeled `area:content`, meaning the work is data/JSON/dialog/test-content-only authoring, NOT gameplay code.
+
+            ## What you do
+
+            - Read the issue body. Identify the data files / content artifacts to create or modify.
+            - Make the changes on a new branch `content/issue-${{ needs.resolve.outputs.issue_number }}-<slug>`.
+            - Add a GUT test ONLY if the issue requires test content (e.g., the issue itself is "add scenario X"). Don't add tests for pure-data changes.
+            - Update Game.md only if the issue introduces a new content category.
+            - Commit + push. The follow-up step in this workflow opens the PR.
+
+            ## What you DON'T do
+
+            - Don't write gameplay GDScript. If you find yourself editing `scripts/systems/`, `scripts/interactables/`, or `scripts/ai/`, ABORT: comment on the issue `_developer-content: this issue requires gameplay code; please re-label without area:content so developer.yml (Sonnet) picks it up._` Remove status:claimed. Exit.
+            - Don't refactor existing code.
+            - Don't add new dependencies.
+
+            ## CRITICAL
+
+            - Branch first: `git checkout -b content/issue-${{ needs.resolve.outputs.issue_number }}-<slug>` BEFORE any commits.
+            - Never push to master.
+            - Never close your own PR.
+
+            ## Output requirement
+
+            Either:
+            (a) A branch with at least one commit (the PR-open step downstream creates the PR), OR
+            (b) A comment on the issue + `status:blocked` label explaining why this content task couldn't be done.
+
+      - name: Open PR
+        if: steps.claude.outputs.branch_name != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.claude.outputs.branch_name }}
+          ISSUE: ${{ needs.resolve.outputs.issue_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if ! gh pr list --repo "$REPO" --head "$BRANCH" --json number --jq 'length' | grep -q '^[1-9]'; then
+            TITLE=$(gh issue view "$ISSUE" --repo "$REPO" --json title --jq .title)
+            gh pr create --repo "$REPO" \
+              --head "$BRANCH" \
+              --base master \
+              --title "content: $TITLE (#$ISSUE)" \
+              --body "Closes #$ISSUE
+
+              Content-variant PR shipped by developer-content.yml (Haiku-tier)."
+          fi
