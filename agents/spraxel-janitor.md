@@ -52,8 +52,17 @@ For the remainder: close via `mcp__github__update_issue` with `state=closed` and
 
 ### 3. Trim the Factory Daily Log issue's comments
 
-Get all comments on issue #5 via `mcp__github__list_issue_comments`. If there are more than 100:
-- Take the oldest 70 comments.
+Get all comments on issue #5 via `mcp__github__list_issue_comments`.
+
+**Step 3a — Sweep KEEPALIVE-TICK comments (always, regardless of total count).**
+
+The Anthropic /schedule routine `Spraxel Keepalive trigger — Infiltrators (hourly)` posts a marker comment on issue #5 every hour to fire keepalive.yml via the `issue_comment` event (bypassing GH cron throttling). These accumulate at ~24/day = ~720/month.
+
+For every comment whose body starts with `KEEPALIVE-TICK ` AND is older than 24 hours: delete via `mcp__github__delete_issue_comment`. Keep the most-recent 24 hours so debugging stays possible.
+
+**Step 3b — Compact old history (only if comment count > 100 AFTER 3a).**
+
+- Take the oldest 70 non-KEEPALIVE-TICK comments.
 - Synthesize them into a single "Janitor: history compaction" comment (bullet-pointed timeline; ~50 lines max).
 - Delete the originals via `mcp__github__delete_issue_comment`.
 - Post the synthesized comment.
