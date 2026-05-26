@@ -413,6 +413,34 @@ def drop(path: Path, title: str) -> WorkItem:
         return item
 
 
+def release_cut(path: Path, version: str) -> int:
+    """Roll WORK.md sections on a release cut.
+
+    1. Take every item currently in `## Shipped since last release`.
+    2. Prepend `<version> — ` to each title.
+    3. Append them to `## Shipped (previous releases)` in order.
+    4. Leave `## Shipped since last release` empty.
+
+    Returns the count of items moved. Used by the PM agent on release day.
+    """
+    if not re.fullmatch(r"v\d+(\.\d+)*", version):
+        raise ValueError(f"version must look like v0.4 or v1.2.3, got: {version!r}")
+    with FileLock(path):
+        wm = parse(path)
+        moved = list(wm.current)
+        if not moved:
+            return 0
+        for item in moved:
+            new_title = f"{version} — {item.title}"
+            item.title = new_title
+            if item.raw_lines:
+                item.raw_lines[0] = new_title
+        wm.shipped.extend(moved)
+        wm.current = []
+        path.write_text(serialize(wm))
+        return len(moved)
+
+
 def bump(path: Path, title: str, new_priority: str) -> WorkItem:
     """Change the priority tag (p0..p3) on an item. Use for triage to bump
     a [bug] from p1 to p0, or to demote a stale [feature].
@@ -539,6 +567,11 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("title")
     pb.add_argument("priority")
 
+    prc = sub.add_parser("release-cut",
+        help="move ## Shipped since last release → ## Shipped (previous releases) under <version>")
+    prc.add_argument("path")
+    prc.add_argument("version", help="e.g., v0.4")
+
     pc = sub.add_parser("clarify",
         help="Developer tags an item [needs-ceo] and appends questions as indented details")
     pc.add_argument("path")
@@ -589,6 +622,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "bump":
         item = bump(path, args.title, args.priority)
         print(f"bumped to {args.priority}: {item.title}")
+        return 0
+
+    if args.cmd == "release-cut":
+        n = release_cut(path, args.version)
+        print(f"release-cut {args.version}: rolled {n} item(s) from current → shipped")
         return 0
 
     if args.cmd == "clarify":
