@@ -130,9 +130,12 @@ trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT INT TERM
 
 # Run claude headless. --dangerously-skip-permissions enables Bash/Edit/Write without prompts.
 # stdin = composed prompt, stdout/stderr → log. Model is per-agent (see frontmatter).
+# SPRAXEL_AGENT_RUN=1 tells the global SessionStart hook to skip checkin.sh —
+# without it, every agent's claude session would touch ceo-checkin.ts and the
+# continuous loop would interpret that as a fresh CEO signal after every ship.
 echo "run_agent: $agent ($model_id) → $log" >&2
 cd "$game_dir"
-if claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
+if SPRAXEL_AGENT_RUN=1 claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
   echo "run_agent: $agent ok" >&2
   exit 0
 else
