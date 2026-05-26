@@ -79,6 +79,19 @@ if [ -d "$CONT_LOCK" ] && ! pgrep -f "continuous_dev.sh" >/dev/null 2>&1; then
   rmdir "$CONT_LOCK" 2>/dev/null
   errors+=("cleared stale continuous.lockdir")
 fi
+# Also clean orphan agent lockdirs (developer, reviewer, designer, etc.).
+# Without this, a SIGKILLed agent leaves its lockdir behind and every
+# subsequent run_agent invocation exits rc=2 — silently wedging the
+# continuous loop in a backoff sleep that never recovers.
+for lock in "$LOCKS_DIR"/*.lockdir; do
+  [ -d "$lock" ] || continue
+  agent_name=$(basename "$lock" .lockdir)
+  # The continuous.lockdir is handled above; skip.
+  [ "$agent_name" = "continuous" ] && continue
+  if ! pgrep -f "run_agent.sh $agent_name" >/dev/null 2>&1; then
+    rmdir "$lock" 2>/dev/null && errors+=("cleared stale $agent_name.lockdir")
+  fi
+done
 if [ ! -d "$CONT_LOCK" ] && [ -x "$CONTINUOUS" ]; then
   mkdir -p "$REPO_DIR/logs/continuous"
   nohup bash "$CONTINUOUS" >>"$REPO_DIR/logs/continuous/$(date +%Y-%m-%d).log" 2>&1 &
