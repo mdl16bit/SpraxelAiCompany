@@ -699,6 +699,109 @@ Tag reference:
 
 ---
 
+## Reference: scripts, agents, processes
+
+### Scripts in `~/SpraxelAiCompany/scripts/`
+
+| Script | Purpose | Invoked by |
+|--------|---------|------------|
+| **`tick.sh`** | The launchd-fired heartbeat. Every 60s: reads `schedule.yaml`, fires due crew agents, spawns `continuous_dev.sh` if not running. | `com.spraxel.tick.plist` (launchd) |
+| **`continuous_dev.sh`** | Long-running Developer loop. Ships items from `## Todo` until `target_per_batch` reached since last CEO signal, then sleeps. Detects clarifications + lock-conflicts; baseline-aware test gate. Single instance via `.locks/continuous.lockdir`. | spawned by `tick.sh` if not alive |
+| **`run_agent.sh <name>`** | Wraps one Claude invocation. Reads the agent spec, composes prompt (spec + Philosophy + WORK.md + optional `SPRAXEL_ITEM_BRIEF`), passes `--model` based on spec frontmatter, calls `claude -p`. Per-agent lock prevents double-fire. | `tick.sh` (cron), `continuous_dev.sh` (per item), CEO manually |
+| **`install_daemon.sh`** | Drops `com.spraxel.tick.plist` into `~/Library/LaunchAgents/`. Args: `install` / `stop` / `status` / `restart`. | CEO, one-time |
+| **`new_game.sh <dir>`** | Bootstraps a new game repo with Philosophy.md, Game.md, WORK.md, `.gitignore`, `.factory/`, `test/unit/`, `scripts/scenarios/`, and the local-tests cron installer. | CEO, when starting a new game |
+| **`workmd.py`** | Parser + CLI for WORK.md. Subcommands: `parse / top / append / ship / escalate / promote / drop / bump / clarify`. Atomic mkdir-locked. | every agent + CEO |
+| **`cron_match.py`** | Evaluates a 5-field cron expression against `now` in a timezone. Used by `tick.sh` to decide who fires. | `tick.sh` |
+| **`slugify.py`** | Title → kebab-case branch slug. | `continuous_dev.sh` for branch names |
+| **`health_check.sh`** | Scans today's `logs/*/<YYYY-MM-DD>*.log` for error patterns (unknown model, rate limit, session expired, fatal, traceback). Outputs a markdown block. | `morning-briefer` agent (step 1), CEO manually |
+| **`checkin.sh`** | Explicit CEO signal — touches `.cache/ceo-checkin.ts`. `continuous_dev.sh` polls this and resets the counter on detection. | CEO manually when read-only interaction wasn't enough |
+| **`interrupt.sh`** | Pause-and-stash protocol: sets `.paused`, kills the whole continuous_dev/run_agent/claude tree, clears stale locks, `git stash` in the game repo, checks out master. Pairs with `resume.sh`. | CEO when interrupting mid-run |
+| **`resume.sh`** | Restores pre-interrupt state: pops stash, checks out original branch, removes `.paused`. Flags: `--drop` (discard stash), `--no-resume` (keep paused). | CEO after a manual change |
+| **`yaml_to_workmd.py`** | One-shot migration: WORK.yaml → WORK.md. Used during the offline migration; safe to keep around. | migration only |
+| **`generate_release_notes.py`** | Reads git log between two tags, generates a release-notes markdown. | CEO at release time |
+| **`generate_game_md_inventory.py`** | Walks `scripts/`, generates the auto-section of Game.md (feature inventory). | optional CEO use |
+
+### Scripts inside the game repo (`~/GameProjects/<game>/scripts/`)
+
+These get installed by `new_game.sh`. They're not part of the framework's daemon — they're game-side test infrastructure.
+
+| Script | Purpose | Invoked by |
+|--------|---------|------------|
+| **`run_local_tests.sh`** | The test-gate runner. Refreshes Godot's class cache, runs GUT under `test/unit/`, runs every `scripts/scenarios/*.gd` via `--demo-feature=<slug>`, writes `.factory/local-tests-status.json`. Exit 0 = green, 1 = failures, 2 = setup error. | `com.spraxel.localtests.plist` (every 30 min), `continuous_dev.sh` after every Developer commit, CEO manually |
+| **`run_unit_tests.sh`** | Fast GUT-only runner. No class-cache refresh, no scenarios, no notifications. | CEO iterating on a specific test |
+| **`install_local_tests.sh`** | Drops `com.spraxel.localtests.plist`. Args: `install` / `stop` / `status`. | CEO, one-time per game repo |
+
+### Long-running processes
+
+When the system is healthy, these are the processes you should see in `ps`:
+
+```
+$ pgrep -fl 'continuous_dev|run_agent|com.spraxel|claude --model'
+
+PID  PPID  COMMAND
+N    1     /usr/sbin/launchd ...com.spraxel.tick.plist...        (launchd dispatcher)
+N    1     /usr/sbin/launchd ...com.spraxel.localtests.plist...  (test cron dispatcher)
+N    1     bash continuous_dev.sh                                (the Developer loop)
+N    cont  bash run_agent.sh developer                           (current Developer)
+N    rag   claude --model claude-sonnet-4-6 -p                   (current claude inv)
+```
+
+Things to watch for that mean trouble:
+- **Two `continuous_dev.sh` running** → race condition. Run `bash scripts/interrupt.sh` and resume.
+- **`run_agent.sh` with parent PID 1** → orphan (the wrapper died but the child survived). Holds `.locks/<agent>.lockdir`. Same fix: `interrupt.sh`.
+- **`claude --model ...` running >30 min** → either a real long Developer (fine) or claude hung. If `ps` CPU isn't advancing, kill it.
+
+### Agents (`~/SpraxelAiCompany/agents/spraxel-*.md`)
+
+11 agent specs + `_shared.md` (universal rules referenced by all).
+
+| Agent | Model | Cadence | Triggered by | Writes to |
+|-------|-------|---------|--------------|-----------|
+| **developer** | sonnet | per item | `continuous_dev.sh` | game branch (code), commits |
+| **reviewer** | haiku | per item | `continuous_dev.sh` after tests pass | `.factory/reviews/<branch>.md` |
+| **triager** | haiku | daily 05:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[bug]` items) |
+| **morning-briefer** | haiku | daily 06:00 PT | `tick.sh` cron | `MORNING.md` |
+| **pm** | haiku | daily 07:00 PT | `tick.sh` cron | WORK.md `## Todo` (re-orders) |
+| **designer** | sonnet | Tue + Fri 07:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[idea]` items) |
+| **blogger** | sonnet | Sat 10:00 PT | `tick.sh` cron | `blog/<date>` branch |
+| **janitor** | haiku | Sun 02:00 PT | `tick.sh` cron | WORK.md (cold-archives), branches (deletes merged), logs (prunes >60 days) |
+| **asset-librarian** | haiku | monthly 1st 08:00 PT | `tick.sh` cron | `.factory/asset-report-<date>.md`, MORNING.md note |
+| **producer** | sonnet | on-demand (`/spraxel-producer`) | CEO via skill | WORK.md `## Todo` (from `.factory/inbox/raw.md`) |
+| **demo-creator** | (stub) | not yet implemented | — | — |
+
+### Skills (`~/SpraxelAiCompany/skills/`)
+
+| Skill | Trigger | Purpose |
+|-------|---------|---------|
+| **`/spraxel-inbox`** (or `/inbox`) | CEO types in Claude Code | Walks the morning routine: opens MORNING.md, surfaces sections in order, quick commands |
+| **`/spraxel-producer`** (or `/producer`) | CEO types in Claude Code | Converts `.factory/inbox/raw.md` + dictation files into clean WORK.md items |
+
+### State + cache files
+
+| Path | Purpose |
+|------|---------|
+| `~/SpraxelAiCompany/.paused` | Touch-flag: when present, all agent dispatches no-op. `rm` to resume. |
+| `~/SpraxelAiCompany/.locks/<agent>.lockdir` | Per-agent atomic lock. Held while agent is in-flight. Stale lockdirs from crashes are cleaned by `tick.sh`. |
+| `~/SpraxelAiCompany/.cache/continuous-state.json` | Counter, last CEO signal SHA + timestamp. Read by `continuous_dev.sh` each loop iteration. |
+| `~/SpraxelAiCompany/.cache/ceo-checkin.ts` | Touched by `scripts/checkin.sh`. Polled by `continuous_dev.sh` for "manual signal" detection. |
+| `~/SpraxelAiCompany/.cache/last-interrupt.txt` | Pre-interrupt branch + stash ref, used by `resume.sh`. |
+| `~/SpraxelAiCompany/logs/tick/<YYYY-MM-DD>.log` | One line per minute from `tick.sh`. |
+| `~/SpraxelAiCompany/logs/<agent>/<ts>.log` | Full claude conversation log per agent invocation. |
+| `~/SpraxelAiCompany/logs/continuous/<YYYY-MM-DD>/<slug>.log` | Per-item ship log (Developer + tests + Reviewer + merge). |
+
+### Game-side state (`~/GameProjects/<game>/.factory/`)
+
+| Path | Purpose |
+|------|---------|
+| `escalations.md` | Append-only log of items the Developer couldn't ship. Morning Briefer surfaces these. |
+| `local-tests-status.json` | Last `run_local_tests.sh` result: pass/fail, list of failures, log path. |
+| `reviews/<branch>.md` | Per-branch Reviewer findings. |
+| `inbox/raw.md` | Where CEO dumps dictation; `/spraxel-producer` drains this. |
+| `inbox/dictation/*.md` | Phone voice-memo exports; `/spraxel-producer` also drains these. |
+| `local-test-logs/<stamp>.log` | Full output of each `run_local_tests.sh` run (gitignored). |
+
+---
+
 ## Troubleshooting
 
 ### "No agents are firing"
