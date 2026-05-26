@@ -13,6 +13,13 @@ shippable WORK.md items. Interactive entry point for the CEO: just type
 
 When the user invokes this skill:
 
+0. **Signal the continuous loop** that the CEO is interacting:
+   ```bash
+   bash ~/SpraxelAiCompany/scripts/checkin.sh
+   ```
+   This resets the ship-counter so the loop starts shipping the next batch
+   of 10 once new items land from this dictation pass.
+
 1. **Find the intake sources**:
    - `~/GameProjects/<game>/.factory/inbox/raw.md` — anything the CEO
      dumped today (typed or pasted from dictation).

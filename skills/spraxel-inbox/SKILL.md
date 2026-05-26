@@ -12,6 +12,13 @@ features that shipped overnight and deciding what's next.
 
 ## What to do
 
+0. **Signal the continuous loop** that the CEO is interacting:
+   ```bash
+   bash ~/SpraxelAiCompany/scripts/checkin.sh
+   ```
+   This resets the ship-counter to 0, so the loop starts shipping the next
+   batch of 10 as soon as the CEO finishes the routine.
+
 1. **Open** `~/GameProjects/<game>/MORNING.md` (default game: infiltrators).
    If it doesn't exist, the Morning Briefer hasn't run yet — check
    `~/SpraxelAiCompany/logs/morning-briefer/<latest>.log`.
