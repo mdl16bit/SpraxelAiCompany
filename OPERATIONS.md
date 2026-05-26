@@ -332,28 +332,84 @@ on these days as you accept / reject / amend each.
 
 ### Saturday — Blogger day (+10 min)
 
-Blogger fires at 10:00 PT Saturday and pushes a `blog/<YYYY-MM-DD>`
-branch with a draft devlog. **Humanize step** is your job:
+Blogger fires at 10:00 PT Saturday. It **always pushes a `blog/<YYYY-MM-DD>` branch**
+containing a draft post at `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md`.
+The branch + draft are **not** on `master` — by design, drafts get a review pass
+before they land. Your job is to humanize, then merge + publish.
+
+#### 1. Find the draft
 
 ```bash
 cd ~/GameProjects/<game>
 git fetch origin
+
+# List recent blogger branches if you've lost the date:
+git branch -a | grep '^[ *]*\(remotes/origin/\)\?blog/'
+
+# Peek without switching branches (fastest):
+git show blog/$(date +%Y-%m-%d):blog/content/posts/draft-$(date +%Y-%m-%d)-*.md
+```
+
+#### 2. Humanize on the branch
+
+```bash
 git checkout blog/$(date +%Y-%m-%d)
-$EDITOR blog/$(date +%Y-%m-%d).md       # voice + personality pass
+# Find the actual filename (slug varies per post):
+ls blog/content/posts/draft-$(date +%Y-%m-%d)-*.md
+$EDITOR blog/content/posts/draft-$(date +%Y-%m-%d)-<slug>.md
+```
+
+What to do in the edit pass:
+- **Replace `▸ MEDIA` placeholders.** Every theme section has a comment like
+  `<!-- ▸ MEDIA: <slug> — screenshot + clip -->` followed by a TODO image
+  + clip line. If `.factory/demos/<date>/<slug>.png` exists, the path
+  is already filled in; otherwise, drop in your own screenshot or delete
+  the slot. Find them all with `grep "▸ MEDIA" blog/content/posts/draft-*`.
+- **Voice pass.** Tighten phrasing, add personality, drop in retro-game
+  references where they fit. The bot's tone is competent but flat.
+- **Flip `draft: true` → `draft: false`** in the frontmatter when ready.
+- **Trim aggressively.** If it's over ~700 words, cut.
+
+```bash
 git commit -am "blog: humanize $(date +%Y-%m-%d)"
+```
+
+#### 3. Merge + publish
+
+```bash
 git checkout master
 git merge --no-ff blog/$(date +%Y-%m-%d) -m "blog: $(date +%Y-%m-%d)"
 git push origin master
-# publish to your blog target
+# Then publish to your blog target (Hugo, ghost, substack, etc.)
 ```
 
-The Blogger embeds Demo Creator screenshots from `.factory/demos/<week>/`
-and references PM release notes from `.factory/releases/<latest>.md` if
-available. So your draft will already have visuals + structure — you're
-adding voice, opinion, and the occasional retro-game reference.
+#### 4. (Optional) Clean up the branch
 
-`/spraxel-inbox` skill adds this as **step 4** in the morning routine on
-Saturdays.
+The branch served its purpose; safe to delete locally + remotely:
+```bash
+git branch -d blog/$(date +%Y-%m-%d)
+git push origin --delete blog/$(date +%Y-%m-%d)
+```
+
+#### Killing a draft you don't want
+
+If the post isn't worth publishing, just don't merge it. Trash both branches:
+```bash
+git branch -D blog/$(date +%Y-%m-%d)
+git push origin --delete blog/$(date +%Y-%m-%d)
+```
+
+#### What the Blogger pulls into the draft
+
+- 7 days of `feat:` / `fix:` commits, grouped thematically (it picks themes).
+- Demo Creator assets from `.factory/demos/<recent-dates>/` if any exist
+  (real `<slug>.png` + `<slug>.mov` paths).
+- PM release notes from `.factory/releases/<latest>.md` if a release was cut.
+- Memory of past topics from `.factory/memory/blogger.md` — to avoid repeating
+  phrases or themes across weeks.
+
+`/spraxel-inbox` skill adds the humanize step as **step 4** in the morning
+routine on Saturdays.
 
 ### Sunday — Janitor + Reflection
 

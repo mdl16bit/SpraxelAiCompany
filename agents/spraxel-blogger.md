@@ -24,8 +24,8 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
    - Filter for `feat:` and `fix:` commits — the player-facing changes.
    - **Demo Creator assets**: `.factory/demos/<recent-dates>/index.md`.
      For each feature shipped this week, look for a matching
-     `<slug>.mov` + `<slug>.png` in `.factory/demos/`. Reference them
-     in the post (still embeds; video as a link).
+     `<slug>.mov` + `<slug>.png` in `.factory/demos/`. Note which ones
+     exist (real paths) and which don't (you'll emit TODO placeholders).
    - **Release notes** (if PM cut a release this week):
      `.factory/releases/<latest>.md`. Use this as the spine of the post.
    - WORK.md `## Shipped since last release` for the same items.
@@ -34,12 +34,19 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
    E.g., "Stealth got teeth this week" might cover guard-vision fix + duck
    mechanic + footstep noise.
 
-3. **Draft post** at `blog/<YYYY-MM-DD>.md` with this skeleton:
+3. **Draft post** at `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` with this skeleton.
+   **Always emit a media block after each theme section** — even if the demo
+   asset doesn't exist yet. Use TODO paths when missing so the CEO can spot
+   the slot and either fill it in or drop a screenshot of their own. When a
+   `.factory/demos/<date>/<slug>.png` (or `.mov`) does exist, use that exact
+   path instead of the TODO form.
+
    ```markdown
    ---
    title: <evocative title>
    date: <YYYY-MM-DD>
    draft: true
+   tags: [devlog]
    ---
 
    <hook paragraph — what shipped this week and why it matters>
@@ -49,8 +56,16 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
    ### <Theme 1>
    <2-3 paragraphs, mention specific features as headers or bold>
 
+   <!-- ▸ MEDIA: <feature-slug> — screenshot + clip -->
+   ![<descriptive alt>](TODO-<slug>.png)
+   *Clip: `TODO-<slug>.mov` — drop a .gif or .mp4 here.*
+
    ### <Theme 2>
    ...
+
+   <!-- ▸ MEDIA: <feature-slug> — screenshot + clip -->
+   ![<descriptive alt>](TODO-<slug>.png)
+   *Clip: `TODO-<slug>.mov` — drop a .gif or .mp4 here.*
 
    ## Under the hood
    <optional: tooling/infra wins worth mentioning>
@@ -58,6 +73,10 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
    ## Next week
    <one-paragraph teaser based on top 5 of WORK.md ## Todo>
    ```
+
+   The `<!-- ▸ MEDIA: ... -->` line is a grep-able marker so the CEO can find
+   all slots with `grep "▸ MEDIA" blog/...`. Pick one feature per theme as
+   the visual hook (don't emit a media block per feature — that's too many).
 
 4. **Branch and push**:
    ```bash

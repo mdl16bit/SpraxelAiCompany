@@ -53,16 +53,25 @@ features that shipped overnight and deciding what's next.
    to convert them to clean WORK.md items.
 
 4. **▶ Humanize blog draft (Saturday only, +10 min)**: on Saturday
-   mornings, the Blogger has pushed a `blog/<YYYY-MM-DD>` branch with
-   a draft devlog post. Pull it, edit for voice + personal touch,
-   merge to master, publish.
+   mornings, the Blogger has pushed a `blog/<YYYY-MM-DD>` branch with a
+   draft at `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md`. The branch
+   + draft live OFF master until you merge. Full workflow is in
+   OPERATIONS.md → "Saturday — Blogger day"; quick version:
 
    ```bash
    cd ~/GameProjects/<game>
    git fetch origin
+   # Peek without switching:
+   git show blog/$(date +%Y-%m-%d):blog/content/posts/draft-$(date +%Y-%m-%d)-*.md
+
+   # Or edit on the branch:
    git checkout blog/$(date +%Y-%m-%d)
-   $EDITOR blog/$(date +%Y-%m-%d).md       # add your voice, tighten phrasing
+   $EDITOR blog/content/posts/draft-$(date +%Y-%m-%d)-*.md
+   # — Replace `▸ MEDIA` placeholders with real images/clips
+   # — Voice pass, tighten phrasing
+   # — Flip `draft: true` to `draft: false`
    git commit -am "blog: humanize $(date +%Y-%m-%d)"
+
    git checkout master
    git merge --no-ff blog/$(date +%Y-%m-%d) -m "blog: $(date +%Y-%m-%d)"
    git push origin master
