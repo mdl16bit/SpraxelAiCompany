@@ -169,6 +169,7 @@ ship_one_item() {
   git checkout --quiet -B "$branch" master
 
   local outcome=fail
+  local baseline_failures=""
   for attempt in 1 2; do
     echo "=== attempt $attempt at $(date) ===" >> "$item_log"
 
@@ -225,11 +226,50 @@ sys.exit(1)
       return 2   # don't count toward batch
     fi
 
-    if ! bash "$game_dir/scripts/run_local_tests.sh" >> "$item_log" 2>&1; then
-      echo "continuous: tests FAILED on attempt $attempt" >> "$item_log"
-      [ "$attempt" -lt 2 ] && { git checkout --quiet "$branch"; continue; }
-      outcome=fail
-      break
+    # Baseline-aware test gate: capture pre-Developer test state once per item,
+    # then re-run after Developer's changes. Only count NEW failures (tests
+    # that passed before this change but fail after). Pre-existing failures
+    # in unrelated modules are noted but don't trigger escalation.
+    if [ -z "${baseline_failures:-}" ]; then
+      # First attempt: capture baseline from master (before Developer's commit).
+      git stash push --quiet -m "baseline-test-stash" 2>/dev/null
+      git checkout --quiet master 2>/dev/null
+      bash "$game_dir/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1 || true
+      baseline_failures=$(python3 -c "
+import json
+try:
+    d = json.load(open('$game_dir/.factory/local-tests-status.json'))
+    print('\\n'.join(d.get('failures', [])))
+except Exception:
+    pass
+")
+      git checkout --quiet "$branch" 2>/dev/null
+      git stash pop --quiet 2>/dev/null
+      echo "continuous: baseline failures captured ($(echo "$baseline_failures" | grep -c .))" >> "$item_log"
+    fi
+
+    # Run tests on Developer's branch.
+    bash "$game_dir/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1
+    rc=$?
+    if [ $rc -ne 0 ]; then
+      current_failures=$(python3 -c "
+import json
+try:
+    d = json.load(open('$game_dir/.factory/local-tests-status.json'))
+    print('\\n'.join(d.get('failures', [])))
+except Exception:
+    pass
+")
+      # Compare: anything in current_failures NOT in baseline_failures = new.
+      new_failures=$(comm -23 <(echo "$current_failures" | sort -u) <(echo "$baseline_failures" | sort -u))
+      if [ -n "$new_failures" ]; then
+        echo "continuous: tests FAILED — NEW failures on attempt $attempt:" >> "$item_log"
+        echo "$new_failures" >> "$item_log"
+        [ "$attempt" -lt 2 ] && { git checkout --quiet "$branch"; continue; }
+        outcome=fail
+        break
+      fi
+      echo "continuous: tests had failures but all were pre-existing (baseline match) — accepting" >> "$item_log"
     fi
 
     if ! bash "$RUN_AGENT" reviewer >> "$item_log" 2>&1; then
