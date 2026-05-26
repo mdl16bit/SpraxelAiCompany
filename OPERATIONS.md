@@ -24,29 +24,31 @@ one schedule file (`schedule.yaml`), and one CLI you run from your Mac
 ## The system in one picture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  launchd (com.spraxel.tick.plist)                          │
-│  fires every 60 s                                          │
-│         │                                                  │
-│         ▼                                                  │
-│  scripts/tick.sh                                           │
-│  reads schedule.yaml — who's due now?                     │
-└───┬──────────────────┬────────────────────────────────────┘
-    │                  │
-    ▼                  ▼
-run_agent.sh       overnight_dev.sh
-(crew agents)      (23:00 → 06:00 PT)
-    │                  │
-    └─ claude -p ──────┘
-            │
-            ▼
-       Max plan (flat fee)
-            │
-            ▼
-   WORK.md / Game.md / Philosophy.md / commits
-            │
-            ▼
-  git push origin master  ← only network egress
++-----------------------------------------------------------+
+|  launchd  (com.spraxel.tick.plist, every 60s)             |
+|         |                                                 |
+|         v                                                 |
+|  scripts/tick.sh                                          |
+|  reads schedule.yaml; ensures continuous_dev.sh is alive  |
++-------+------------------------+--------------------------+
+        |                        |
+        v                        v
+run_agent.sh             continuous_dev.sh
+(crew: PM, Triager,      (long-running Developer loop;
+ Designer, Janitor,       ships items until counter hits
+ Blogger, Asset,          target_per_batch; sleeps until
+ Morning Briefer)         CEO interacts; resumes)
+        |                        |
+        +---- claude -p ---------+
+                  |
+                  v
+            Max plan (flat fee, no per-token cost)
+                  |
+                  v
+        WORK.md / Game.md / Philosophy.md / commits
+                  |
+                  v
+        git push origin master   <-- only network egress
 ```
 
 ---

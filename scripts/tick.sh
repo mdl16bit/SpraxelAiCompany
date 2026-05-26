@@ -20,7 +20,8 @@ TICK_LOGS="$REPO_DIR/logs/tick"
 PAUSED_FLAG="$REPO_DIR/.paused"
 CRON_MATCH="$REPO_DIR/scripts/cron_match.py"
 RUN_AGENT="$REPO_DIR/scripts/run_agent.sh"
-OVERNIGHT="$REPO_DIR/scripts/overnight_dev.sh"
+CONTINUOUS="$REPO_DIR/scripts/continuous_dev.sh"
+LOCKS_DIR="$REPO_DIR/.locks"
 
 mkdir -p "$TICK_LOGS"
 ymd=$(date +%Y-%m-%d)
@@ -39,61 +40,50 @@ if ! command -v claude >/dev/null 2>&1; then
   exit 0
 fi
 
-# Parse schedule.yaml entries: emit lines of `kind|name|cron`.
-# kind = agent | overnight. Uses Python for safer YAML-ish parsing
-# (we still use a tiny stdlib parser — no PyYAML dep needed for our flat shape).
-entries=$(python3 - "$SCHEDULE" <<'PY'
+# Parse schedule.yaml crew-agent entries: emit lines of `name|cron`.
+agent_entries=$(python3 - "$SCHEDULE" <<'PY'
 import sys, re
-path = sys.argv[1]
-with open(path) as f:
+with open(sys.argv[1]) as f:
     text = f.read()
-
-# Find the agents: block (flow-style entries).
 m = re.search(r"^agents:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
 if m:
     for line in m.group(1).splitlines():
-        # name: { cron: "X * * * *", description: "..." }
         mm = re.match(r"\s*(\w+):\s*\{[^}]*cron:\s*\"([^\"]+)\"", line)
         if mm:
-            print(f"agent|{mm.group(1)}|{mm.group(2)}")
-
-# Find overnight.start_cron.
-m = re.search(r"^overnight:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
-if m:
-    sm = re.search(r"\s*start_cron:\s*\"([^\"]+)\"", m.group(1))
-    if sm:
-        print(f"overnight|overnight|{sm.group(1)}")
+            print(f"{mm.group(1)}|{mm.group(2)}")
 PY
 )
 
 dispatched=()
 errors=()
 
-while IFS='|' read -r kind name cron; do
-  [ -z "$kind" ] && continue
-  # Match cron against current minute in PT.
+# Crew agents (PM, Triager, Designer, etc.) — cron-fired.
+while IFS='|' read -r name cron; do
+  [ -z "$name" ] && continue
   if "$CRON_MATCH" "$cron" >/dev/null 2>&1; then
-    case "$kind" in
-      agent)
-        if [ -x "$RUN_AGENT" ]; then
-          nohup bash "$RUN_AGENT" "$name" >/dev/null 2>&1 &
-          dispatched+=("$name")
-        else
-          errors+=("run_agent.sh not executable")
-        fi
-        ;;
-      overnight)
-        if [ -x "$OVERNIGHT" ]; then
-          nohup bash "$OVERNIGHT" >/dev/null 2>&1 &
-          dispatched+=("overnight")
-        else
-          # Phase 1: overnight_dev.sh doesn't exist yet. Log and skip.
-          errors+=("overnight_dev.sh not yet present (Phase 4)")
-        fi
-        ;;
-    esac
+    if [ -x "$RUN_AGENT" ]; then
+      nohup bash "$RUN_AGENT" "$name" >/dev/null 2>&1 &
+      dispatched+=("$name")
+    else
+      errors+=("run_agent.sh not executable")
+    fi
   fi
-done <<< "$entries"
+done <<< "$agent_entries"
+
+# Continuous Developer loop — always-on, self-paces against the CEO-checkin
+# counter. Ensure it's running; if its lockdir exists but no process owns it
+# (crash), clean and respawn.
+mkdir -p "$LOCKS_DIR"
+CONT_LOCK="$LOCKS_DIR/continuous.lockdir"
+if [ -d "$CONT_LOCK" ] && ! pgrep -f "continuous_dev.sh" >/dev/null 2>&1; then
+  rmdir "$CONT_LOCK" 2>/dev/null
+  errors+=("cleared stale continuous.lockdir")
+fi
+if [ ! -d "$CONT_LOCK" ] && [ -x "$CONTINUOUS" ]; then
+  mkdir -p "$REPO_DIR/logs/continuous"
+  nohup bash "$CONTINUOUS" >>"$REPO_DIR/logs/continuous/$(date +%Y-%m-%d).log" 2>&1 &
+  dispatched+=("continuous_dev spawned")
+fi
 
 if [ ${#dispatched[@]} -eq 0 ] && [ ${#errors[@]} -eq 0 ]; then
   echo "$now  tick" >> "$log"

@@ -14,18 +14,18 @@ agents:
   morning_briefer: { cron: "0 6 * * *",  description: "06:00 PT daily — write MORNING.md digest" }
   triager:         { cron: "0 5 * * *",  description: "05:00 PT daily — batch overnight test failures into ## Todo" }
   pm:              { cron: "0 7 * * *",  description: "07:00 PT daily — re-sort ## Todo, balance bug/feature" }
-  designer:        { cron: "0 7 * * 5",  description: "Fri 07:00 PT — drop 4-6 ideas into ## Designer Inbox" }
+  designer:        { cron: "0 7 * * 2,5",  description: "Fri 07:00 PT — drop 4-6 ideas into ## Designer Inbox" }
   janitor:         { cron: "0 2 * * 0",  description: "Sun 02:00 PT — cold-storage stale items, prune branches+logs" }
   blogger:         { cron: "0 10 * * 6", description: "Sat 10:00 PT — draft weekly devlog from git log" }
   asset_librarian: { cron: "0 8 1 * *",  description: "1st of month 08:00 PT — scan assets/" }
 
-# Overnight Developer loop. Fires once per night; loop self-terminates at hard_stop_pt or target_items.
-overnight:
-  start_cron:     "0 23 * * *"
-  hard_stop_pt:   "06:00"
-  target_items:   5
-  retry_per_item: 1
-  description: "23:00 PT → 06:00 PT or 10 features shipped"
+# Continuous Developer loop — ships items until target_per_batch is reached
+# since the last CEO interaction, then sleeps. Restarts on CEO checkin (a
+# non-bot git commit, an edit to WORK.md, or `bash scripts/checkin.sh`).
+continuous:
+  target_per_batch: 10
+  retry_per_item:   1
+  description:      "always-on, paced by CEO checkins"
 
 # Local tests (Godot scenarios + GUT). Already managed by ~/Library/LaunchAgents/com.spraxel.localtests.plist.
 # Listed here for visibility; the tick daemon does NOT fire it.
