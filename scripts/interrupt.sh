@@ -49,18 +49,21 @@ echo "interrupt: starting at $(date '+%Y-%m-%d %H:%M:%S %Z')"
 touch "$PAUSED_FLAG"
 echo "  ✓ daemon paused (.paused flag set)"
 
-# 2. Kill in-flight overnight + agents.
+# 2. Kill in-flight loop + agent processes.
+#    IMPORTANT: kill EVERY layer (continuous_dev → run_agent → claude -p).
+#    Just killing continuous_dev orphans the run_agent + claude children, and
+#    those orphans hold the developer.lockdir, blocking any future Developer.
 killed=0
-for pat in "overnight_dev.sh" "run_agent.sh" "claude --dangerously-skip-permissions -p"; do
+for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p"; do
   pids=$(pgrep -f "$pat" 2>/dev/null | tr '\n' ' ')
   if [ -n "$pids" ]; then
     # shellcheck disable=SC2086
     kill -TERM $pids 2>/dev/null && killed=$((killed + $(echo $pids | wc -w)))
   fi
 done
-sleep 1
-# SIGKILL any survivors
-for pat in "overnight_dev.sh" "run_agent.sh" "claude --dangerously-skip-permissions -p"; do
+sleep 2
+# SIGKILL any survivors (claude -p in a syscall can ignore SIGTERM briefly).
+for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p"; do
   pgrep -f "$pat" 2>/dev/null | xargs kill -KILL 2>/dev/null || true
 done
 echo "  ✓ killed $killed agent process(es)"

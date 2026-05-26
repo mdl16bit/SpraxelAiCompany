@@ -187,8 +187,27 @@ for det in it.get('details', []):
 ")
     echo "$item_brief" > "$item_log.brief"
 
-    if ! SPRAXEL_ITEM_BRIEF="$item_log.brief" bash "$RUN_AGENT" developer >> "$item_log" 2>&1; then
-      echo "continuous: developer rc=$? on attempt $attempt" >> "$item_log"
+    # Fire developer. Capture the real exit code (the `if !` form drops it to 0).
+    SPRAXEL_ITEM_BRIEF="$item_log.brief" bash "$RUN_AGENT" developer >> "$item_log" 2>&1
+    dev_rc=$?
+    if [ "$dev_rc" -eq 2 ]; then
+      # rc=2 = developer.lockdir held (orphan or concurrent fire). NOT a real
+      # failure — wait for the lock to clear, then retry the SAME item.
+      echo "continuous: developer LOCKED — waiting (will retry same item, not escalate)" >> "$item_log"
+      git checkout --quiet master
+      git branch -D "$branch" --quiet 2>/dev/null || true
+      for waited in 30 60 120 240 480 600; do
+        sleep "$waited"
+        [ ! -d "$REPO_DIR/.locks/developer.lockdir" ] && break
+      done
+      if [ -d "$REPO_DIR/.locks/developer.lockdir" ]; then
+        echo "continuous: lock still held after 25 min — giving up this iteration" >> "$item_log"
+        return 2   # treat as "nothing shipped" — outer loop sleeps + retries
+      fi
+      attempt=0   # next loop iteration becomes attempt 1
+      continue
+    elif [ "$dev_rc" -ne 0 ]; then
+      echo "continuous: developer rc=$dev_rc on attempt $attempt" >> "$item_log"
       [ "$attempt" -lt 2 ] && continue
       outcome=fail
       break
