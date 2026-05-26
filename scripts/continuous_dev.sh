@@ -149,9 +149,31 @@ ship_one_item() {
   local LOG_DIR="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)"
   mkdir -p "$LOG_DIR"
   cd "$game_dir" || return 1
+
+  # --- self-heal: previous iteration may have left a conflicted index, an
+  # in-progress merge, a stale stash, or HEAD on a feature branch. Without
+  # this, the next item silently runs on the wrong branch / poisoned tree.
+  git merge --abort 2>/dev/null
+  git rebase --abort 2>/dev/null
+  git cherry-pick --abort 2>/dev/null
+  # Drop leftover baseline-test-stash entries from prior failed runs.
+  while git stash list 2>/dev/null | grep -q "baseline-test-stash"; do
+    git stash drop 2>/dev/null || break
+  done
+  # Force back to a clean master synced with origin.
   git fetch --quiet origin master 2>/dev/null
-  git checkout --quiet master 2>/dev/null
-  git pull --ff-only --quiet origin master 2>/dev/null || true
+  if ! git checkout -f master 2>/dev/null; then
+    echo "continuous: clean_slate FAILED — cannot checkout master, abort iter"
+    return 1
+  fi
+  git reset --hard origin/master --quiet 2>/dev/null
+  # Verify HEAD is actually master before proceeding (defense in depth).
+  local head_branch
+  head_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+  if [ "$head_branch" != "master" ]; then
+    echo "continuous: clean_slate FAILED — HEAD is '$head_branch', expected master"
+    return 1
+  fi
 
   local next_json next_title slug branch item_log
   next_json=$(python3 "$WORKMD" top "$game_dir/WORK.md" -n 1)

@@ -9,6 +9,7 @@
 # Spraxel offline-workflow runtime state
 .factory/local-test-logs/
 .factory/local-tests-status.json
+.factory/reviews/
 
 # OS / editor cruft
 .DS_Store
