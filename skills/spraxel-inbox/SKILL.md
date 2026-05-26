@@ -52,6 +52,27 @@ features that shipped overnight and deciding what's next.
    `~/GameProjects/<game>/.factory/inbox/raw.md` and run `/spraxel-producer`
    to convert them to clean WORK.md items.
 
+4. **▶ Humanize blog draft (Saturday only, +10 min)**: on Saturday
+   mornings, the Blogger has pushed a `blog/<YYYY-MM-DD>` branch with
+   a draft devlog post. Pull it, edit for voice + personal touch,
+   merge to master, publish.
+
+   ```bash
+   cd ~/GameProjects/<game>
+   git fetch origin
+   git checkout blog/$(date +%Y-%m-%d)
+   $EDITOR blog/$(date +%Y-%m-%d).md       # add your voice, tighten phrasing
+   git commit -am "blog: humanize $(date +%Y-%m-%d)"
+   git checkout master
+   git merge --no-ff blog/$(date +%Y-%m-%d) -m "blog: $(date +%Y-%m-%d)"
+   git push origin master
+   # publish to your blog target (Hugo, ghost, substack, etc.)
+   ```
+
+   If no `blog/<date>` branch exists, Blogger didn't run or had no
+   shipped commits to write about. Check
+   `~/SpraxelAiCompany/logs/blogger/<latest>.log`.
+
 ## Time box
 
 The whole routine is ~38 min. **If you're over 45 min, stop**. The

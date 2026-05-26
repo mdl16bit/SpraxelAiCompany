@@ -10,14 +10,19 @@
 game_dir: ~/GameProjects/infiltrators
 
 # Crew agents: scheduled, write to WORK.md / MORNING.md / .factory/.
+# These cron expressions should match Philosophy.cadence.<agent> in each game's
+# Philosophy.md — agents also read Philosophy and will exit cleanly if today
+# isn't their scheduled day per Philosophy (defense in depth).
 agents:
+  playtester:      { cron: "0 4 * * *",  description: "04:00 PT daily — actively plays game; writes candidate bugs" }
+  triager:         { cron: "0 5 * * *",  description: "05:00 PT daily — playtest findings + test fails → [needs-ceo] in WORK.md" }
   morning_briefer: { cron: "0 6 * * *",  description: "06:00 PT daily — write MORNING.md digest" }
-  triager:         { cron: "0 5 * * *",  description: "05:00 PT daily — batch overnight test failures into ## Todo" }
-  pm:              { cron: "0 7 * * *",  description: "07:00 PT daily — re-sort ## Todo, balance bug/feature" }
-  designer:        { cron: "0 7 * * 2,5",  description: "Fri 07:00 PT — drop 4-6 ideas into ## Designer Inbox" }
-  janitor:         { cron: "0 2 * * 0",  description: "Sun 02:00 PT — cold-storage stale items, prune branches+logs" }
-  blogger:         { cron: "0 10 * * 6", description: "Sat 10:00 PT — draft weekly devlog from git log" }
-  asset_librarian: { cron: "0 8 1 * *",  description: "1st of month 08:00 PT — scan assets/" }
+  demo_creator:    { cron: "30 6 * * *", description: "06:30 PT daily — capture video+still of newly-shipped features (Mac-awake req)" }
+  pm:              { cron: "0 7 * * *",  description: "07:00 PT daily — reorder ## Todo; release-cut on biweekly Mondays" }
+  designer:        { cron: "0 7 * * 2,5",description: "Tue+Fri 07:00 PT — drop ranked ideas as [idea] items" }
+  blogger:         { cron: "0 10 * * 6", description: "Sat 10:00 PT — draft weekly devlog (uses demo assets + release notes)" }
+  janitor:         { cron: "0 2 * * 0",  description: "Sun 02:00 PT — cold-archive stale, prune branches + logs" }
+  asset_librarian: { cron: "0 8 1 * *",  description: "1st of month 08:00 PT — scan assets/ for orphans + license gaps" }
 
 # Continuous Developer loop — ships items until target_per_batch is reached
 # since the last CEO interaction, then sleeps. Restarts on CEO checkin (a

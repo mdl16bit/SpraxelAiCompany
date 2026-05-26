@@ -252,9 +252,70 @@ python3 ~/SpraxelAiCompany/scripts/workmd.py top ~/GameProjects/infiltrators/WOR
 # (in Claude Code) /spraxel-producer
 ```
 
-### 11:00 PM — Overnight kicks off
+### 11:00 PM — Continuous loop keeps shipping
 
-You're asleep. `overnight_dev.sh` is shipping features.
+You're asleep. `continuous_dev.sh` ships until the 10-item cap, then sleeps.
+
+---
+
+## CEO weekly schedule (extras on top of the daily routine)
+
+Most days look like the daily routine above. A few days have additions:
+
+### Tuesday + Friday — Designer days
+
+After Designer fires at 07:00 PT, MORNING.md's **Decide** section will
+have 4–6 fresh ranked ideas. Expect the Decide step to take **+5 min**
+on these days as you accept / reject / amend each.
+
+### Saturday — Blogger day (+10 min)
+
+Blogger fires at 10:00 PT Saturday and pushes a `blog/<YYYY-MM-DD>`
+branch with a draft devlog. **Humanize step** is your job:
+
+```bash
+cd ~/GameProjects/<game>
+git fetch origin
+git checkout blog/$(date +%Y-%m-%d)
+$EDITOR blog/$(date +%Y-%m-%d).md       # voice + personality pass
+git commit -am "blog: humanize $(date +%Y-%m-%d)"
+git checkout master
+git merge --no-ff blog/$(date +%Y-%m-%d) -m "blog: $(date +%Y-%m-%d)"
+git push origin master
+# publish to your blog target
+```
+
+The Blogger embeds Demo Creator screenshots from `.factory/demos/<week>/`
+and references PM release notes from `.factory/releases/<latest>.md` if
+available. So your draft will already have visuals + structure — you're
+adding voice, opinion, and the occasional retro-game reference.
+
+`/spraxel-inbox` skill adds this as **step 4** in the morning routine on
+Saturdays.
+
+### Sunday — Janitor + Reflection
+
+Janitor fires at 02:00 PT Sunday. No CEO action required — but the
+MORNING.md "Janitor" line will tell you what got cold-archived. If you
+want to resurrect anything, edit WORK.md to remove the `[cold]` tag.
+
+### Monday (every other) — Release-cut day
+
+On biweekly Mondays, PM auto-cuts a release tag in addition to its
+daily reorder. MORNING.md will announce:
+
+> 🚢 PM cut v0.4 on 2026-MM-DD: 6 features, 2 bugs.
+> Notes: .factory/releases/v0.4.md
+> Branch: release/v0.4
+
+Read the notes to confirm the cut matches reality. The release branch
+is for hotfixes — usually you ignore it.
+
+### 1st of the month — Asset Librarian
+
+Asset Librarian fires at 08:00 PT on the 1st of each month. Adds a
+"Asset Librarian" line to MORNING.md with orphan count + license gaps.
+Address the license gaps when they appear (~5 min).
 
 ---
 
@@ -713,17 +774,18 @@ follow-ups added to WORK.md:
 | Agent | Cadence | Model | What it does |
 |-------|---------|-------|--------------|
 | **overnight_dev** | nightly 23:00 → 06:00 PT | n/a (shell) | Loops up to 10 features. Branches → Developer → tests → Reviewer → merge. |
-| **developer** | called by overnight | sonnet | Implements one WORK.md item end-to-end on a feature branch. **Always adds a GUT test under `test/unit/` and runs `bash scripts/run_local_tests.sh` before committing.** No test = the commit is not done. |
-| **reviewer** | called by overnight | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). |
-| **triager** | daily 05:00 PT | haiku | Reads overnight test failures, dedupes, appends `[bug]` items to ## Todo. |
+| **developer** | called by continuous loop | sonnet | Implements one WORK.md item end-to-end on a feature branch. **Always adds a GUT test under `test/unit/` and runs `bash scripts/run_local_tests.sh` before committing.** Also appends `MANUAL - <CATEGORY> - ...` follow-up items if work needs CEO art/music/etc. |
+| **reviewer** | called by continuous loop | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). |
+| **playtester** | daily 04:00 PT | sonnet | Actively plays the game to find problems. Beyond test scenarios — input spam, edge cases, mechanic combos. Writes candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
+| **triager** | daily 05:00 PT | haiku | Reads playtest findings + test failures, appends as `[needs-ceo] [bug]` items. CEO confirms in MORNING.md before they become live bugs. |
 | **morning-briefer** | daily 06:00 PT | haiku | Writes MORNING.md — runs `health_check.sh` first, then 10 features to play-test, decisions to make, escalations. |
-| **pm** | daily 07:00 PT | haiku | Reorders top of ## Todo by priority and bug/feature balance. |
-| **designer** | weekly Fri 07:00 PT | sonnet | Proposes 4-6 `[idea]`-tagged items for CEO triage. |
-| **blogger** | weekly Sat 10:00 PT | sonnet | Drafts devlog from week's commits, pushes `blog/<date>` branch. |
-| **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items, prunes branches + logs. |
+| **demo-creator** | daily 06:30 PT (Mac-awake req) | sonnet | Captures video + screenshot for newly-shipped features via `--demo-feature=<slug>` + `screencapture`. Writes to `.factory/demos/<date>/`. Blogger embeds these. |
+| **pm** | daily 07:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
+| **designer** | Tue + Fri 07:00 PT | sonnet | Reads Philosophy + memory + inspiration. Generates 2-3× target candidates, ranks, takes top N (config: `designer.ideas_per_run`). Drops as `[idea]` items. |
+| **blogger** | weekly Sat 10:00 PT | sonnet | Drafts devlog from week's commits + release notes + demo assets. Pushes `blog/<date>` branch. CEO humanizes in morning routine, then merges + publishes. |
+| **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items, prunes merged branches (matches `feat/(overnight|cont|issue)-*`), prunes 60+ day logs. |
 | **asset-librarian** | monthly 1st 08:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
-| **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. |
-| **demo-creator** | (stub — deferred) | — | "Video taker" — recording feature demos. Not yet implemented. |
+| **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. Originally called "Director" in the project spec. |
 
 ---
 
@@ -742,6 +804,8 @@ follow-ups added to WORK.md:
 | **`cron_match.py`** | Evaluates a 5-field cron expression against `now` in a timezone. Used by `tick.sh` to decide who fires. | `tick.sh` |
 | **`slugify.py`** | Title → kebab-case branch slug. | `continuous_dev.sh` for branch names |
 | **`health_check.sh`** | Scans today's `logs/*/<YYYY-MM-DD>*.log` for error patterns (unknown model, rate limit, session expired, fatal, traceback). Outputs a markdown block. | `morning-briefer` agent (step 1), CEO manually |
+| **`token_report.sh`** | Counts `claude -p` invocations per agent over a window. Compares to `Philosophy.budgets.by_agent_percent`. Flags drift >25%. | CEO manually (weekly check); not yet scheduled |
+| **`capture_demo.sh <slug>`** | macOS screen-capture helper. Launches `godot --demo-feature=<slug>` windowed + records 10s video + still via `screencapture`. Output `.mov`+`.png` to `.factory/demos/`. | `demo-creator` agent |
 | **`checkin.sh`** | Explicit CEO signal — touches `.cache/ceo-checkin.ts`. `continuous_dev.sh` polls this and resets the counter on detection. | CEO manually when read-only interaction wasn't enough |
 | **`interrupt.sh`** | Pause-and-stash protocol: sets `.paused`, kills the whole continuous_dev/run_agent/claude tree, clears stale locks, `git stash` in the game repo, checks out master. Pairs with `resume.sh`. | CEO when interrupting mid-run |
 | **`resume.sh`** | Restores pre-interrupt state: pops stash, checks out original branch, removes `.paused`. Flags: `--drop` (discard stash), `--no-resume` (keep paused). | CEO after a manual change |
@@ -803,6 +867,28 @@ Things to watch for that mean trouble:
 |-------|---------|---------|
 | **`/spraxel-inbox`** (or `/inbox`) | CEO types in Claude Code | Walks the morning routine: opens MORNING.md, surfaces sections in order, quick commands |
 | **`/spraxel-producer`** (or `/producer`) | CEO types in Claude Code | Converts `.factory/inbox/raw.md` + dictation files into clean WORK.md items |
+
+### Per-agent memory files
+
+Each agent has a persistent memory file at `<game-dir>/.factory/memory/<agent>.md`:
+
+| Agent | Memory file | What it tracks |
+|-------|-------------|----------------|
+| `developer` | `.factory/memory/developer.md` | Cross-cutting notes — module fragility, item-title patterns, autoload init gotchas |
+| `reviewer` | `.factory/memory/reviewer.md` | Recurring code smells; auto-opens chores when patterns repeat |
+| `pm` | `.factory/memory/pm.md` | Release decisions, velocity trends, items repeatedly re-ordered |
+| `designer` | `.factory/memory/designer.md` | What's been proposed (prevent re-pitch), inspiration drawn from |
+| `triager` | `.factory/memory/triager.md` | Bugs already promoted; dedup history |
+| `playtester` | `.factory/memory/playtester.md` | Features tested, edge cases covered, next areas to focus on |
+| `demo-creator` | `.factory/memory/demo-creator.md` | Captured features + dates, skips (no `--demo-feature` hook) |
+| `morning-briefer` | `.factory/memory/morning-briefer.md` | Themes surfaced, what CEO ignores, recurring escalations |
+| `blogger` | `.factory/memory/blogger.md` | Topics covered, voice notes from CEO |
+| `janitor` | `.factory/memory/janitor.md` | Cold-archived items, branches deleted, space reclaimed |
+| `asset-librarian` | `.factory/memory/asset-librarian.md` | Long-standing orphans, license gaps over time |
+| `producer` | `.factory/memory/producer.md` | Classification call patterns, CEO phrasings |
+
+Memory is opt-in for each run: agents read at start, write one paragraph
+at end. CEO can read/edit/delete any memory file at any time.
 
 ### State + cache files
 
