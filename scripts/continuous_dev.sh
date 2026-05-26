@@ -143,16 +143,15 @@ PY
   echo "continuous: ceo signal detected — counter reset"
 }
 
-# --- the per-item ship logic ---
-# Returns 0 on successful ship, 1 on failure, 2 on clarify-only (don't count).
-ship_one_item() {
-  local LOG_DIR="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)"
-  mkdir -p "$LOG_DIR"
+# Force the game repo back to a clean master synced with origin. Called at
+# the start of every iteration AND before recording an escalation, so a
+# single bad item can't silently corrupt the next item or block its own
+# escalation from being recorded. Returns 0 if HEAD ends up on clean
+# master, 1 otherwise (the only way that fails is a genuinely broken repo
+# — disk full, lock held by another process, etc.).
+clean_slate() {
   cd "$game_dir" || return 1
-
-  # --- self-heal: previous iteration may have left a conflicted index, an
-  # in-progress merge, a stale stash, or HEAD on a feature branch. Without
-  # this, the next item silently runs on the wrong branch / poisoned tree.
+  # Abort any in-progress merge/rebase/cherry-pick.
   git merge --abort 2>/dev/null
   git rebase --abort 2>/dev/null
   git cherry-pick --abort 2>/dev/null
@@ -160,18 +159,32 @@ ship_one_item() {
   while git stash list 2>/dev/null | grep -q "baseline-test-stash"; do
     git stash drop 2>/dev/null || break
   done
-  # Force back to a clean master synced with origin.
+  # Discard any staged / unstaged changes from a wrecked iteration.
+  git reset --hard HEAD --quiet 2>/dev/null
+  # Force-switch to master, then sync to origin.
   git fetch --quiet origin master 2>/dev/null
   if ! git checkout -f master 2>/dev/null; then
-    echo "continuous: clean_slate FAILED — cannot checkout master, abort iter"
     return 1
   fi
   git reset --hard origin/master --quiet 2>/dev/null
-  # Verify HEAD is actually master before proceeding (defense in depth).
+  # Confirm HEAD really is master.
   local head_branch
   head_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
-  if [ "$head_branch" != "master" ]; then
-    echo "continuous: clean_slate FAILED — HEAD is '$head_branch', expected master"
+  [ "$head_branch" = "master" ]
+}
+
+# --- the per-item ship logic ---
+# Returns 0 on successful ship, 1 on failure, 2 on clarify-only (don't count).
+ship_one_item() {
+  local LOG_DIR="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)"
+  mkdir -p "$LOG_DIR"
+  cd "$game_dir" || return 1
+
+  # Self-heal: previous iteration may have left a conflicted index, an
+  # in-progress merge, a stale stash, or HEAD on a feature branch. Without
+  # this, the next item silently runs on the wrong branch / poisoned tree.
+  if ! clean_slate; then
+    echo "continuous: clean_slate FAILED at iter start — abort"
     return 1
   fi
 
@@ -340,7 +353,16 @@ except Exception:
   done
 
   if [ "$outcome" != "ok" ]; then
-    git checkout --quiet master
+    # Self-heal BEFORE recording the escalation. Without this, a wrecked
+    # tree (e.g. unresolved conflicts from a failed stash pop) would either
+    # block the escalate commit silently, or land it on the wrong branch —
+    # meaning the item never gets marked [needs-ceo] and the loop retries
+    # it forever.
+    if ! clean_slate; then
+      echo "continuous: ESCALATION self-heal FAILED — cannot reach master to record '$next_title'" >> "$item_log"
+      echo "continuous: ⚠️  could not escalate '$next_title' — fail_streak will brake the loop"
+      return 1
+    fi
     git branch -D "$branch" --quiet 2>/dev/null || true
     python3 "$WORKMD" escalate "$game_dir/WORK.md" "$next_title" \
       --log "$item_log" >> "$item_log" 2>&1 || true
