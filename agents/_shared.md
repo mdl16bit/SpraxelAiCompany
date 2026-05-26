@@ -69,8 +69,18 @@ CEO toggles `run_mode` to pause the factory during off-weeks.
 The overnight Developer loop merges to master at end-of-item — that's the
 ONE place a feature lands on master. Crew agents (PM, Designer, Triager,
 Janitor, Blogger, Asset Librarian, Morning Briefer) commit to master directly
-**only for their own non-code state files**: WORK.md, MORNING.md,
-`.factory/*.md`, blog/. Never push speculative code from a crew run.
+**only for their own non-code state files**: WORK.md, `.factory/inbox/*.md`,
+`.factory/escalations.md`, blog/. Never push speculative code from a crew
+run.
+
+**Local-only artifacts** — `.factory/local/` is gitignored. The Morning
+Briefer writes `MORNING.md` there; PM/Janitor/Asset Librarian append to it.
+Never `git add` anything under `.factory/local/`.
+
+**Before committing**: confirm `git symbolic-ref --short HEAD` is `master`.
+If it isn't, the Developer's in-flight feature branch is checked out — your
+commit would land on the wrong branch and may be discarded. Switch with
+`git checkout master` (after stashing any non-master work) before committing.
 
 Per-role branching:
 - Developer (called from overnight_dev.sh): branches `feat/overnight-<date>-<slug>` off master. Overnight script merges + pushes.
@@ -107,7 +117,7 @@ If your run hits a blocker (unrecoverable error, ambiguous spec, missing
 dependency, semantic conflict):
 
 - **For a Todo item** the Developer is implementing: call `workmd.py escalate <path> <title> --log <log>` — the item moves to `.factory/escalations.md` and the Morning Briefer surfaces it. Do NOT silently retry on master.
-- **For factory-state work** (Janitor cleaning, PM reordering): append a `⚠️` line to MORNING.md if it exists, or print to stdout if it doesn't.
+- **For factory-state work** (Janitor cleaning, PM reordering): append a `⚠️` line to `.factory/local/MORNING.md` if it exists (gitignored — never commit), or print to stdout if it doesn't.
 
 A zero-output run is the worst outcome — it gives the system no signal. Always end with either:
 (a) a commit, (b) an escalation, or (c) a stdout status line.

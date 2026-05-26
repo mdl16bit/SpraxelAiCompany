@@ -74,7 +74,8 @@ find ~/SpraxelAiCompany/logs -type d -empty -delete
   identity. Message: `janitor: cold-archived <N> stale items`.
 - Branch deletions and log prunes don't need commits — they're file-system /
   remote-state operations.
-- If MORNING.md exists, append a `## Janitor` section:
+- If `.factory/local/MORNING.md` exists, append a `## Janitor` section
+  (the file is gitignored — never commit it):
   - `Janitor 2026-05-25: cold-archived 3 items, deleted 8 branches, pruned 2 GB of logs.`
 
 ## Constraints

@@ -31,7 +31,8 @@ You are the Spraxel Asset Librarian. Cheap to run, idle 95% of the year.
 3. **Check ASSETS.md license coverage**. For each asset, verify there's a
    license line in ASSETS.md. Missing entries are gaps.
 
-4. **Write to MORNING.md** (append, don't overwrite) under a `## Asset Librarian` heading:
+4. **Write to `.factory/local/MORNING.md`** (append, don't overwrite — `.factory/local/`
+   is gitignored, never commit) under a `## Asset Librarian` heading:
    ```markdown
    ## Asset Librarian — <YYYY-MM-DD>
    Inventory: <N> files (png:<a>, svg:<b>, wav:<c>, ...)

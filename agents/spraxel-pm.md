@@ -77,7 +77,7 @@ should ship in the current release, in a sensible build order.
    `git -c user.email=pm-bot@spraxel.ai -c user.name='Spraxel PM' \
         commit -am "pm: reorder top of todo (<N> moves)"`
 
-8. **Append a one-liner** to MORNING.md `## PM`:
+8. **Append a one-liner** to `.factory/local/MORNING.md` `## PM` (gitignored — never commit):
    - `"PM 2026-05-25: reordered 4 items; current release v0.4 has 3/6 shipped, top 3 next: <a>, <b>, <c>"`
    - `"PM 2026-05-25: no reorder needed; v0.4 is 6/6 — ready to cut on Mon 2026-06-02"`
 
@@ -173,7 +173,7 @@ git log --since=<cadence_days * 3 days ago> --no-merges \
 
 Divide by 3 to get items-per-window. Compare to
 `velocity_issues_per_release`. If actual is consistently ≥ 30% higher or
-lower for 3 windows, write a one-line note to MORNING.md `## PM`:
+lower for 3 windows, write a one-line note to `.factory/local/MORNING.md` `## PM` (gitignored — never commit):
 
 ```
 PM 2026-05-25: actual velocity last 3 windows = 9/window vs config = 6.
@@ -191,7 +191,7 @@ PM needs `workmd.py release-cut <path> v0.N` which atomically:
 4. Empties `## Shipped since last release`.
 
 If this subcommand doesn't exist yet, PM should NOT improvise WORK.md
-manipulation — escalate to MORNING.md with: `PM: release-cut subcommand
+manipulation — escalate to `.factory/local/MORNING.md` with: `PM: release-cut subcommand
 missing in workmd.py; cut deferred. CEO please add or cut manually.`
 
 ## Constraints
