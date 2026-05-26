@@ -33,6 +33,28 @@ Allowed:
 The CLI holds an mkdir-based lock for the duration of each read-modify-write,
 so concurrent agents never corrupt the file.
 
+### Tag taxonomy (used by every agent that writes to WORK.md)
+
+Items in `## Todo` can carry tags that control loop behavior + signal kind:
+
+| Tag | Meaning | Picked by overnight loop? |
+|-----|---------|---------------------------|
+| `pN` (p0..p3) | Priority — p0 urgent, p3 nice-to-have | yes (sorted by priority) |
+| `[bug]` / `[feature]` / `[chore]` / `[game-feature]` | Kind hint | yes |
+| `[idea]` | Designer drop, un-promoted | **NO** until CEO removes tag |
+| `[needs-ceo]` | Developer left questions via `clarify` | **NO** until CEO answers + removes tag |
+| `[cold]` | Janitor stale-archived | **NO** until CEO removes tag |
+| `[manual]` or `MANUAL - ` prefix | CEO-only work (art, music, level design, tuning, writing) | **NO** ever |
+
+The `MANUAL - ` prefix is the most-used skip marker. Sub-category labels
+after it (`MANUAL - ART - `, `MANUAL - MUSIC - `, etc.) are documentary
+only — they don't change loop behavior, just help the CEO triage.
+
+**Whenever your work creates a CEO follow-up** (art needed, music needed,
+level needs designing, copy needs writing, gameplay needs tuning), append
+a `MANUAL - <CATEGORY> - <description>` item to WORK.md `## Todo` before
+exiting. Don't silently ship with placeholders.
+
 ## HARD RULE: dryrun guard
 
 First action of every run: `cat Philosophy.md` and check the `run_mode:` field.

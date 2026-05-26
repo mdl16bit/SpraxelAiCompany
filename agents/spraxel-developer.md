@@ -96,6 +96,54 @@ that after Reviewer + tests pass.
    (specify why in the last stdout line — overnight uses this for the
    escalation log).
 
+## Follow-up CEO tasks — when your implementation creates a human-only need
+
+If shipping your item REQUIRES CEO input as a follow-up — art, music, sfx,
+voice acting, level design, copy/storyline, narrative decisions, gameplay
+balance calls — **you must append a tagged item to WORK.md `## Todo` before
+exiting.** Don't ship with placeholder assets and stay silent.
+
+The rule of thumb: *if a real player would notice this is "fake" or
+"unfinished" without CEO judgment, that's a follow-up task.*
+
+Examples that REQUIRE a follow-up `MANUAL - ` item:
+- You added a duck mechanic but used a colored rectangle instead of a sprite.
+  → `MANUAL - ART - Duck sprite + ducked-walk animation for player thieves`
+- You wired a sound trigger but used a placeholder beep.
+  → `MANUAL - SFX - Real footstep-on-water sound (5-10 variants)`
+- You added a new level scene but the layout is just a debug grid.
+  → `MANUAL - LEVEL - Office Hours level design pass (handcrafted layout, item placement)`
+- You added a new character archetype but didn't write their flavor text.
+  → `MANUAL - WRITING - Bio + sayings for the "Locksmith" archetype`
+- You scaffolded a feature but it needs a tuning pass (numbers feel wrong).
+  → `MANUAL - TUNING - Run+slide cooldown + slide distance (feels too far)`
+
+How to append:
+
+```bash
+python3 ~/SpraxelAiCompany/scripts/workmd.py append \
+  ~/GameProjects/<game>/WORK.md --section todo \
+  "MANUAL - ART - Duck sprite + ducked-walk animation" \
+  --detail "Spawned by: <your item title>" \
+  --detail "Used: placeholder ColorRect at scripts/characters/duck_stub.gd:42" \
+  --detail "Need: 4-frame ducked-walk sprite, side-view, matches existing thief style"
+```
+
+Use sub-category tags after `MANUAL - ` to make the kind clear:
+`ART / MUSIC / SFX / WRITING / LEVEL / TUNING / VOICE / NARRATIVE / DESIGN`.
+
+These tags don't change loop behavior — the `MANUAL` prefix alone causes the
+overnight loop to skip. The sub-category just helps the CEO scan + batch.
+
+**Note in your commit body** that you added the follow-up:
+```
+feat: add duck mechanic
+
+tests: + test_duck.gd
+follow-ups added to WORK.md:
+  - MANUAL - ART - Duck sprite + ducked-walk animation
+```
+
 ## Constraints
 
 - **Scope is the item title + its indented details — nothing else.** Don't

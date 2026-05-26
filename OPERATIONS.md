@@ -675,8 +675,36 @@ Tag reference:
 | `[chore]` | Refactor / docs / deps | yes |
 | `[idea]` | Designer drop, CEO triage needed | **NO** (must remove tag first) |
 | `[cold]` | Janitor archived as stale | **NO** (must remove tag first) |
-| `[manual]` or `MANUAL - ` prefix | CEO-only — needs human hands (controller test, art, music) | **NO** (skip until tag/prefix removed) |
+| `[manual]` or `MANUAL - ` prefix | CEO-only — needs human hands (controller test, art, music, level design) | **NO** (skip until tag/prefix removed) |
 | `[needs-ceo]` | Developer added clarifying questions — CEO must answer | **NO** (skip until questions answered + tag removed) |
+
+### `MANUAL - ` sub-category labels
+
+When the Developer ships a feature that needs CEO follow-up (placeholder
+art, fake SFX, etc.), it appends a `MANUAL - <CATEGORY> - <desc>` item
+to `## Todo`. The sub-category is documentary only — doesn't affect the
+loop — but helps you batch-process during morning routine:
+
+| Sub-category | Means |
+|--------------|-------|
+| `MANUAL - ART -` | Sprite / icon / texture / animation work needed |
+| `MANUAL - MUSIC -` | Music track or loop needed |
+| `MANUAL - SFX -` | Sound effect needed |
+| `MANUAL - WRITING -` | Copy, story, dialogue, names, flavor text |
+| `MANUAL - LEVEL -` | Level layout / hand-crafted design |
+| `MANUAL - TUNING -` | Numbers feel wrong; needs balance pass |
+| `MANUAL - VOICE -` | Voice acting / casting |
+| `MANUAL - DESIGN -` | Design decision (mechanic feel, UX call) |
+| `MANUAL - NARRATIVE -` | Story / plot / mission narrative |
+
+Example overnight commit body referencing follow-ups:
+```
+feat: add duck mechanic
+
+tests: + test_duck.gd
+follow-ups added to WORK.md:
+  - MANUAL - ART - Duck sprite + ducked-walk animation
+```
 
 ---
 
