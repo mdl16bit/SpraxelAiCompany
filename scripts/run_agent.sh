@@ -126,7 +126,43 @@ if ! mkdir "$lock_dir" 2>/dev/null; then
   echo "run_agent: $agent already running (lock: $lock_dir)" >&2
   exit 2
 fi
-trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT INT TERM
+
+# Branch guard. Crew agents (everything but `developer`) write to master-only
+# state files (WORK.md, .factory/local/MORNING.md, .factory/escalations.md).
+# But when the continuous wrapper is mid-ship, HEAD is on its feature branch.
+# Without this guard, the crew agent's commits land on that feature branch
+# and get nuked when the wrapper does its mid-run branch -D cleanup.
+# Strategy: save the current branch, switch to master before claude, restore
+# after. Refuse the run if the working tree is dirty (switching could lose
+# the wrapper's unstaged work).
+saved_branch=""
+cd "$game_dir"
+if [ "$agent" != "developer" ]; then
+  current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+  if [ "$current_branch" != "master" ] && [ -n "$current_branch" ]; then
+    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+      echo "run_agent: $agent — wrapper has uncommitted work on '$current_branch', deferring this run (will retry next cron)" >&2
+      rmdir "$lock_dir" 2>/dev/null || true
+      exit 5
+    fi
+    if ! git checkout master --quiet 2>/dev/null; then
+      echo "run_agent: $agent — cannot checkout master from '$current_branch'; deferring" >&2
+      rmdir "$lock_dir" 2>/dev/null || true
+      exit 5
+    fi
+    saved_branch="$current_branch"
+    echo "run_agent: $agent — switched HEAD master ← $saved_branch (will restore)" >&2
+  fi
+fi
+
+# Trap: always release the lockdir and restore the wrapper's branch on exit.
+cleanup() {
+  if [ -n "$saved_branch" ]; then
+    git checkout "$saved_branch" --quiet 2>/dev/null || true
+  fi
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 # Run claude headless. --dangerously-skip-permissions enables Bash/Edit/Write without prompts.
 # stdin = composed prompt, stdout/stderr → log. Model is per-agent (see frontmatter).
@@ -134,7 +170,6 @@ trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT INT TERM
 # without it, every agent's claude session would touch ceo-checkin.ts and the
 # continuous loop would interpret that as a fresh CEO signal after every ship.
 echo "run_agent: $agent ($model_id) → $log" >&2
-cd "$game_dir"
 if SPRAXEL_AGENT_RUN=1 claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
   echo "run_agent: $agent ok" >&2
   exit 0

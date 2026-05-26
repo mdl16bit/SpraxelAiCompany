@@ -46,12 +46,34 @@ create it with `mkdir -p .factory/local`.
    - Items whose Game.md block has a `Debug hook (--demo-feature=<slug>)` field.
    - If overnight shipped fewer than 10, pad with items from previous nights that haven't been tested yet (track this via a `tested:` marker in Game.md, or just pick recent shipped items).
 
-4. **List the 10** with launch commands. For each:
+4. **List the 10** with launch commands, controls, and a reject hatch.
+   For each feature, do the following lookups:
+     - **commit sha**: find the `feat: <title>` commit via
+       `git log master --grep="<title>" --format='%h'` (use the short sha)
+     - **controls**: locate the matching `### <Feature Name>` block in
+       Game.md and copy the keybinds/inputs it lists. If Game.md has no
+       entry, grep the dev's scenario file at
+       `scripts/scenarios/<slug>.gd` for `Input.is_key_pressed`,
+       `is_action_pressed`, or comment-block lines mentioning keys
+       (typically `# Press X to ...`). If you find nothing, write
+       "Controls: see scripts/scenarios/<slug>.gd" — better to point
+       than to make up keys.
+     - **verify**: 2-3 lines of what to look for. Be specific — UI
+       elements, expected timing, fail/pass cues. Pull from Game.md's
+       acceptance criteria where present.
+
+   Format per feature:
    ```
-   N. [<slug>] <Feature title>
-      Look for: <2-line description of what to verify visually>
+   N. [<slug>] <Feature title>  — `<short-sha>`
+      Controls: <key1, key2, ...>
+      Verify:   <line 1>
+                <line 2 if needed>
       Launch:   godot --demo-feature=<slug>
+      ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
    ```
+
+   At the top of the play-test section, include a one-line reminder:
+   `If a feature is broken, paste the ❌ Reject line — reverts on master + re-queues to Todo with your reason.`
 
 5. **Decide section** — surface things needing CEO judgment:
    - Designer ideas with `[idea]` tag in WORK.md `## Todo` (CEO promotes or rejects).
@@ -100,10 +122,14 @@ Commits: <first-sha> .. <last-sha> (`git log master --since=yesterday`).
 
 ## ▶ Play-test today (20 min)
 Launch each with: `godot --demo-feature=<slug>` from the game repo.
+If a feature is broken, paste the ❌ Reject line — reverts on master + re-queues to Todo with your reason.
 
-1. [<slug>] <Feature title>
-   Look for: <what to verify>
+1. [<slug>] <Feature title>  — `<short-sha>`
+   Controls: <key1, key2, ...>
+   Verify:   <line 1>
+             <line 2 if needed>
    Launch:   godot --demo-feature=<slug>
+   ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
 ... (10 total)
 
 ## ▶ Decide (5 min)
