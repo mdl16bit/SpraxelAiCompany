@@ -28,17 +28,28 @@ If no commit mentions the title in 30 days, it's cold.
 
 ### 2. Delete orphan branches
 
-Branches under `feat/overnight-*` whose tip is reachable from master should
-be deleted:
+Branches matching the loop-created prefixes whose tip is reachable from
+master should be deleted. Match BOTH legacy `feat/overnight-*` AND the
+current `feat/cont-*` pattern (continuous_dev.sh), plus the old `feat/issue-*`
+from the pre-migration era:
+
 ```bash
-for b in $(git branch -r --merged master | grep 'origin/feat/overnight-'); do
+PATTERN='feat/(overnight-|cont-|issue-)'
+
+# Remote branches merged into master
+for b in $(git branch -r --merged master | grep -E "origin/$PATTERN"); do
   git push origin --delete "${b#origin/}"
 done
-for b in $(git branch --merged master | grep 'feat/overnight-'); do
+
+# Local branches merged into master
+for b in $(git branch --merged master | grep -E "$PATTERN"); do
   git branch -d "$b"
 done
 ```
-Keep unmerged `feat/` branches (the CEO may still want them).
+
+Keep unmerged `feat/` branches (CEO may still want them) and any branch
+that doesn't match the bot-loop pattern (e.g., `ceo/*` branches you made
+during manual edits, `blog/*` branches from Blogger awaiting review).
 
 ### 3. Prune logs
 
