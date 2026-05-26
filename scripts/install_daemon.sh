@@ -61,6 +61,13 @@ write_plist() {
     <string>$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>HOME</key>
     <string>$HOME</string>
+    <!-- USER and LOGNAME are required for claude CLI to reach the macOS
+         keychain. Without them claude silently exits with "Not logged in"
+         and produces a 0-byte agent log. -->
+    <key>USER</key>
+    <string>$USER</string>
+    <key>LOGNAME</key>
+    <string>$USER</string>
   </dict>
 </dict>
 </plist>
