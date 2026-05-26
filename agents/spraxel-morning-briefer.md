@@ -69,11 +69,13 @@ create it with `mkdir -p .factory/local`.
       Verify:   <line 1>
                 <line 2 if needed>
       Launch:   godot --demo-feature=<slug>
+      ✏️ Amend:  bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "<feedback>"
       ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
    ```
 
-   At the top of the play-test section, include a one-line reminder:
-   `If a feature is broken, paste the ❌ Reject line — reverts on master + re-queues to Todo with your reason.`
+   At the top of the play-test section, include a two-line reminder:
+   `✏️ Amend keeps the feature, queues a refinement pass with your feedback.`
+   `❌ Reject reverts the feature on master, re-queues for re-implementation.`
 
 5. **Decide section** — surface things needing CEO judgment:
    - Designer ideas with `[idea]` tag in WORK.md `## Todo` (CEO promotes or rejects).
@@ -122,13 +124,15 @@ Commits: <first-sha> .. <last-sha> (`git log master --since=yesterday`).
 
 ## ▶ Play-test today (20 min)
 Launch each with: `godot --demo-feature=<slug>` from the game repo.
-If a feature is broken, paste the ❌ Reject line — reverts on master + re-queues to Todo with your reason.
+✏️ Amend keeps the feature, queues a refinement pass with your feedback.
+❌ Reject reverts the feature on master, re-queues for re-implementation.
 
 1. [<slug>] <Feature title>  — `<short-sha>`
    Controls: <key1, key2, ...>
    Verify:   <line 1>
              <line 2 if needed>
    Launch:   godot --demo-feature=<slug>
+   ✏️ Amend:  bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "<feedback>"
    ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
 ... (10 total)
 

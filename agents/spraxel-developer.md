@@ -35,7 +35,17 @@ that after Reviewer + tests pass.
 ## Steps
 
 1. **Read the item**. Look at the title, details, and any priority/tag info.
-   If it's `[idea]` or `[cold]` — print `developer: item is [idea]/[cold] — overnight should have skipped` and exit 0.
+   - If it's `[idea]` or `[cold]` — print `developer: item is [idea]/[cold] — overnight should have skipped` and exit 0.
+   - If it's `[amend] Refine: <title>` — the CEO kept a shipped feature but wants
+     changes. The original sha is in the detail lines. Read the existing code
+     (`git show <sha>` + look at the touched files on master), then **modify
+     in place** per the CEO's feedback. Do NOT re-implement from scratch.
+     Your commit should be a focused diff against the original.
+   - If it's `[reject] Re-implement: <title>` — the CEO reverted a previous
+     attempt. Read the detail lines for the CEO's reason. The old approach
+     was wrong; don't repeat it. You can `git show <sha>` to see what was
+     done (it's still in reflog) but treat it as a cautionary tale, not a
+     starting point.
 
 2. **Read related context** narrowly. Inspect Game.md only if the item
    touches an existing feature. Inspect `Philosophy.md` for the `run_mode`

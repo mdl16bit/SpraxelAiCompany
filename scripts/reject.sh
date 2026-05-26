@@ -106,7 +106,7 @@ if ! git revert --no-edit "${to_revert[@]}" 2>&1; then
   echo "reject: revert hit conflicts. Resolve files listed above, then:" >&2
   echo "  git revert --continue" >&2
   echo "  git push origin master" >&2
-  echo "  python3 $WORKMD append WORK.md \"[needs-ceo] [reject] Re-implement: $feat_title\" --section todo --detail \"Rejected $feat_sha — $reason\"" >&2
+  echo "  python3 $WORKMD append WORK.md \"[reject] Re-implement: $feat_title\" --section todo --detail \"Rejected $feat_sha — $reason\"" >&2
   exit 1
 fi
 
@@ -117,14 +117,15 @@ if ! git push origin master 2>&1; then
   exit 1
 fi
 
-# Re-queue the item in WORK.md as [needs-ceo] [reject] so the Developer
-# takes another swing with the CEO's feedback as context.
+# Re-queue the item in WORK.md as [reject] so the Developer takes another
+# swing with the CEO's feedback as context. NO [needs-ceo] tag — the CEO's
+# reason here IS the spec; the dev should pick it up automatically overnight.
 python3 "$WORKMD" append "$game_dir/WORK.md" \
-  "[needs-ceo] [reject] Re-implement: $feat_title" \
+  "[reject] Re-implement: $feat_title" \
   --section todo \
   --detail "Rejected $feat_sha at $(date '+%Y-%m-%d %H:%M %Z')" \
   --detail "Reason: $reason" \
-  --detail "Original work: see reflog for $feat_sha / cherry-pick if you want to start from the old code"
+  --detail "Original work was REVERTED on master. Reflog still has $feat_sha if you want to crib (\`git show $feat_sha\`), but the previous approach was wrong per the CEO's reason — don't re-implement the same way."
 
 git add WORK.md
 git -c user.email=ceo-reject@spraxel.ai -c user.name='CEO Reject' \
@@ -134,5 +135,4 @@ git push --quiet origin master 2>&1 | tail -1
 echo ""
 echo "✓ rejected $feat_sha"
 [ -n "$shipped_sha" ] && echo "  + reverted work-shipped $shipped_sha"
-echo "  re-queued in WORK.md ## Todo with [needs-ceo] [reject]"
-echo "  CEO note: edit the item details with specifics so the Developer can fix it"
+echo "  re-queued in WORK.md ## Todo as [reject] — Developer picks it up next overnight"

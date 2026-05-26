@@ -124,8 +124,70 @@ cd ~/GameProjects/infiltrators
 godot --demo-feature=<slug>
 ```
 
-Spend 1–2 min per feature verifying the "Look for" line. Mentally tick ✓ or ✗.
-Jot fix notes for ✗ — they become Dictation step input.
+Each MORNING.md feature block looks like this:
+
+```
+1. [cutscene-engine] Full JSON-driven cinematics  — `6d2d92c`
+   Controls: Esc (skip), Space (advance)
+   Verify:   Title card fades in, typewriter on subtitles
+             Actor portraits appear on left
+   Launch:   godot --demo-feature=cutscene-engine
+   ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh cutscene-engine "<reason>"
+```
+
+Spend 1–2 min per feature verifying the "Verify" lines. Three outcomes per feature:
+
+##### ✓ Accept — it works
+Do nothing. The feature stays on master and rotates out of the play-test list tomorrow.
+
+##### ✏️ Amend — keep it, but with feedback
+The feature is fundamentally right but needs tweaks (timing, polish, edge cases).
+The Developer will iterate on top of the existing code overnight.
+
+```bash
+bash ~/SpraxelAiCompany/scripts/amend.sh cutscene-engine \
+  "title fade is too slow — 0.3s feels better than 1.0s; also Esc should immediately end the cutscene, not wait for the current line to finish"
+```
+
+What it does:
+- Appends `[amend] Refine: <title>` to WORK.md `## Todo`
+- Includes the original sha as a pointer ("read this, then modify in place")
+- Includes your feedback verbatim as scope
+- Commits + pushes WORK.md
+- The feature **stays shipped on master** — nothing reverts
+
+The Developer picks it up next overnight automatically (no `[needs-ceo]` tag — your
+feedback IS the spec), reads the existing code at the referenced sha, and refines it.
+
+##### ❌ Reject — get rid of it
+The feature is wrong enough that re-implementing from scratch is cheaper than fixing.
+
+```bash
+bash ~/SpraxelAiCompany/scripts/reject.sh cutscene-engine \
+  "subtitles cut off the bottom; whole rendering approach is wrong"
+```
+
+What it does:
+- `git revert` the `feat:` + paired `work: shipped` commits on master
+- `git push` — feature is gone from master
+- Appends `[reject] Re-implement: <title>` to WORK.md `## Todo`
+- Includes your reason as detail so Developer knows what to do differently
+- Commits + pushes
+
+Developer picks it up automatically next overnight. If revert hits conflicts
+(later commits touched the same files), reject.sh bails with
+`git revert --continue` + push instructions printed — you resolve manually
+and re-run.
+
+##### Quick decision matrix
+
+| Feature state | Use |
+|---|---|
+| Works well | (do nothing) |
+| Works but needs polish / tuning | `amend.sh <slug> "feedback"` |
+| Right idea, partially broken | `amend.sh <slug> "what to fix"` |
+| Wrong approach entirely | `reject.sh <slug> "why"` |
+| Bug from a NON-shipped state | regular `[bug]` item via dictation |
 
 #### 3. ▶ Decide — Designer ideas (5 min)
 
@@ -807,6 +869,8 @@ follow-ups added to WORK.md:
 | **`token_report.sh`** | Counts `claude -p` invocations per agent over a window. Compares to `Philosophy.budgets.by_agent_percent`. Flags drift >25%. | CEO manually (weekly check); not yet scheduled |
 | **`capture_demo.sh <slug>`** | macOS screen-capture helper. Launches `godot --demo-feature=<slug>` windowed + records 10s video + still via `screencapture`. Output `.mov`+`.png` to `.factory/demos/`. | `demo-creator` agent |
 | **`checkin.sh`** | Explicit CEO signal — touches `.cache/ceo-checkin.ts`. `continuous_dev.sh` polls this and resets the counter on detection. | CEO manually when read-only interaction wasn't enough |
+| **`amend.sh <slug-or-sha> "feedback"`** | CEO keeps a shipped feature but queues a refinement pass. Appends `[amend] Refine: <title>` to WORK.md `## Todo` with sha + feedback. Master untouched — Developer iterates on existing code next overnight. | CEO during play-test |
+| **`reject.sh <slug-or-sha> "reason"`** | CEO undoes a shipped feature. `git revert` the `feat:` + paired `work: shipped` commits on master, appends `[reject] Re-implement: <title>` to WORK.md `## Todo` with sha + reason. Developer re-implements next overnight, knowing the old approach was wrong. | CEO during play-test |
 | **`interrupt.sh`** | Pause-and-stash protocol: sets `.paused`, kills the whole continuous_dev/run_agent/claude tree, clears stale locks, `git stash` in the game repo, checks out master. Pairs with `resume.sh`. | CEO when interrupting mid-run |
 | **`resume.sh`** | Restores pre-interrupt state: pops stash, checks out original branch, removes `.paused`. Flags: `--drop` (discard stash), `--no-resume` (keep paused). | CEO after a manual change |
 | **`yaml_to_workmd.py`** | One-shot migration: WORK.yaml → WORK.md. Used during the offline migration; safe to keep around. | migration only |
