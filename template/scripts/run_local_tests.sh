@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
-# run_local_tests.sh — local Mac test runner; replaces GH Actions test.yml.
+# run_local_tests.sh — local Mac test runner.
 #
-# What it does (mirrors test.yml's flow):
+# What it does:
 #   1. Refresh Godot's class-name cache (editor --headless run, ~5-10s)
-#   2. Run GUT unit tests (test/unit/*)
+#   2. Run GUT unit tests under test/unit/
 #   3. Run every acceptance scenario in scripts/scenarios/*.gd
-#   4. Write `.factory/local-tests-status.json` with the result
-#   5. On failure: post a 🐛 comment to issue #5 + macOS notification
-#   6. On success: silent (Concierge surfaces the status JSON)
-#
-# Runs via launchd at ~/Library/LaunchAgents/com.spraxel.localtests.plist
-# every 30 minutes when the Mac is awake. Use scripts/install_local_tests.sh
-# to install/uninstall.
-#
-# Manual usage:
-#   ./scripts/run_local_tests.sh          # full run
-#   ./scripts/run_local_tests.sh --quiet  # don't notify on failure
+#   4. Write .factory/local-tests-status.json with the result
+#   5. On failure: print summary + macOS notification (unless --quiet)
 #
 # Honors Philosophy.run_mode=dryrun (exits silently).
+#
+# Runs via launchd every 30 min, and is also invoked by the continuous
+# Developer loop after every commit to gate ship/escalate.
+#
+# Exit code: 0 = all green, 1 = failures, 2 = setup error.
 
-set -uo pipefail
+# Note: not using `set -e` or `set -u` because macOS bash 3.2 errors on
+# empty-array references like "${arr[@]}" with set -u, and we rely on
+# graceful continuation when individual sub-commands fail.
+set -o pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
@@ -46,7 +45,7 @@ if [ -z "$GODOT" ] || [ ! -x "$GODOT" ]; then
   exit 2
 fi
 
-# Helper: bounded run (we lack `timeout` on stock macOS)
+# Helper: bounded run (stock macOS lacks `timeout`)
 run_bounded() {
   local seconds="$1"; shift
   perl -e 'alarm shift @ARGV; exec @ARGV' "$seconds" "$@"
@@ -55,7 +54,7 @@ run_bounded() {
 STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 STATUS_FILE="$REPO_DIR/.factory/local-tests-status.json"
 LOG_DIR="$REPO_DIR/.factory/local-test-logs"
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" "$(dirname "$STATUS_FILE")"
 LOG="$LOG_DIR/$STAMP.log"
 
 echo "[local-tests] $STAMP — starting" | tee "$LOG"
@@ -76,10 +75,10 @@ gut_out=$(run_bounded 120 "$GODOT" --headless --path . \
 gut_exit=$?
 echo "$gut_out" >>"$LOG"
 if ! echo "$gut_out" | grep -qE "^Totals|Run Summary"; then
-  failures+=("GUT: produced no Totals summary (editor-import probably failed)")
+  failures+=("GUT: no Totals summary produced (editor-import probably failed)")
 elif [ $gut_exit -ne 0 ]; then
   failed=$(echo "$gut_out" | grep -oE "Failures.*: *[0-9]+" | head -1)
-  failures+=("GUT: $failed (exit $gut_exit)")
+  failures+=("GUT: ${failed:-non-zero exit} (rc=$gut_exit)")
 fi
 
 # 3. Acceptance scenarios
@@ -96,23 +95,24 @@ for scenario in scripts/scenarios/*.gd; do
     failures+=("scenario $slug: script error")
   elif echo "$out" | grep -qE "SCENARIO .* FAIL"; then
     failures+=("scenario $slug: printed FAIL")
-  elif ! echo "$out" | grep -qE "SCENARIO $slug: PASS"; then
+  elif ! echo "$out" | grep -qE "SCENARIO $slug[: ]+PASS"; then
     failures+=("scenario $slug: silent skip or timeout (no PASS)")
   fi
 done
 
-# 4. Write status JSON
-PASS=$([ ${#failures[@]} -eq 0 ] && echo "true" || echo "false")
-python3 - <<PY
-import json, pathlib
+# 4. Write status JSON.  Build it in Python directly (no bash → Python
+#    interpolation, which caused 'pass: false' parse errors previously).
+python3 - "$STATUS_FILE" "$STAMP" "$LOG" "${failures[@]}" <<'PY'
+import json, pathlib, sys
+status_file, stamp, log_file, *failures = sys.argv[1:]
 data = {
-  "stamp": "$STAMP",
-  "pass": $PASS,
-  "failures": [$(printf '"%s",' "${failures[@]}" | sed 's/,$//')],
-  "log": "$LOG"
+    "stamp":    stamp,
+    "pass":     len(failures) == 0,
+    "failures": failures,
+    "log":      log_file,
 }
-pathlib.Path("$STATUS_FILE").parent.mkdir(parents=True, exist_ok=True)
-pathlib.Path("$STATUS_FILE").write_text(json.dumps(data, indent=2))
+pathlib.Path(status_file).parent.mkdir(parents=True, exist_ok=True)
+pathlib.Path(status_file).write_text(json.dumps(data, indent=2))
 PY
 
 # 5. Report
@@ -122,33 +122,14 @@ if [ ${#failures[@]} -eq 0 ]; then
 fi
 
 echo "[local-tests] 🐛 ${#failures[@]} failure(s):" | tee -a "$LOG"
-for f in "${failures[@]}"; do echo "  - $f" | tee -a "$LOG"; done
+for f in "${failures[@]}"; do
+  echo "  - $f" | tee -a "$LOG"
+done
 
-# 6. Post to issue #5 (best-effort — won't block on auth issues)
-if command -v gh >/dev/null 2>&1; then
-  BODY=$(cat <<EOF
-🐛 **Local tests failed — $STAMP**
-
-Run on CEO's Mac (replaces test.yml during GH Actions budget freeze).
-
-**Failures (${#failures[@]}):**
-$(for f in "${failures[@]}"; do echo "- $f"; done)
-
-Log: \`$LOG\`
-
-Triager will dedup + classify on the next daily run; ticked-real items become real bug issues via Producer.
-EOF
-)
-  # Find Factory Daily Log issue (cached lookup, falls back to #5)
-  LOG_ISSUE=$(gh issue list --search "Factory Daily Log in:title" --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null)
-  LOG_ISSUE=${LOG_ISSUE:-5}
-  gh issue comment "$LOG_ISSUE" --body "$BODY" 2>>"$LOG" || echo "[local-tests] gh comment failed (auth?)" >>"$LOG"
-fi
-
-# 7. macOS notification (if not --quiet)
+# 6. macOS notification (if not --quiet)
 if [ "$QUIET" -eq 0 ] && command -v osascript >/dev/null 2>&1; then
-  TITLE="Infiltrators local tests FAILED"
-  MSG="${#failures[@]} failures — see issue #5"
+  TITLE="Local tests FAILED"
+  MSG="${#failures[@]} failures — see $STATUS_FILE"
   osascript -e "display notification \"$MSG\" with title \"$TITLE\" sound name \"Sosumi\"" 2>/dev/null || true
 fi
 

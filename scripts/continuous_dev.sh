@@ -35,12 +35,36 @@ STATE_FILE="$CACHE_DIR/continuous-state.json"
 CHECKIN_FILE="$CACHE_DIR/ceo-checkin.ts"
 mkdir -p "$LOCKS_DIR" "$CACHE_DIR"
 
+# Startup trace — overwritten each spawn. If the wrapper dies before
+# reaching the main loop (e.g., env issue under launchd), this file shows
+# the last step it survived. Diagnostic for the launchd-spawn-died-silently
+# class of bugs (see 2026-05-26 12:00 PT incident).
+TRACE_FILE="$CACHE_DIR/continuous-startup-trace.log"
+trace() { echo "$(date '+%Y-%m-%d %H:%M:%S %Z')  $*" >> "$TRACE_FILE"; }
+# Truncate at start so old traces don't accumulate.
+{
+  echo "=== spawn pid=$$ at $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+  echo "  parent_pid=$PPID"
+  echo "  PATH=$PATH"
+  echo "  HOME=${HOME:-UNSET}"
+  echo "  USER=${USER:-UNSET}"
+  echo "  LOGNAME=${LOGNAME:-UNSET}"
+  echo "  TERM=${TERM:-UNSET}"
+  echo "  SHELL=${SHELL:-UNSET}"
+  echo "  TZ=${TZ:-UNSET}"
+  echo "  PWD=$(pwd)"
+  echo "  argv0=${BASH_SOURCE[0]}"
+} > "$TRACE_FILE"
+trace "step: starting"
+
 # --- single-instance lock ---
 LOCK="$LOCKS_DIR/continuous.lockdir"
 if ! mkdir "$LOCK" 2>/dev/null; then
+  trace "step: exit 0 (lockdir already held — another instance running)"
   exit 0   # another instance is running
 fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
+trace "step: lock acquired"
 
 # Resolve game_dir + target.
 game_dir=$(python3 - "$SCHEDULE" <<'PY'
@@ -52,6 +76,7 @@ with open(sys.argv[1]) as f:
             print(os.path.expanduser(m.group(1))); break
 PY
 )
+trace "step: game_dir parsed: '$game_dir'"
 target_per_batch=$(python3 - "$SCHEDULE" <<'PY'
 import sys, re
 with open(sys.argv[1]) as f:
@@ -68,10 +93,13 @@ if m:
 print(10)
 PY
 )
+trace "step: target_per_batch=$target_per_batch"
 if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
+  trace "step: FATAL — game_dir not resolvable ('$game_dir')"
   echo "continuous: game_dir not resolvable — abort"
   exit 1
 fi
+trace "step: game_dir validated"
 
 # --- state helpers ---
 init_state_if_missing() {
@@ -380,7 +408,9 @@ except Exception:
 
 # --- main loop ---
 init_state_if_missing
+trace "step: state initialized"
 echo "continuous: started — target_per_batch=$target_per_batch, game_dir=$game_dir"
+trace "step: entering main loop (startup complete)"
 
 idle_streak=0
 fail_streak=0
