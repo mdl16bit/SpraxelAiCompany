@@ -104,7 +104,20 @@ fi
 WORK_DIR="$game_dir"
 WORKTREE_PATH=""
 cd "$game_dir"
-if [ "$agent" != "developer" ]; then
+# If the wrapper passes SPRAXEL_WORK_DIR (e.g., the worker's worktree path),
+# operate in that directory directly. The wrapper is responsible for the
+# worktree lifecycle in that case; we just inherit.
+if [ -n "${SPRAXEL_WORK_DIR:-}" ] && [ -d "$SPRAXEL_WORK_DIR" ]; then
+  WORK_DIR="$SPRAXEL_WORK_DIR"
+  echo "run_agent: $agent — inheriting WORK_DIR=$SPRAXEL_WORK_DIR from wrapper" >&2
+# Otherwise, for crew agents (everything but developer/reviewer), create a
+# transient worktree pinned at origin/master so they don't disturb the
+# wrapper's feat-branch state.
+# - developer: needs the wrapper's feat branch (that's its workspace)
+# - reviewer : runs `git diff master...HEAD` on the dev's feat branch;
+#              a fresh master worktree would show an empty diff and the
+#              reviewer would always say "looks great" (silent failure)
+elif [ "$agent" != "developer" ] && [ "$agent" != "reviewer" ]; then
   current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
   if [ "$current_branch" != "master" ] && [ -n "$current_branch" ]; then
     WORKTREE_PATH="$REPO_DIR/.worktrees/${agent}-$$"
