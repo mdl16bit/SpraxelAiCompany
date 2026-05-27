@@ -69,8 +69,10 @@ Sun 02:00      janitor       — cold-archives stale Todo items, prunes
 python3 ~/SpraxelAiCompany/scripts/dashboard.py
   — leave running in a corner terminal. Auto-refreshes every 5 s.
     Compact glanceable view: status, wrapper PID + uptime, cap
-    counter, current item, today's ships/escalations, next 3 fires,
-    last log line. Stdlib-only Python — no Claude calls.
+    counter, current item, today's ships/escalations, next 10
+    scheduled fires (PT), next 5 CEO action items (needs-ceo /
+    escalated / concern / idea / dictation backlog — color-coded by
+    urgency), last log line. Stdlib-only Python — no Claude calls.
 ```
 
 ## Layout

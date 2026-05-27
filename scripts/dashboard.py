@@ -118,15 +118,16 @@ def parse_schedule_yaml() -> list[tuple[str, str]]:
     return out
 
 
-def next_n_fires(now: datetime, n: int = 3) -> list[tuple[datetime, str]]:
+def next_n_fires(now: datetime, n: int = 10) -> list[tuple[datetime, str]]:
     schedule = parse_schedule_yaml()
     if not schedule: return []
     events = []
     for name, cron in schedule:
         scan = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
         end = now + timedelta(days=35)
+        # Scan further per-agent so monthly fires (asset-librarian) make it in.
         found = 0
-        while scan < end and found < 2:
+        while scan < end and found < 4:
             try:
                 if cron_match(cron, scan):
                     events.append((scan, name))
@@ -136,6 +137,60 @@ def next_n_fires(now: datetime, n: int = 3) -> list[tuple[datetime, str]]:
             scan += timedelta(minutes=1)
     events.sort(key=lambda e: e[0])
     return events[:n]
+
+
+def pending_ceo_actions(game_dir: Path | None, n: int = 5) -> list[tuple[str, str]]:
+    """Return up to n (priority_tag, item_title) pairs of things waiting on
+    the CEO, ordered by urgency:
+      1. [needs-ceo]  — dev asked questions
+      2. [escalated]  — wrapper gave up after 2 attempts
+      3. [concern]    — designer flagged game-wide issue
+      4. [idea]       — designer suggestion needs triage
+      5. dictation    — raw notes in .factory/inbox/raw.md not yet drained
+    """
+    if not game_dir: return []
+    work_md = game_dir / "WORK.md"
+    if not work_md.exists(): return []
+
+    # Use workmd.py's parser via subprocess (avoids import-path gymnastics).
+    sys.path.insert(0, str(Path(__file__).parent))
+    try:
+        from workmd import parse
+    except Exception:
+        return []
+    try:
+        wm = parse(work_md)
+    except Exception:
+        return []
+
+    out = []
+    # Pass 1: needs-ceo
+    for it in wm.todo:
+        if it.is_needs_ceo:
+            out.append(("needs-ceo", it.title))
+        if len(out) >= n: return out
+    # Pass 2: escalated
+    for it in wm.todo:
+        if it.is_escalated and not it.is_needs_ceo:
+            out.append(("escalated", it.title))
+        if len(out) >= n: return out
+    # Pass 3: concern
+    for it in wm.todo:
+        if it.is_concern and not it.is_needs_ceo and not it.is_escalated:
+            out.append(("concern", it.title))
+        if len(out) >= n: return out
+    # Pass 4: idea
+    for it in wm.todo:
+        if it.is_idea and not it.is_concern and not it.is_needs_ceo and not it.is_escalated:
+            out.append(("idea", it.title))
+        if len(out) >= n: return out
+
+    # Pass 5: dictation backlog
+    raw = game_dir / ".factory" / "inbox" / "raw.md"
+    if raw.exists() and raw.stat().st_size > 0:
+        out.append(("dictation", f"raw.md has {raw.stat().st_size} bytes — run /spraxel-producer"))
+
+    return out[:n]
 
 
 def last_log_line(game_dir: Path | None) -> str:
@@ -264,9 +319,9 @@ def render(now: datetime, game_dir: Path | None) -> str:
     lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir)}{RESET}")
     lines.append("")
 
-    # Next 3 scheduled fires
-    lines.append(f"  {BOLD}▸ Next 3 fires{RESET}")
-    fires = next_n_fires(now, 3)
+    # Next 10 scheduled fires
+    lines.append(f"  {BOLD}▸ Next 10 fires{RESET}")
+    fires = next_n_fires(now, 10)
     if not fires:
         lines.append(f"    {DIM}(no upcoming fires found){RESET}")
     else:
@@ -277,7 +332,31 @@ def render(now: datetime, game_dir: Path | None) -> str:
                 day = "tom."
             else:
                 day = ts.strftime("%a")
-            lines.append(f"    {DIM}{day} {ts:%H:%M PT}{RESET}  {name}")
+            lines.append(f"    {DIM}{day:5s} {ts:%H:%M PT}{RESET}  {name}")
+    lines.append("")
+
+    # Next 5 CEO action items (things blocking on you)
+    lines.append(f"  {BOLD}▸ Next 5 CEO action items{RESET}")
+    actions = pending_ceo_actions(game_dir, 5)
+    if not actions:
+        lines.append(f"    {DIM}(none — queue is clear){RESET}")
+    else:
+        # Color by urgency category.
+        color_map = {
+            "needs-ceo": RED,
+            "escalated": YELLOW,
+            "concern":   MAGENTA,
+            "idea":      BLUE,
+            "dictation": CYAN,
+        }
+        for kind, title in actions:
+            tag_color = color_map.get(kind, RESET)
+            tag = f"{tag_color}[{kind}]{RESET}"
+            # Strip the tag from the title for display (it's already in the prefix)
+            clean = re.sub(r"^\[(needs-ceo|escalated|concern|idea)\]\s*", "", title)
+            clean = re.sub(r"^\[(bug|feature|game-feature|chore)\]\s*", "", clean)
+            clean = clean[:54] + ("…" if len(clean) > 54 else "")
+            lines.append(f"    {tag} {clean}")
     lines.append("")
 
     # Most recent log line
