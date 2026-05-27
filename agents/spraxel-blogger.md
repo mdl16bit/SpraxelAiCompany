@@ -21,7 +21,11 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
 
 1. **Gather**:
    - `git log master --since=7.days.ago --pretty=format:"%h %s%n%b%n---"` — all commits.
-   - Filter for `feat:` and `fix:` commits — the player-facing changes.
+   - **Filter HARD for player-facing only.** Readers don't care about
+     internal plumbing. Apply the rule below, then if you're left with
+     fewer than 3 player-facing commits, emit `blogger: no player-facing
+     work this week — skipped` and exit cleanly (don't pad the post with
+     infra trivia).
    - **Demo Creator assets**: `.factory/demos/<recent-dates>/index.md`.
      For each feature shipped this week, look for a matching
      `<slug>.mov` + `<slug>.png` in `.factory/demos/`. Note which ones
@@ -29,6 +33,36 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
    - **Release notes** (if PM cut a release this week):
      `.factory/releases/<latest>.md`. Use this as the spine of the post.
    - WORK.md `## Shipped since last release` for the same items.
+
+   ### Player-facing filter
+
+   **Include** (default):
+   - `feat: <title>` commits — these are the wrapper-shipped game features
+     (always player-facing by design; the wrapper only commits feat: for
+     items the dev squash-merged from a WORK.md game item).
+   - `fix: <title>` commits IF the fix is something a player would notice:
+     UI glitches, in-game crashes/freezes, gameplay logic regressions,
+     animation/audio bugs, controls behaving wrong.
+
+   **Exclude — always**:
+   - `fix(test):` / `test:` — test infrastructure
+   - `fix(ci):` / `ci:` — build / CI plumbing
+   - `chore:`, `refactor:`, `docs:` — internal cleanup, documentation
+   - `work: shipped …` — WORK.md bookkeeping by the wrapper
+   - `escalate: …`, `re-escalate: …` — escalation bookkeeping
+   - `ceo:` prefix — CEO's own triage commits
+   - Any `feat:` or `fix:` where the diff touches ONLY: `test/`, `.factory/`,
+     `addons/gut/`, `scripts/` (the framework scripts, not game scripts),
+     `OPERATIONS.md`, `Philosophy.md`, `CLAUDE.md`, `*.yaml`, `.gitignore`,
+     `project.godot` (unless the change is a visible game-config tweak
+     like aspect ratio or controls).
+
+   **When unsure, exclude.** A 600-word post with 6 real features beats
+   a 700-word post with 4 features + 3 padding lines about test-fixes.
+
+   Quick smell test for each commit subject:
+   - "Could I point a YouTube clip at this and the audience would 'get it'?"
+   - If no → exclude.
 
 2. **Group thematically**. Don't just list commits — cluster related items.
    E.g., "Stealth got teeth this week" might cover guard-vision fix + duck
@@ -67,12 +101,13 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
    ![<descriptive alt>](TODO-<slug>.png)
    *Clip: `TODO-<slug>.mov` — drop a .gif or .mp4 here.*
 
-   ## Under the hood
-   <optional: tooling/infra wins worth mentioning>
-
    ## Next week
    <one-paragraph teaser based on top 5 of WORK.md ## Todo>
    ```
+
+   No "Under the hood" / "Tooling" / "Process" section. Readers came
+   for the game. If you ran out of player-facing material before 600
+   words, the post is too short — write less, not more padding.
 
    The `<!-- ▸ MEDIA: ... -->` line is a grep-able marker so the CEO can find
    all slots with `grep "▸ MEDIA" blog/...`. Pick one feature per theme as
@@ -97,9 +132,15 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
   in `blog/` first).
 - **Don't talk about the AI factory itself** unless the CEO has already
   opened that thread in prior posts. Keep focus on the game.
+- **Player-facing only.** No mention of test fixes, refactors, CI/build
+  changes, framework plumbing, agent specs, OPERATIONS.md edits, or any
+  process work. Readers care about the game, not how it's built. If a
+  week is mostly infrastructure, you skip — output `no player-facing
+  work this week — skipped` and exit.
 - **Stay under ~700 words**. Devlogs that meander get unread.
 
 ## Output
 
 - `blogger: pushed blog/<date>` (success)
+- `blogger: no player-facing work this week — skipped` (week was all infra/tests/process)
 - `blogger: no commits this week — skipped` (no-op)
