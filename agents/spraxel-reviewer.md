@@ -109,8 +109,25 @@ a schedule.
       to instantiate. Block if step 2's headless branch references a
       file that doesn't exist in the diff or on master.
 
-3. **Write findings** to `.factory/reviews/<branch-slug>.md` (create dir
-   if missing). Format:
+3. **Write findings** to `.factory/reviews/<item-slug>.md`. Derive the
+   item-slug from the current branch by stripping the
+   `feat/cont-YYYYMMDD-HHMM-` prefix:
+
+   ```bash
+   branch=$(git branch --show-current)
+   slug=$(echo "$branch" | sed -E 's|^feat/cont-[0-9]{8}-[0-9]{4}-||')
+   # → "add-dogs", "permadeth-you-can-fail-mission-...", etc.
+   findings=".factory/reviews/$slug.md"
+   mkdir -p .factory/reviews
+   ```
+
+   `.factory/reviews/` is gitignored and persists across the wrapper's
+   `git reset --hard` between iterations — so the next dev run (in
+   RETRY MODE) can read your findings even though the working tree has
+   been clean-slated. **Overwrite** the previous review for the same
+   slug if one exists; the dev only cares about the latest verdict.
+
+   Format:
 
    ```
    # Review — <branch>
@@ -126,17 +143,34 @@ a schedule.
    ```
 
    If there are no findings at all, write just the verdict block.
+   For `[block]` findings, **be specific** — name the file + line +
+   the exact change needed. The dev reads this file verbatim in the
+   next RETRY MODE run, with no other context about your reasoning.
 
 4. **Exit**:
    - `0` if verdict is `clean` (no `[block]` findings).
    - `1` if verdict is `blocking` (one or more `[block]` findings).
 
-The overnight loop uses your exit code as the merge gate.
+The overnight loop uses your exit code as the merge gate. On exit 1,
+the wrapper:
+- Preserves the dev's branch on origin.
+- Tags the WORK.md item `[retry]` with a detail line pointing at your
+  findings file (`read .factory/reviews/<slug>.md for findings`).
+- Releases for the next dev run, which picks up `[retry]` items in
+  RETRY MODE — checks out your branch, rebases on master, reads your
+  findings, and addresses each `[block]` item before re-committing.
+
+You are NOT the escalation channel to the CEO — `[block]` findings
+just bounce the item back to the dev. If you think the work
+fundamentally shouldn't ship (design issue, gameplay-ruiner), add a
+`[block]` saying so + the dev will end up clarifying / proposing an
+alternative on the next attempt.
 
 ## Constraints
 
 - **No code edits.** You're a reviewer, not a developer. If you want
-  something fixed, add a `[block]` finding and exit 1 — the item escalates.
+  something fixed, add a `[block]` finding and exit 1 — the next dev
+  run will read your findings + fix.
 - **No tests.** Tests already ran. Trust them.
 - **No PR comments, no GH calls.** Findings go to the file only.
 - **Be sparing with `[block]`**. Block only for real correctness defects.

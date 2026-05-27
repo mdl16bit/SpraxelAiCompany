@@ -561,22 +561,23 @@ print(t)
 
     # Parse the item log to extract a concise list of "what failed this
     # attempt" lines. These go into the WORK.md item details so the next
-    # dev sees exactly what to fix.
+    # dev sees exactly what to fix. $slug is the item's kebab-slug —
+    # also what the reviewer uses as the filename for its findings.
     local feedback_file="$item_log.retry-feedback.txt"
-    python3 - "$item_log" > "$feedback_file" <<'PY'
+    python3 - "$item_log" "$slug" > "$feedback_file" <<'PY'
 import sys, re
-log_path = sys.argv[1]
+log_path, slug = sys.argv[1], sys.argv[2]
 try:
     log = open(log_path).read()
 except FileNotFoundError:
     log = ""
 feedback: list[str] = []
-# Reviewer blocking findings (full text, not just the BLOCKED line) —
-# the reviewer writes them to .factory/reviews/<branch>.md. The wrapper
-# log only has the "reviewer BLOCKED" header but we can mention the
-# findings file path so the next dev reads it.
+# Reviewer blocking findings — the reviewer writes them to
+# .factory/reviews/<slug>.md (gitignored, survives clean_slate). The
+# wrapper log only has the "reviewer BLOCKED" header but we can point
+# the next dev at the exact findings file.
 if "reviewer BLOCKED" in log:
-    feedback.append("reviewer blocked the diff — read .factory/reviews/<branch>.md for findings + address each [block] item")
+    feedback.append(f"reviewer blocked the diff — read .factory/reviews/{slug}.md for findings + address each [block] item")
 # NEW test failures (per attempt)
 for m in re.finditer(r"NEW failures on attempt \d+:\s*\n((?:.*\n)*?)(?=\n===|\Z)", log):
     for line in m.group(1).splitlines():
