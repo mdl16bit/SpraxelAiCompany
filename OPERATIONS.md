@@ -76,7 +76,7 @@ Weekly:
 
 | Time | Who | What |
 |------|-----|------|
-| Tue + Fri 06:00 PT | **designer** | Drops 4-6 `[idea]`-tagged items + 0-3 `[concern]` items into `## Todo`. Concerns flag game-wide issues (feature bloat, philosophical drift). |
+| Tue + Fri 04:30 PT | **designer** | Drops 4-6 `[idea]`-tagged items + 0-3 `[concern]` items into `## Todo`. Concerns flag game-wide issues (feature bloat, philosophical drift). |
 | Sat 09:00 PT | **blogger** | Drafts `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` from the week's `feat:` commits (player-facing filter — skips test/infra/process). Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | Sun 01:00 PT | **janitor** | Cold-archives 30+ day stale items, prunes merged `feat/*` branches + 60+ day logs, sweeps orphan `feat/cont-*` branches whose WORK.md item is gone. |
 | 1st 07:00 PT | **asset-librarian** | Scans `assets/`, reports orphans + license gaps. |
@@ -1147,7 +1147,7 @@ FUTURE - DLC mission pack
 | **morning-briefer** | daily 04:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, real `[escalated]` items needing CEO judgment (usually 0 — auto-retries are silent and not surfaced). Shows a one-line `[retry]` queue count FYI but no action required. Runs `health_check.sh` first to surface agent failures. |
 | **demo-creator** | daily 05:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
 | **pm** | daily 05:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
-| **designer** | Tue + Fri 06:00 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
+| **designer** | Tue + Fri 04:30 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
 | **blogger** | weekly Sat 09:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |
 | **asset-librarian** | monthly 1st 07:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
@@ -1285,7 +1285,7 @@ Things to watch for that mean trouble:
 | **triager** | haiku | daily 03:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[bug]` items) |
 | **morning-briefer** | haiku | daily 04:00 PT | `tick.sh` cron | `MORNING.md` |
 | **pm** | haiku | daily 05:00 PT | `tick.sh` cron | WORK.md `## Todo` (re-orders) |
-| **designer** | sonnet | Tue + Fri 06:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[idea]` items) |
+| **designer** | sonnet | Tue + Fri 04:30 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[idea]` items) |
 | **blogger** | sonnet | Sat 09:00 PT | `tick.sh` cron | `blog/<date>` branch |
 | **janitor** | haiku | Sun 01:00 PT | `tick.sh` cron | WORK.md (cold-archives), branches (deletes merged), logs (prunes >60 days) |
 | **asset-librarian** | haiku | monthly 1st 07:00 PT | `tick.sh` cron | `.factory/asset-report-<date>.md`, MORNING.md note |

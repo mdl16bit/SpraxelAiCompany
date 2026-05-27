@@ -19,7 +19,7 @@ agents:
   morning_briefer: { cron: "0 5 * * *",  description: "05:00 PT daily — write MORNING.md digest" }
   demo_creator:    { cron: "30 5 * * *", description: "05:30 PT daily — capture video+still of newly-shipped features (Mac-awake req)" }
   pm:              { cron: "0 6 * * *",  description: "06:00 PT daily — reorder ## Todo; release-cut on biweekly Mondays" }
-  designer:        { cron: "0 6 * * 2,5",description: "Tue+Fri 06:00 PT — drop ranked ideas as [idea] items" }
+  designer:        { cron: "30 4 * * 2,5",description: "Tue+Fri 04:30 PT — drop ranked ideas as [idea] items (runs BEFORE morning_briefer so ideas surface in today's MORNING.md instead of tomorrow's; was 06:00 = pm collision)" }
   blogger:         { cron: "0 9 * * 6",  description: "Sat 09:00 PT — draft weekly devlog (uses demo assets + release notes)" }
   janitor:         { cron: "0 1 * * 0",  description: "Sun 01:00 PT — cold-archive stale, prune branches + logs" }
   asset_librarian: { cron: "0 7 1 * *",  description: "1st of month 07:00 PT — scan assets/ for orphans + license gaps" }

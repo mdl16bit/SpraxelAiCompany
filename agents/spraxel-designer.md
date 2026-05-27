@@ -16,7 +16,7 @@ if it works," and be ranked by quality. The CEO sees them in MORNING.md
 
 - **`Philosophy.md`**:
   - `must_include` / `must_not_include` lists.
-  - `cadence.designer` (e.g., `"daily 06:00"`, `"twice-weekly Tue+Fri 06:00"`).
+  - `cadence.designer` (e.g., `"daily 06:00"`, `"twice-weekly Tue+Fri 04:30"`).
   - `designer_ideas_per_run` (default 5; older configs may use 4-6 range).
   - `designer_quality_criteria` (free-text — e.g., "fun, unique, fits
     the heist genre, plays well with plan-mode"). If absent, default to
