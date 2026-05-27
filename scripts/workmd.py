@@ -28,8 +28,16 @@ CLI:
     workmd.py escalate <path> <title>          Tag the item [escalated] in
         [--summary-file F] [--detail D...]     place + append the summary
                                                markdown to escalations.md.
-    workmd.py resume <path> <title>            Flip [escalated] → [resume]
-                                               so the wrapper picks it up.
+                                               Rare — only for items that
+                                               truly need CEO judgment.
+    workmd.py retry <path> <title>             Tag the item [retry] in
+        [--detail D...]                        place. Used by the wrapper
+                                               when tests/reviewer/merge
+                                               failed — next dev run picks
+                                               it up and tries again.
+    workmd.py resume <path> <title>            Flip [escalated]/[retry]
+                                               → [resume] so the wrapper
+                                               picks it up.
     workmd.py append <path> --section S <line> Append a raw item line (with
                                                optional indented details on
                                                subsequent --line args).
@@ -54,7 +62,7 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|concern)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern)\]", re.I)
 # Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
 MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 # Future-item prefix: "FUTURE - foo", "FUTURE: foo", "FUTURE foo" — overnight
@@ -110,11 +118,14 @@ class WorkItem:
 
     @property
     def is_escalated(self) -> bool:
-        """True if the wrapper escalated this item after 2 failed attempts.
-        The feature branch has been preserved on origin (see the `branch:`
-        detail line); details capture the failure summary. Wrapper skips
-        [escalated] — CEO triages by either deleting the item, editing it
-        and retagging as [resume], or just leaving it (does nothing)."""
+        """True if this item needs CEO judgment (rare, manually-set state
+        for genuine design/PM concerns or items the dev truly cannot
+        action). NOT set automatically by test failures, reviewer blocks,
+        or merge conflicts — those use [retry] instead. The feature
+        branch (if any) has been preserved on origin (see the `branch:`
+        detail line). Wrapper skips [escalated] — CEO triages by either
+        deleting the item, editing it and retagging as [resume], or just
+        leaving it (does nothing)."""
         return "escalated" in self.tags
 
     @property
@@ -124,6 +135,19 @@ class WorkItem:
         checks out the branch listed in details, rebases on master, and
         hands off to the dev with full failure context."""
         return "resume" in self.tags
+
+    @property
+    def is_retry(self) -> bool:
+        """True if the wrapper bounced this item back into the queue
+        because tests failed / reviewer blocked / merge conflicted on
+        the dev's branch. These are all things the next developer run
+        can fix — no CEO involvement needed. The feature branch is
+        preserved on origin (see `branch:` detail line); details capture
+        the specific failure (reviewer findings, test names, conflict
+        files). Wrapper picks up [retry] items just like [resume],
+        rebases the saved branch on master, and hands off to the dev
+        with the prior attempt's commits + failure context."""
+        return "retry" in self.tags
 
     @property
     def is_concern(self) -> bool:
@@ -371,6 +395,43 @@ def ship(path: Path, title: str) -> WorkItem:
         return item
 
 
+def retry(
+    path: Path,
+    title: str,
+    new_details: list[str] | None = None,
+) -> WorkItem:
+    """Tag a Todo item as [retry] in-place — used by the wrapper when a
+    dev's branch failed tests / reviewer / merge. The next dev run picks
+    up [retry] items and tries again with the failure feedback in
+    details.
+
+    - Adds `[retry]` to the title (strips [resume]/[escalated] if present —
+      these are mutually exclusive states).
+    - Appends `new_details` (failure summary, branch name, attempt info)
+      under the item.
+    - Item stays in Todo. top_n() includes [retry] as eligible — they
+      retry next iter.
+    - No CEO escalation. The dev fixes their own mess on the next run.
+    """
+    with FileLock(path):
+        wm = parse(path)
+        idx = find_item(wm.todo, title)
+        if idx < 0:
+            raise ValueError(f"item not found in todo: {title!r}")
+        item = wm.todo[idx]
+        # Strip mutually exclusive tags, add [retry] if not already present.
+        new_title = re.sub(r"\[(resume|escalated|retry)\]\s*", "", item.title, flags=re.I)
+        new_title = "[retry] " + new_title
+        item.title = new_title
+        if new_details:
+            for d in new_details:
+                if d not in item.details:
+                    item.details.append(d)
+        item.raw_lines = [item.title] + [f"  {d}" for d in item.details]
+        path.write_text(serialize(wm))
+    return item
+
+
 def escalate(
     path: Path,
     title: str,
@@ -541,10 +602,15 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
     """Return the first N eligible Todo items.
 
     Eligible = not [idea], not [cold], not [manual]/MANUAL, not [needs-ceo],
-    not [future]/FUTURE, not [escalated], not in skip_attempted.
+    not [future]/FUTURE, not [escalated], not [concern], not in
+    skip_attempted.
 
-    [resume] items ARE eligible — they're escalated items the CEO has
-    triaged and wants the dev to retry, picking up from the saved branch.
+    [resume] and [retry] items ARE eligible:
+      - [resume]: CEO triaged an escalation and wants a retry from the
+        saved branch.
+      - [retry]: wrapper bounced the item after a test/reviewer/merge
+        failure — next dev run picks it up and tries again from the
+        saved branch with failure feedback in details.
 
     Preserves file order.
     """
@@ -630,6 +696,13 @@ def main(argv: list[str] | None = None) -> int:
     pre.add_argument("path")
     pre.add_argument("title")
 
+    prt = sub.add_parser("retry",
+        help="tag a Todo item [retry] — wrapper bounces failed branches here instead of escalating to CEO")
+    prt.add_argument("path")
+    prt.add_argument("title")
+    prt.add_argument("--detail", action="append", default=[],
+                     help="indented detail line (repeatable). Use for branch:, attempt-N feedback, reviewer findings, test names, etc.")
+
     pa = sub.add_parser("append", help="append a new item to a section")
     pa.add_argument("path")
     pa.add_argument("--section", required=True, choices=("todo", "current", "shipped"))
@@ -691,6 +764,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"escalated (tagged in-place): {item.title}")
         return 0
 
+    if args.cmd == "retry":
+        item = retry(path, args.title, new_details=args.detail)
+        print(f"retry (tagged in-place): {item.title}")
+        return 0
+
     if args.cmd == "resume":
         with FileLock(path):
             wm = parse(path)
@@ -699,9 +777,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"item not found: {args.title!r}", file=sys.stderr)
                 return 1
             item = getattr(wm, section)[idx]
-            new_title = re.sub(r"\[escalated\]\s*", "", item.title, flags=re.I)
+            new_title = re.sub(r"\[(escalated|retry)\]\s*", "", item.title, flags=re.I)
             if new_title == item.title:
-                print(f"item is not [escalated]: {item.title!r}", file=sys.stderr)
+                print(f"item is not [escalated] or [retry]: {item.title!r}", file=sys.stderr)
                 return 1
             new_title = "[resume] " + new_title
             item.title = new_title

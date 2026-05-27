@@ -86,16 +86,17 @@ done
 rmdir "$WT_ROOT" 2>/dev/null   # remove empty parent if all gone
 ```
 
-### 2b. Sweep orphan escalated branches
+### 2b. Sweep orphan escalated / retry / resume branches
 
 The continuous-dev wrapper preserves failed dev branches on origin under
-their original `feat/cont-*` name so the CEO can resume them. If the CEO
-deletes the corresponding `[escalated]` item from WORK.md (the "trash"
-path), the branch becomes orphaned. Sweep it.
+their original `feat/cont-*` name so the next dev run (or CEO) can pick
+them up. If the corresponding WORK.md item is gone — deleted by CEO
+(the "trash" path), or shipped under a different path — the branch
+becomes orphaned. Sweep it.
 
 ```bash
 # Build a set of branches still referenced by WORK.md items (the `branch:`
-# detail line under any [escalated]/[resume] item).
+# detail line under any [escalated]/[resume]/[retry] item).
 referenced=$(grep -E '^\s*branch:\s*' WORK.md | sed -E 's/^\s*branch:\s*//' | sort -u)
 
 # For each origin branch with a feat/cont- prefix that is NOT in master's
@@ -105,7 +106,7 @@ for b in $(git branch -r | grep -E 'origin/feat/cont-' | sed 's|origin/||'); do
     continue   # already covered by step 2 above
   fi
   if grep -qxF "$b" <<<"$referenced"; then
-    continue   # still referenced by an [escalated] or [resume] item
+    continue   # still referenced by an [escalated], [resume], or [retry] item
   fi
   git push origin --delete "$b"
   echo "janitor: swept orphan escalated branch $b"

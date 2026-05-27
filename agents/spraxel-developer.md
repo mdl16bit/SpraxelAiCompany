@@ -55,6 +55,17 @@ that after Reviewer + tests pass.
      specific bad pieces — your call. Look for a "## RESUME MODE" section
      in the item brief: that's the wrapper signaling this case explicitly
      and giving you the branch name.
+   - If it's `[retry] <title>` — same shape as `[resume]`, but the reason
+     it's back in your queue is that the **prior dev attempt failed at
+     tests / reviewer / merge**, and the wrapper bounced it back to you
+     to fix. Nobody escalated — this is dev-fixable mess from a prior
+     run. Read the detail lines carefully: they contain the specific
+     failure feedback (which tests failed, which reviewer findings to
+     address, whether the branch needs a rebase, etc.). Look for a
+     "## RETRY MODE" section in the item brief. Your job is to **land
+     the work this time** — don't escalate, don't `clarify`, don't punt.
+     Reviewer feedback / test failures / merge conflicts are problems
+     YOU solve, not the CEO's.
 
 2. **Read related context** narrowly. Inspect Game.md only if the item
    touches an existing feature. Inspect `Philosophy.md` for the `run_mode`
@@ -344,8 +355,36 @@ follow-ups added to WORK.md:
 
 - Tests fail after your commit → overnight retries you once with the test
   output in the next prompt. Read it, fix the regression, commit again.
-- Reviewer flags blocking findings → overnight escalates the item; you
-  don't get a retry. Be careful: a blocking review costs the item.
+- After your run finishes, if **tests still fail**, **reviewer blocks**,
+  or **merge to master conflicts**, the wrapper does NOT escalate to CEO.
+  It tags the item `[retry]`, preserves your branch on origin, and bounces
+  the item back into the queue with the failure feedback in the details.
+  A subsequent developer run (could be you, could be a future dev fire)
+  picks it up in **RETRY MODE** (see step 1) with all your prior commits
+  visible and the specific failure listed under the item. Your reputation
+  as "the dev" is that you LAND items even when reviewer/tests pushed
+  back the first time — don't `clarify` your way out of a fixable test
+  failure or a tractable reviewer finding.
+
+## When DO you escalate to CEO?
+
+**Never via the wrapper's [escalated] tag — that's manual/rare.** The
+only CEO-bound channel you have is `clarify` (which produces
+`[needs-ceo]`). Use it ONLY when:
+
+- The spec is genuinely ambiguous and you cannot ship without a CEO
+  decision on scope, behavior, or design (see "When you don't understand
+  the item" section below).
+- You discover that landing this item would require a CEO-only resource:
+  a paid asset, a new external integration the CEO has to authorize,
+  a story decision that only the CEO can make.
+
+Do NOT use `clarify` for:
+- Tests you can't pass on the first try (retry; debug; the next dev run
+  will see what you tried).
+- Reviewer findings you'd rather argue with (just address them).
+- Merge conflicts (rebase + resolve).
+- "I'm not sure if this will work" (try it; commit; let tests speak).
 
 ## When you don't understand the item — ASK, don't guess
 

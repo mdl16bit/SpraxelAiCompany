@@ -127,29 +127,48 @@ create it with `mkdir -p .factory/local`.
    with concrete specs), then remove the `[needs-ceo]` tag. Overnight will
    re-attempt next run.
 
-8. **Escalations section** — read `.factory/escalations.md` and surface
-   any escalations from the past 24 hours. For each, list the item title,
-   the Developer's reason, the saved branch name, the log path, AND **the
-   one-line command the CEO would run to act on it**. Three actions
-   exist:
+8. **Escalations section** — list **only `[escalated]` items in WORK.md**.
+   These are RARE — manually set when a real design/PM concern needs CEO
+   judgment, or a dev/agent flagged something they truly cannot resolve.
+   Auto-retried failures (tests/reviewer/merge) are NOT here; they're in
+   `[retry]` items, handled automatically by the next dev run — see step 8a.
 
-   - **Resume** (let overnight retry once the CEO clarifies): edit the
-     `[escalated]` item in WORK.md to `[resume]` (just retag) and add
-     any clarifying detail lines. No script needed.
-   - **Reject** (give up on the attempt, re-queue from scratch):
-     `bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"`.
-   - **Drop** (decide not to do it at all): delete the item line from
-     WORK.md.
+   For each `[escalated]` item, list the title, why it's escalated (from
+   the item's detail lines), the saved branch + sha (if present), AND
+   the one-line action commands the CEO would run:
+
+   - **Resume** (CEO agrees, retry from the saved branch with new
+     guidance): retag `[escalated]` → `[resume]` in WORK.md and edit
+     details with the clarification. No script needed.
+   - **Drop** (decide not to do it): delete the item line from WORK.md.
 
    Format:
    ```
-   - <title> — Developer: "<reason>".
-       Branch: <branch-name> @ <sha>
-       Log:    <path>
-       Resume: retag the item from [escalated] → [resume] in WORK.md
-       Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
+   - <title> — why: <reason from item details>
+       Branch: <branch-name> @ <sha> (if present)
+       Resume: retag [escalated] → [resume] in WORK.md, edit details with your guidance
        Drop:   delete the item line from WORK.md
    ```
+
+   If there are no `[escalated]` items, just write
+   `No CEO-bound escalations today (the auto-retry loop is handling
+   transient failures on its own).` and move on.
+
+8a. **Retry queue (FYI, no action needed)** — count items in WORK.md
+    tagged `[retry]`. These are items the wrapper bounced back into the
+    queue because the prior dev attempt failed at tests / reviewer /
+    merge — the next dev run will pick them up automatically. The CEO
+    does NOT need to do anything with these; they're just a barometer
+    of how often dev runs are landing things first try.
+
+    Format (single line):
+    ```
+    Retry queue: <N> item(s) (next dev run picks them up; no CEO action)
+    ```
+
+    If `N >= 5`, mention it as a concern: `Retry queue is stacking up —
+    consider whether items are too vague or the codebase has a fragile
+    test/reviewer pattern.`
 
 9. **Time box** — fixed template, total ~38 min (see template below).
 
@@ -212,15 +231,19 @@ WORK.md (replace the questions with concrete details), then remove the
       Q (date): <question 2>
   ...
 
-## ▶ Escalations (3 min)
-<N> items the Developer couldn't land last night. For each: Resume / Reject / Drop.
-  - <title> — Developer: "<reason>"
-      Branch: <branch-name> @ <sha>
-      Log:    <path>
-      Resume: retag [escalated] → [resume] in WORK.md (overnight retries)
-      Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
+## ▶ Escalations (1-3 min)
+**Only `[escalated]` items in WORK.md** — these need real CEO judgment
+(design/PM concerns, items the dev truly can't action). Most days this
+section is "none" because auto-retries handle dev-fixable failures
+silently.
+
+  - <title> — why: <reason from item details>
+      Branch: <branch-name> @ <sha> (if present)
+      Resume: retag [escalated] → [resume] in WORK.md, edit details with your guidance
       Drop:   delete the item line from WORK.md
   ...
+
+Retry queue: <N> item(s) (next dev run picks them up; no CEO action)
 
 ## ▶ Time box
 - 20 min play-test

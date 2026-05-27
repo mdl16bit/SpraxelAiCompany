@@ -143,10 +143,14 @@ def pending_ceo_actions(game_dir: Path | None, n: int = 5) -> list[tuple[str, st
     """Return up to n (priority_tag, item_title) pairs of things waiting on
     the CEO, ordered by urgency:
       1. [needs-ceo]  — dev asked questions
-      2. [escalated]  — wrapper gave up after 2 attempts
+      2. [escalated]  — design/PM concern or manually-flagged item (RARE;
+                        test/reviewer/merge failures go to [retry], not here)
       3. [concern]    — designer flagged game-wide issue
       4. [idea]       — designer suggestion needs triage
       5. dictation    — raw notes in .factory/inbox/raw.md not yet drained
+
+    [retry] items are NOT CEO actions — they auto-retry on the next dev
+    run and resolve themselves without human intervention.
     """
     if not game_dir: return []
     work_md = game_dir / "WORK.md"
