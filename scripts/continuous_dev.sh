@@ -585,12 +585,24 @@ sys.exit(1)
     # then re-run after Developer's changes. Only count NEW failures (tests
     # that passed before this change but fail after). Pre-existing failures
     # in unrelated modules are noted but don't trigger escalation.
+    #
+    # Baseline is SHARED across all parallel-dev workers via a per-master-SHA
+    # cache file. The first worker to hit a given master SHA runs the test
+    # suite + writes the cache; subsequent workers (same SHA) read from
+    # cache, skipping the ~5-10 min baseline run. Cache key = origin/master
+    # short SHA, so the cache invalidates naturally when master advances.
     if [ -z "${baseline_failures:-}" ]; then
-      # First attempt: capture baseline from master (before Developer's commit).
-      git stash push --quiet -m "baseline-test-stash" 2>/dev/null
-      git checkout --detach origin/master --quiet 2>/dev/null
-      bash "$game_dir/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1 || true
-      baseline_failures=$(python3 -c "
+      master_sha=$(git -C "$WORK_DIR" rev-parse --short origin/master 2>/dev/null)
+      baseline_cache="$CACHE_DIR/baseline-tests-${master_sha}.txt"
+      if [ -n "$master_sha" ] && [ -f "$baseline_cache" ]; then
+        baseline_failures=$(cat "$baseline_cache")
+        echo "continuous: baseline failures restored from cache ($master_sha; $(echo "$baseline_failures" | grep -c .) entries)" >> "$item_log"
+      else
+        # No cache for this master SHA — run the suite, capture, write cache.
+        git stash push --quiet -m "baseline-test-stash" 2>/dev/null
+        git checkout --detach origin/master --quiet 2>/dev/null
+        bash "$game_dir/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1 || true
+        baseline_failures=$(python3 -c "
 import json
 try:
     d = json.load(open('$game_dir/.factory/local-tests-status.json'))
@@ -598,9 +610,15 @@ try:
 except Exception:
     pass
 ")
-      git checkout --quiet "$branch" 2>/dev/null
-      git stash pop --quiet 2>/dev/null
-      echo "continuous: baseline failures captured ($(echo "$baseline_failures" | grep -c .))" >> "$item_log"
+        git checkout --quiet "$branch" 2>/dev/null
+        git stash pop --quiet 2>/dev/null
+        # Atomic write so concurrent workers don't see a half-written cache.
+        if [ -n "$master_sha" ]; then
+          printf '%s' "$baseline_failures" > "$baseline_cache.tmp.$$"
+          mv "$baseline_cache.tmp.$$" "$baseline_cache" 2>/dev/null
+        fi
+        echo "continuous: baseline failures captured ($(echo "$baseline_failures" | grep -c .) entries; cached under $master_sha)" >> "$item_log"
+      fi
     fi
 
     # Run tests on Developer's branch.
