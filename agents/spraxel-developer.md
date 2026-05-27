@@ -274,18 +274,71 @@ that after Reviewer + tests pass.
 
    Do NOT push — the wrapper handles it.
 
-9. **Print COMMIT_SUBJECT to stdout** as your final line before status.
-   The wrapper squash-merges your branch and replaces the squash commit's
-   subject with this — so it shows up clean on master regardless of what
-   intermediate subjects you used on the feature branch.
+9. **Print the squash-merge commit message to stdout** as the LAST thing
+   before your final status line. The wrapper squash-merges your branch
+   and replaces the squash commit's subject + body with what you print
+   here — so it lands clean on master regardless of intermediate
+   subjects on the feature branch.
 
-   Format (exact, on its own line):
+   **Two markers, both required**:
+
    ```
    COMMIT_SUBJECT: feat(stealth): hide-box ability — characters invisible inside marked crates
+
+   COMMIT_BODY:
+   Adds the HideBox interactable + Character.is_hidden state. The player
+   presses E near a HideBox to toggle into/out of hidden mode (3-frame
+   crossfade). While hidden:
+     - Sight detection disabled (guards walk past with no reaction)
+     - Audio detection unchanged (footsteps + ability noises still alert)
+     - Cannot use abilities or move (must exit hidden mode first)
+
+   Box visual is a 32×40 dark-gray ColorRect for now — needs a real
+   sprite (MANUAL - ART filed under "HideBox sprite + open/closed
+   animation").
+
+   tests: + test_hide_box.gd  (5 assertions covering enter/exit/audio-leak)
+   scenario: scripts/scenarios/hide_box.gd (1 PASS, 0 FAIL)
+   GAME.md: added ### Hide Box block (controls / first encounter /
+   tutorial prompt / debug hook / acceptance)
+   sample-level integration: HideBox placed in warehouse_01.tscn near
+   spawn point 1.
+   END_COMMIT_BODY
    ```
 
-   If you can't fit a clean subject in 80 chars, the WORK.md item was too
-   broad — you should have escalated via `clarify` instead of shipping.
+   The wrapper extracts everything between `COMMIT_BODY:` and
+   `END_COMMIT_BODY` (exclusive) and uses it as the commit body
+   verbatim. The combined message is what shows up on master via
+   `git log` and what the Blogger reads when drafting the devlog.
+
+   **Subject rules** (unchanged):
+   - Conventional Commits prefix: `feat:` / `fix:` / `refactor:` /
+     `chore:` / `test:` / etc. Optionally scoped: `feat(stealth):`.
+   - Imperative ("add", "wire", "fix"), no trailing punctuation,
+     ≤80 chars. If you can't fit a clean subject in 80 chars, the
+     WORK.md item was too broad — `clarify` instead of shipping.
+
+   **Body rules**:
+   - 2-6 paragraphs, ~3-8 lines each. Wrap at ~75 chars per line.
+   - **Describe the WHAT in detail** — what files changed, what new
+     behavior, what edge cases handled. Don't just restate the WORK.md
+     item title.
+   - **Note any placeholder assets** + reference the MANUAL items
+     you filed for them. The Blogger filters these out of the public
+     devlog but the CEO sees them in `git log`.
+   - **List deliverables** with concrete paths: tests added, scenario
+     file, GAME.md block, sample-level integration. Reviewer + future
+     devs cross-reference these.
+   - **Pre-existing failures noted above** (if your testing surfaced
+     any unrelated test that was already broken on master) — call them
+     out so the reviewer doesn't blame your diff.
+
+   **Anti-patterns**:
+   - ❌ Body = "feat: $WORK_MD_TITLE" verbatim, with no paragraph.
+   - ❌ Body restating the subject in different words.
+   - ❌ Body of "Implements the feature" / "Adds the requested
+     functionality" — these tell a future reader (or the Blogger)
+     nothing actionable.
 
 10. **Exit 0** if you committed. Exit 1 if you genuinely cannot implement
     (specify why in the last stdout line — the wrapper uses this for the

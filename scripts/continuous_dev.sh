@@ -625,13 +625,19 @@ except Exception:
       break
     fi
 
-    # Build a clean commit subject for the squash-merge. The developer is
-    # supposed to print `COMMIT_SUBJECT: <conv-commit subject>` near the end
-    # of its run (per spraxel-developer.md step 9). If present, use that
-    # verbatim. Otherwise fall back to a cleaned version of the WORK.md
-    # title — at least capitalize + strip trailing punctuation + truncate
-    # parenthetical tangents — so the commit doesn't echo the CEO's
-    # colloquial dictation language onto master.
+    # Build the full squash-merge commit message: subject line + blank
+    # line + body paragraph(s). The developer is supposed to print BOTH
+    # markers near the end of its run (per spraxel-developer.md step 9):
+    #   COMMIT_SUBJECT: <conv-commit subject>
+    #   COMMIT_BODY:
+    #   <one or more paragraphs describing the change in detail>
+    #   END_COMMIT_BODY
+    #
+    # If COMMIT_SUBJECT is missing, fall back to the cleaned WORK.md title.
+    # If COMMIT_BODY is missing, fall back to extracting the body from the
+    # last commit on the feat branch (`git log -1 --format=%b`). Last
+    # resort: leave the body empty and just ship a subject-only commit
+    # (preserves current behavior).
     commit_subject=$(grep -E '^COMMIT_SUBJECT:[[:space:]]*' "$item_log" 2>/dev/null \
                      | tail -1 \
                      | sed -E 's/^COMMIT_SUBJECT:[[:space:]]*//')
@@ -655,6 +661,36 @@ print('feat: ' + t[:100])
       feat\(*|fix\(*|refactor\(*|perf\(*|docs\(*|chore\(*|test\(*) ;;
       *) commit_subject="feat: $commit_subject" ;;
     esac
+
+    # Extract COMMIT_BODY block between markers (if any).
+    commit_body=$(python3 - "$item_log" <<'PY'
+import sys, re
+try:
+    log = open(sys.argv[1]).read()
+except FileNotFoundError:
+    sys.exit(0)
+# Find the LAST occurrence (in case there are nested matches across attempts).
+m = re.findall(r"COMMIT_BODY:\s*\n(.*?)(?:\nEND_COMMIT_BODY|\Z)", log, re.S)
+if m:
+    body = m[-1].strip()
+    # Drop any trailing status line from the dev's stdout (e.g.,
+    # "developer: ok" / "developer: blocked — ...").
+    body = re.sub(r"\ndeveloper:.*$", "", body, flags=re.M).strip()
+    print(body)
+PY
+)
+    # Fallback: pull the body of the most recent commit on the feat branch
+    # (dev should have written it there via `git commit -m "subject" -m
+    # "body"`). Strips the subject line out.
+    if [ -z "$commit_body" ]; then
+      commit_body=$(git -C "$WORK_DIR" log -1 --format='%b' 2>/dev/null | sed -e '/^$/d' | head -50)
+    fi
+    # Build the combined message. If body is empty, just use subject.
+    if [ -n "$commit_body" ]; then
+      commit_message="$(printf '%s\n\n%s' "$commit_subject" "$commit_body")"
+    else
+      commit_message="$commit_subject"
+    fi
 
     # Same cleanup for the `work: shipped` follow-up — truncate very long
     # titles so the bookkeeping commit subject doesn't blow out git log.
@@ -693,7 +729,7 @@ print(t)
       git reset --hard origin/master --quiet 2>/dev/null
       if git merge --squash --quiet "$branch" \
          && git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-                commit --quiet -m "$commit_subject" \
+                commit --quiet -m "$commit_message" \
          && git push --quiet origin master; then
         python3 "$WORKMD" ship "$game_dir/WORK.md" "$next_title" >> "$item_log" 2>&1 || true
         git add WORK.md 2>/dev/null
