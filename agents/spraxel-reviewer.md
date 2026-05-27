@@ -39,9 +39,24 @@ a schedule.
    - GDScript pitfalls: `@onready` ordering, signal connection leaks,
      `await` in non-async context.
    - Hardcoded values that should be `@export`ed or come from Philosophy.md.
-   - Missing `--demo-feature=<slug>` boot hook for new game features.
-   - Game.md missing or stale (only required for `[game-feature]` / `[feature]`).
-   - Test scenario missing for new features.
+
+   **Blocking checks** (mark verdict `blocking` if any fails — never let
+   these slide):
+
+   - **`test/unit/test_<slug>.gd` exists in the diff** for any
+     `[feature]` / `[game-feature]` / `[bug]` item. No new test = the
+     contract was violated.
+   - **`Game.md` updated** for any `[game-feature]` or player-facing
+     `[feature]`. The block must include ALL fields from the
+     developer-spec template: What / Controls / **First encounter** /
+     **Tutorial prompt** / Debug hook / Trace events / Test scenario /
+     Unit test / Acceptance. A missing or incomplete block is a block.
+     (Reason: Game.md feeds the future tutorial system; gaps now mean
+     un-tutorialable features later.)
+   - **`scripts/scenarios/<slug>.gd` exists** for any `[game-feature]`
+     or `[feature]` that adds a debug-feature hook.
+   - **`--demo-feature=<slug>` registered** in `scripts/systems/debug_boot.gd`
+     for the same.
 
 3. **Write findings** to `.factory/reviews/<branch-slug>.md` (create dir
    if missing). Format:

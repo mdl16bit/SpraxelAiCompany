@@ -66,10 +66,40 @@ that after Reviewer + tests pass.
    `scripts/systems/debug_boot.gd` so `--demo-feature=<slug>` can launch
    directly into a test of this feature.
 
-4. **Update Game.md**. If the item is a `[game-feature]` or a `[feature]`
-   that adds a player-facing mechanic, append a feature block to Game.md
-   (What / Controls / Debug hook / Trace events / Test scenario / Acceptance).
-   If the item is a `[bug]` or `[chore]`, skip Game.md.
+4. **Update Game.md — MANDATORY for any player-facing change.** Game.md is the
+   game's living instruction manual AND the data source for a future tutorial
+   system that will pop up hints on first-encounter of every skill / mechanic /
+   UI affordance. Every player-facing feature must have a complete block.
+   Reviewer blocks merge if this is missing or stale.
+
+   For `[game-feature]` items and `[feature]` items that touch player-facing
+   UX (HUD, controls, audio cue, visual indicator), append a `### <Feature
+   Name>` block with ALL of these fields:
+
+   ```markdown
+   ### <Feature Name>
+   - **What it does**: <one player-facing sentence — no implementation detail>
+   - **Controls**: <every key/mouse/gamepad input the player uses for this>
+   - **First encounter**: <when does the player first see this feature in
+     normal play? — e.g. "mission 2 briefing screen", "any locked door in
+     warehouse_01", "after first KO". Lets the tutorial system know when to
+     trigger.>
+   - **Tutorial prompt** (one line, ≤80 chars): the exact text/icon hint to
+     show the player on first encounter. e.g. `"Press H to drill locked doors
+     (3s — loud)"`. This is what the future tutorial pop-up renders verbatim.
+   - **Debug hook**: `--demo-feature=<kebab-slug>`
+   - **Trace events**: any `Tracer.emit()` keys this feature publishes
+   - **Test scenario**: `scripts/scenarios/<slug>.gd`
+   - **Unit test**: `test/unit/test_<slug>.gd`
+   - **Acceptance**: 2-4 bullets the playtester can verify
+
+   ```
+
+   `[bug]` and `[chore]` items: skip Game.md unless the fix changes player-
+   facing behavior (then update the relevant existing block).
+
+   `[feature]` items that are purely internal (build pipeline, agent specs,
+   refactors): skip Game.md.
 
 5. **Write a GUT unit test — ALWAYS, no exceptions.** Every commit must
    add or update at least one test file under `test/unit/`. The test must
@@ -196,9 +226,37 @@ follow-ups added to WORK.md:
 
 ## When you don't understand the item — ASK, don't guess
 
-If the item is ambiguous, under-specified, or has multiple reasonable
-interpretations, **do NOT implement a guess.** Instead, call `clarify` to
-tag the item `[needs-ceo]` and append your questions as indented details:
+The CEO writes items at varying levels of detail. Your job: resolve
+**minor** ambiguity yourself with sensible judgment; **escalate** major
+ambiguity so the CEO doesn't ship something they didn't want.
+
+**Minor ambiguity (you resolve)**:
+- Naming of internal variables, file paths, function names.
+- Animation timing (use sensible defaults — 0.2s ease-out, 0.5s for menus).
+- Color choices when the rest of the codebase has a clear palette to
+  match.
+- Magic numbers for tuning (movement speed, cooldown durations) — pick
+  reasonable; CEO will amend later if wrong.
+- Edge cases not mentioned in the spec but obviously needed (e.g.
+  "what if drills == 0" when the feature is "drill door" — return early).
+- Implementation pattern: GDScript class layout, signal vs callback.
+
+**Major ambiguity (you ESCALATE via `clarify`)**:
+- What does the player SEE? If you can't picture the screen, ask.
+- What does the player DO? If the controls or input are unspecified, ask.
+- Scope size — "skill tree" could be 5 nodes or 500. Ask which.
+- Interactions with existing systems — does this REPLACE or ADD to an
+  existing feature? If your code might break something the CEO loves, ask.
+- Design choices presented as open-ended ("come up with the right
+  enemies" → ask for the type/count/inspiration).
+
+A good rule: if your first instinct is to **write a comment "// TODO: CEO
+needs to decide X"**, that's a clarify case. Make it a Q. If your first
+instinct is "I'll just pick something reasonable here and move on,"
+that's minor — proceed.
+
+To escalate, call `clarify`. The item gets tagged `[needs-ceo]` and your
+questions land as indented details:
 
 ```bash
 python3 ~/SpraxelAiCompany/scripts/workmd.py clarify <path>/WORK.md "<title substring>" \
@@ -222,21 +280,18 @@ escalating. CEO sees the questions in MORNING.md and answers them by
 editing the item (replacing the questions with concrete specs), then
 removing the `[needs-ceo]` tag.
 
-**When to clarify instead of attempting:**
-- "Add a skill tree" with no list of skills, no UI specified → clarify.
-- "Improve graphics" with no concrete target → clarify.
-- "Fix the camera" with no repro of what's wrong → clarify.
-- "Add 500 class names" — that's an open-ended design choice → clarify.
+**Examples of items to clarify (NOT implement)**:
+- "Add a skill tree" with no list of skills, no UI specified.
+- "Improve graphics" with no concrete target.
+- "Fix the camera" with no repro of what's wrong.
+- "Add 500 class names" — open-ended design choice.
 
-**When NOT to clarify (just implement):**
-- Concrete bug repro with expected behavior stated → implement, even if
-  you have to guess at one minor detail.
+**Examples of items to just implement** (minor unknowns are fine):
+- Concrete bug repro with expected behavior stated, even if you guess
+  at one minor detail.
 - Self-contained feature with clear acceptance ("add a duck button that
-  halves character height, helps hide behind tables") → implement.
-- "Make X N% faster/larger/smaller" with specific numbers → implement.
-
-A good rule: if your first instinct is to **write a comment "// TODO: CEO
-needs to decide X"**, that's a clarify case. Make it a Q instead.
+  halves character height, helps hide behind tables").
+- "Make X N% faster/larger/smaller" with specific numbers.
 
 ## Output
 
