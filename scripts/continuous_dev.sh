@@ -178,8 +178,44 @@ trace "step: worktree ready at $WORK_DIR"
 
 # On startup, release any orphaned [wip:$WORKER_ID] claims from a prior
 # crash so the worker doesn't deadlock on its own claim tag.
-python3 "$WORKMD" release-wip "$game_dir/WORK.md" --worker-id "$WORKER_ID" \
-  >> "$TRACE_FILE" 2>&1 || true
+#
+# CRITICAL: must commit + push under the master-push lock, same as claim()
+# does. workmd.py release-wip writes to disk but doesn't commit. If we left
+# it uncommitted, a concurrent worker's merge `git reset --hard origin/master`
+# would RESTORE the [wip:$WORKER_ID] tag (since master still has it from the
+# prior committed claim) — undoing our release. Then THIS worker's next
+# claim() call would skip the item it owns (it's tagged [wip:N], looks
+# claimed by N, BUT N is us, and we just tried to release it...). Either
+# way, infinite "release / restore" cycle.
+#
+# Same merge-lock pattern as claim() — acquire lock, sync master, run
+# release-wip, commit + push, release lock.
+(
+  startup_release_lock="$LOCKS_DIR/master-push.lockdir"
+  startup_wait=0
+  while ! mkdir "$startup_release_lock" 2>/dev/null; do
+    sleep 0.3
+    startup_wait=$((startup_wait + 1))
+    if [ "$startup_wait" -gt 200 ]; then
+      echo "continuous: worker $WORKER_ID — couldn't acquire merge lock for startup release-wip" >> "$TRACE_FILE"
+      exit 0
+    fi
+  done
+  trap 'rmdir "'"$startup_release_lock"'" 2>/dev/null' EXIT
+  cd "$game_dir" || exit 0
+  git fetch --quiet origin master 2>/dev/null
+  git checkout --quiet master 2>/dev/null || exit 0
+  git reset --hard origin/master --quiet 2>/dev/null
+  released=$(python3 "$WORKMD" release-wip "$game_dir/WORK.md" --worker-id "$WORKER_ID" 2>&1)
+  echo "$released" >> "$TRACE_FILE"
+  git add WORK.md 2>/dev/null
+  if ! git diff --cached --quiet; then
+    git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+        commit --quiet -m "chore(work): release stale [wip:$WORKER_ID] claims at worker startup" 2>/dev/null >/dev/null
+    git push --quiet origin master 2>/dev/null >/dev/null || \
+      git reset --hard origin/master --quiet 2>/dev/null
+  fi
+)
 
 # --- state helpers ---
 init_state_if_missing() {
