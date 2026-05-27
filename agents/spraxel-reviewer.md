@@ -42,7 +42,7 @@ a schedule.
 
    **Blocking checks** (mark verdict `blocking` if any fails — never let
    these slide). For `[feature]` / `[game-feature]` items, the dev spec
-   requires FIVE deliverables. Each gets its own blocking check:
+   requires SIX deliverables. Each gets its own blocking check:
 
    1. **The feature itself** — `scripts/...` / `scenes/...` changes
       compile, no obvious correctness defects (covered by general
@@ -84,7 +84,28 @@ a schedule.
       Unit test / Acceptance. A missing or incomplete block is a block.
       (Reason: GAME.md feeds the future tutorial system; gaps now mean
       un-tutorialable features later.)
-   6. **`scripts/scenarios/<slug>.gd` exists** for the headless branch
+   6. **Asset-gap audit + MANUAL follow-ups** — check the diff for any of
+      these triggers and require a matching `MANUAL - <CATEGORY> - <thing>`
+      item appended to `WORK.md ## Todo` in the same diff:
+
+      | Trigger in diff                                           | Required MANUAL items                         |
+      |-----------------------------------------------------------|-----------------------------------------------|
+      | New `scenes/enemies/*.tscn` or new `scripts/ai/*.gd` for an entity | `MANUAL - ART`, `MANUAL - SFX` (vocalization) |
+      | New entry in `MissionRunner.ROSTER`                       | `MANUAL - ART` (portrait + sprite), `MANUAL - WRITING` (bio + lines) |
+      | New ability/skill in `skill_db.gd`                        | `MANUAL - SFX` (cast sound), `MANUAL - ART` (icon)             |
+      | New `scenes/levels/sample/*.tscn`                         | `MANUAL - LEVEL` (handcrafted layout pass)    |
+      | New cutscene id (`assets/cutscenes/<id>.json`)            | `MANUAL - WRITING` (dialog polish), `MANUAL - VOICE` (if planning VO) |
+      | Reuses an existing SFX with non-trivial `pitch_scale` or `volume_db` for a NEW context (e.g., `play("suspicion", -8, 1.2)` to fake a dog bark) | `MANUAL - SFX` (real source clip)             |
+      | Raw `Polygon2D` / `ColorRect` / single-color shape used as the visible body of a new entity | `MANUAL - ART`                                |
+
+      **How to verify**: run `grep "MANUAL - " WORK.md | tail -20` and
+      check whether the new items reference the spawning item (look for
+      `Spawned by:` detail lines pointing at the current commit's title).
+      Missing required MANUAL items is a block. The dev spec's
+      "Follow-up CEO tasks" section has the full rule + the workmd.py
+      append recipe.
+
+   7. **`scripts/scenarios/<slug>.gd` exists** for the headless branch
       to instantiate. Block if step 2's headless branch references a
       file that doesn't exist in the diff or on master.
 

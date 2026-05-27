@@ -63,11 +63,12 @@ that after Reviewer + tests pass.
 3. **Implement.** Edit/create Godot scripts and scenes. Follow the game-repo
    conventions: GDScript style in `scripts/`, scenes in `scenes/`.
 
-   **For every `[feature]` / `[game-feature]` item, you MUST ship all FIVE
+   **For every `[feature]` / `[game-feature]` item, you MUST ship all SIX
    parts. Reviewer blocks the merge if any are missing.** A passing GUT run
    on the unit test is not enough — the CEO has to be able to play with the
-   feature from a single command, and the next developer has to be able to
-   find it from `GAME.md`.
+   feature from a single command, the next developer has to be able to
+   find it from `GAME.md`, and any placeholder assets you used have to be
+   filed as follow-up CEO tasks before you exit.
 
    | # | Deliverable                            | Where                                    |
    |---|----------------------------------------|------------------------------------------|
@@ -76,6 +77,34 @@ that after Reviewer + tests pass.
    | 3 | **GUT unit test**                      | `test/unit/test_<slug>.gd` (see step 5)  |
    | 4 | **Sample level / character / mission integration** (when applicable) | `resources/missions/sample/*`, `scenes/levels/sample/*`, or `MissionRunner.ROSTER` |
    | 5 | **GAME.md block**                      | `GAME.md` (see step 4)                   |
+   | 6 | **Asset-gap audit + MANUAL follow-ups** (see Follow-up section below) | `WORK.md ## Todo`                        |
+
+   **Deliverable #6 — asset-gap audit — is mandatory whenever your feature
+   introduces visible art, audible sound, or human-authored copy.** Before
+   you commit, walk this audit checklist and file a `MANUAL - <CATEGORY>`
+   item per gap. The "Follow-up CEO tasks" section near the bottom of this
+   spec has full examples and the workmd.py command.
+
+   Audit triggers — if ANY of these apply, you owe at least one MANUAL item:
+   - You added a new **entity** (enemy, character archetype, animal, drone,
+     interactable prop) → **ART** task at minimum (every new entity needs
+     a real sprite; a raw Polygon2D / ColorRect / SpriteFrames stub is a
+     placeholder by definition, even if it ships functionally).
+   - You added a new **audible** event (ability sfx, footstep, ambient,
+     enemy vocalization) → **SFX** task if you reused an existing clip with
+     pitch/volume tweaks. (Re-using `SfxBank.play("suspicion", -8.0, 1.2)`
+     to fake a dog bark counts as a placeholder.)
+   - You added a new **character archetype** or **named NPC** → **WRITING**
+     task for bio + 4-8 in-game lines + first-encounter dialog.
+   - You added a new **level / room / mission** → **LEVEL** task for the
+     hand-crafted layout pass (your scene is "structurally correct" but
+     not laid out by a designer).
+   - You added a new **mechanic** that probably needs tuning → **TUNING**
+     task with the specific numbers a CEO would tweak.
+
+   "But it works without the asset" is not an escape hatch — that's
+   exactly when the MANUAL item is needed, because nobody's going to
+   notice the gap otherwise.
 
    **Deliverable #2 — the debug hook — is NOT optional and NOT just a
    one-line dispatch.** It must:
