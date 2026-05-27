@@ -50,13 +50,33 @@ When the user invokes this skill:
    d. **Compose 1-4 indented detail lines** that capture the why/how/specs
       the CEO mentioned. Don't invent details that weren't said.
 
+   d2. **Critique gate.** Quietly evaluate the idea against four gates
+       before appending. If any genuinely fires, add ONE indented detail
+       line per concern, prefixed `⚠️ concern (<gate>):`. The item still
+       gets appended as the CEO asked — concerns are advisory text, not
+       a veto. Be sparing: most items pass without comment. Cap at 2
+       concerns per item.
+
+       Gates:
+       - **cliché** — appears in 70%+ of games in the genre obviously?
+         (regen health, double jump, sprint button)
+       - **complexity** — would take 2+ weeks of focused dev? (network
+         co-op, full localization, save-with-branching)
+       - **balance** — would this trivialize the game's central tension?
+         Cross-check `Philosophy.md`'s core fantasy.
+       - **drift** — contradicts an existing feature in Game.md or a
+         Philosophy.md design tenet?
+
+       If you flag a concern, ALSO surface it to the CEO inline in your
+       summary at step 6 ("Concerns raised on N items").
+
    e. **Append** to WORK.md ## Todo:
       ```
       python3 ~/SpraxelAiCompany/scripts/workmd.py append \
         ~/GameProjects/<game>/WORK.md --section todo \
         "[kind] pN <title>" \
         --detail "<detail 1>" \
-        --detail "<detail 2>"
+        --detail "⚠️ concern (balance): <one-line reason>"
       ```
 
 3. **For ambiguous items**, ask the CEO one tight question per item (not a

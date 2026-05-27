@@ -49,9 +49,44 @@ items in `.factory/inbox/raw.md`:
 
 3. **Compose** a clean title + 1-4 indented detail lines.
 
-4. **Append** via `workmd.py append <path>/WORK.md --section todo "<line>" --detail "..."`.
+4. **Critique step** — for each item, before appending, check it against
+   four gates. If any fires, add ONE indented detail line per concern,
+   starting with `⚠️ concern (<gate>):` then a one-line reason. **The item
+   still gets appended as the CEO requested** — concerns are advisory,
+   not blocking. Be sparing: default to silent, only flag when you have a
+   specific concrete reason.
 
-5. **Move processed source** to `.factory/inbox/dictation/processed/<ts>-<slug>.md` so the same item isn't double-processed.
+   The four gates:
+   - **cliché** — does this idea appear in 70%+ of games in this genre
+     in obvious form? ("regenerating health", "double jump") — flag if
+     it's THE feature, not if it's a flavor of something distinctive.
+   - **complexity** — would shipping this take more than ~2 weeks of focused
+     dev work? Whole-systems work like networked co-op, save-game with
+     branching, full localization. Don't flag well-scoped features even
+     if non-trivial.
+   - **balance** — would this trivialize the game's central tension?
+     (Stealth: "make guards friendly", "x-ray vision permanently on".)
+     Cross-reference `Philosophy.md` for the core fantasy/tension.
+   - **drift** — does this contradict an existing feature or `Philosophy.md`
+     design tenet? E.g., a "full shooter mode" in a stealth game.
+
+   Example:
+   ```
+   [game-feature] p2 Players can buy invincibility for the level
+     ⚠️ concern (balance): invincibility removes the stealth game's
+       core challenge — every level becomes trivial. Maybe a "1-hit
+       shield" for a short window instead?
+     ⚠️ concern (drift): Philosophy.md tenet 2 says "stealth tension
+       is the spine of the game".
+   ```
+
+   The CEO sees the concerns next time they open WORK.md or in the morning
+   digest. They can address (rewrite the item), dismiss (delete the
+   concern lines), or proceed as-is.
+
+5. **Append** via `workmd.py append <path>/WORK.md --section todo "<line>" --detail "..."`.
+
+6. **Move processed source** to `.factory/inbox/dictation/processed/<ts>-<slug>.md` so the same item isn't double-processed.
 
 ## Constraints
 
@@ -59,6 +94,9 @@ items in `.factory/inbox/raw.md`:
 - **Don't summarize multiple notes into one**. Each distinct idea → its own item.
 - **Don't infer beyond what the note says**. If priority is unclear, leave it off (default p2).
 - **Defer rather than guess**. A `[needs-ceo]` deferral is cheap.
+- **Don't gatekeep with concerns.** The CEO has final authority. Concerns
+  are advisory text only — never block, never re-tag the item to skip it.
+  At most 2 concerns per item; if you'd flag 3+, you're overreaching.
 
 ## Output
 

@@ -117,6 +117,57 @@ python3 ~/SpraxelAiCompany/scripts/workmd.py append <path>/WORK.md \
   --detail "example: <one moment>"
 ```
 
+### 5b. Critique the game — flag what's NOT working
+
+Your job is NOT just "suggest more stuff." Spend a few minutes spotting
+what's off about the game as it stands and surface 0-3 specific concerns
+as `[concern]` items in WORK.md. The wrapper skips `[concern]` items; the
+CEO triages them just like ideas (delete to dismiss, remove the tag to
+turn into real work, leave alone to defer).
+
+Things to look for:
+
+- **Feature category overload.** Scan Game.md's per-feature blocks. If
+  one category has 3+ similar mechanics (e.g., four kinds of distraction
+  item), the design is bloating. Concern: which one is redundant?
+- **Missing fundamentals.** What core systems are still empty? A stealth
+  game with no save system, no difficulty curve, no fail-state handling —
+  flag the gap, suggest a concrete starting point.
+- **Philosophical drift.** Compare recent shipped (`## Shipped since last
+  release` in WORK.md + recent `feat:` commits) against Philosophy.md's
+  design tenets. Is the game becoming something it wasn't supposed to be?
+- **Imbalance / dominant strategy.** Are recent ships creating a
+  "skip-the-whole-game" combo? (e.g. invincibility + free ammo +
+  fast travel = no challenge left.)
+- **Repetition in CEO dictation.** If `.factory/inbox/` has 5 variants
+  of the same idea this week, that's a signal the CEO is circling
+  something the game doesn't address yet — name it.
+
+Format for each concern:
+```bash
+python3 ~/SpraxelAiCompany/scripts/workmd.py append <path>/WORK.md \
+  --section todo \
+  "[concern] [game-feature] <one-line issue>" \
+  --detail "observation: <specific evidence — file/feature/count>" \
+  --detail "why it matters: <how it hurts the game>" \
+  --detail "suggested fix: <concrete next step the CEO could take>"
+```
+
+Example:
+```
+[concern] [game-feature] 4 overlapping distraction items (coin, EMP, gas, knock) — pick a primary
+  observation: Game.md lists coin, EMP, gas, wall-knock — all "scare a guard to a noise source"
+  why it matters: dilutes design space and overwhelms loadout UI; players just spam the cheapest
+  suggested fix: collapse to 1 distraction + 1 disable; deprecate the redundant two
+```
+
+**Rules:**
+- 0 concerns is fine. Don't manufacture them.
+- Cap at 3 per run. The CEO has limited triage time.
+- Be SPECIFIC — name files, features, counts. Vague concerns get ignored.
+- Don't repeat last week's concerns. Check your memory file for what you
+  already flagged; if it's still there, the CEO is deferring deliberately.
+
 ### 6. Update your memory
 
 Append a paragraph to `.factory/memory/designer.md`:

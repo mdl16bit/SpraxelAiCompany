@@ -54,7 +54,7 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|concern)\]", re.I)
 # Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
 MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 # Future-item prefix: "FUTURE - foo", "FUTURE: foo", "FUTURE foo" — overnight
@@ -124,6 +124,15 @@ class WorkItem:
         checks out the branch listed in details, rebases on master, and
         hands off to the dev with full failure context."""
         return "resume" in self.tags
+
+    @property
+    def is_concern(self) -> bool:
+        """True if this item is advisory commentary rather than work to
+        do — Designer or Producer flagged a potential issue (cliché /
+        complexity / balance / drift). The wrapper skips [concern]
+        items. CEO triages: delete (dismiss), remove the tag (turn into
+        real work), or leave alone (defer)."""
+        return "concern" in self.tags
 
     def to_dict(self) -> dict:
         return {
@@ -543,7 +552,8 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
     skip = {s.strip().lower() for s in (skip_attempted or [])}
     out: list[WorkItem] = []
     for it in wm.todo:
-        if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo or it.is_future or it.is_escalated:
+        if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo \
+                or it.is_future or it.is_escalated or it.is_concern:
             continue
         if it.title.strip().lower() in skip:
             continue

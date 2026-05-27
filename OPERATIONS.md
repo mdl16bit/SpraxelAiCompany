@@ -896,6 +896,7 @@ Tag reference:
 | `[future]` or `FUTURE - ` prefix | Roadmap item — not ready to schedule (needs scoping, blocked, or deliberately deferred) | **NO** (skip until tag/prefix removed) |
 | `[escalated]` | Wrapper tried 2x, failed. Saved branch on origin (see `branch:` detail line). CEO triages: trash / resume / park. | **NO** (skip until CEO retags as `[resume]` or other) |
 | `[resume]` | CEO triaged an escalation. Wrapper picks it up, checks out saved branch, rebases on master, hands off to dev with full failure context. | **yes** (dev resumes from saved branch instead of fresh) |
+| `[concern]` | Designer (or future agents) flagged a game-wide issue (feature bloat, missing fundamentals, philosophical drift). Advisory text, not work to do. CEO triages: delete (dismiss), remove tag (convert into real work item), or leave (defer). | **NO** (skip until tag removed) |
 
 ### `MANUAL - ` sub-category labels
 
