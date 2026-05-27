@@ -478,6 +478,13 @@ def sync_escalations(work_path: Path, esc_path: Path) -> int:
     return len(escalated)
 
 
+## After this many consecutive retries, the item auto-escalates to
+## [escalated] instead of getting yet another [retry] tag. CEO action
+## becomes required at that point — five attempts is enough signal that
+## the dev can't land this autonomously.
+RETRY_ESCALATE_THRESHOLD = 5
+
+
 def retry(
     path: Path,
     title: str,
@@ -495,6 +502,12 @@ def retry(
     - Item stays in Todo. top_n() includes [retry] as eligible — they
       retry next iter.
     - No CEO escalation. The dev fixes their own mess on the next run.
+
+    AUTO-ESCALATION: when the item already has >= RETRY_ESCALATE_THRESHOLD
+    `retry:` detail lines from prior attempts, this call promotes it to
+    [escalated] instead. The CEO sees the item in escalations.md +
+    MORNING.md and decides whether to retag [resume] (with new
+    guidance), [drop] (delete the item), or leave it stuck.
     """
     with FileLock(path):
         wm = parse(path)
@@ -502,10 +515,28 @@ def retry(
         if idx < 0:
             raise ValueError(f"item not found in todo: {title!r}")
         item = wm.todo[idx]
-        # Strip mutually exclusive tags + any [wip:N] claim, then add [retry].
+        # Count prior `retry:` lines — each retry call appends one, so the
+        # count = number of times this item has been retried before.
+        prior_retries = sum(
+            1 for d in item.details
+            if d.strip().lower().startswith("retry:")
+        )
+        # Strip mutually exclusive tags + any [wip:N] claim.
         new_title = re.sub(r"\[(resume|escalated|retry)\]\s*", "", item.title, flags=re.I)
         new_title = WIP_TAG_RE.sub("", new_title).strip()
-        new_title = "[retry] " + new_title
+        # If this would be the Nth retry where N >= threshold, auto-escalate.
+        # (prior_retries counts ATTEMPTS that already produced a retry: line;
+        # this call would be the (prior_retries+1)th, so we trigger when that
+        # value reaches the threshold.)
+        attempt_about_to_make = prior_retries + 1
+        if attempt_about_to_make >= RETRY_ESCALATE_THRESHOLD:
+            new_title = "[escalated] " + new_title
+            item.details.append(
+                f"auto-escalated: failed {attempt_about_to_make} times — "
+                f"CEO judgment required to unstick this item"
+            )
+        else:
+            new_title = "[retry] " + new_title
         item.title = new_title
         if new_details:
             for d in new_details:
