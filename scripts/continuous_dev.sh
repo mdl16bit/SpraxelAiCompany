@@ -753,17 +753,34 @@ print(t)
       git fetch --quiet origin master 2>/dev/null
       git checkout --quiet master 2>/dev/null || exit 1
       git reset --hard origin/master --quiet 2>/dev/null
-      if git merge --squash --quiet "$branch" \
-         && git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+      if git merge --squash --quiet "$branch"; then
+        # DEFENSE IN DEPTH: discard any WORK.md change that came from the
+        # feat branch. Devs are instructed (via run_agent.sh prompt) to
+        # ONLY modify game_dir/WORK.md via workmd.py — never the worktree
+        # copy. If a dev disobeyed (manual edit, sloppy workmd.py path),
+        # the squash would carry that into master and could collide with
+        # another worker's concurrent WORK.md change → literal git
+        # merge-conflict markers in master's WORK.md (the 2026-05-27
+        # incident). Resetting WORK.md to master here makes that
+        # impossible: the canonical WORK.md (game_dir, owned by the
+        # wrapper via workmd.py + FileLock) is the only source of truth.
+        git checkout HEAD -- WORK.md 2>/dev/null || true
+        if git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
                 commit --quiet -m "$commit_message" \
-         && git push --quiet origin master; then
-        python3 "$WORKMD" ship "$game_dir/WORK.md" "$next_title" >> "$item_log" 2>&1 || true
-        git add WORK.md 2>/dev/null
-        git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-            commit --quiet -m "chore(work): mark '$short_title' as shipped" 2>/dev/null
-        git push --quiet origin master 2>/dev/null
-        exit 0
+           && git push --quiet origin master; then
+          python3 "$WORKMD" ship "$game_dir/WORK.md" "$next_title" >> "$item_log" 2>&1 || true
+          git add WORK.md 2>/dev/null
+          git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+              commit --quiet -m "chore(work): mark '$short_title' as shipped" 2>/dev/null
+          git push --quiet origin master 2>/dev/null
+          exit 0
+        else
+          exit 1
+        fi
       else
+        # Squash failed — likely a CODE merge conflict (not WORK.md), which
+        # is a real dev-fixable failure. Bail to the retry path.
+        git merge --abort 2>/dev/null || true
         exit 1
       fi
     )

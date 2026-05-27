@@ -24,13 +24,32 @@ No cadence — Developer fires per-item from `continuous_dev.sh`.
 ## Inputs
 
 The overnight wrapper has already:
-1. Checked out a fresh `feat/overnight-<date>-<slug>` branch off master.
+1. Checked out a fresh `feat/cont-<date>-w<worker-id>-<slug>` branch off master.
 2. Passed you the item title + details in the prompt (look for the
    `## Today's item` section below or in the WORK.md context).
-3. Set `cwd` to the game repo.
+3. Set `cwd` to the worker's worktree (NOT the main game repo).
+4. Exported `WORK_MD_PATH` to the canonical WORK.md path (the main
+   checkout's copy, shared by all parallel workers).
 
 Your job: implement that item, commit, exit. Do NOT merge — overnight handles
 that after Reviewer + tests pass.
+
+## CRITICAL: WORK.md path discipline
+
+Every `workmd.py` invocation in this spec uses `$WORK_MD_PATH` — the
+canonical path in the main game repo. **NEVER use `./WORK.md` or
+`$WORK_DIR/WORK.md` or hardcode the path.**
+
+Why: under parallel-dev (default 3 workers), each worker has its own
+worktree with its own copy of WORK.md. If you modify the worktree copy,
+your feat-branch's squash-merge can collide with another worker's
+WORK.md change on master, producing literal git-merge-conflict markers
+that land on master and break the system (2026-05-27 incident).
+
+The wrapper's defense-in-depth resets the worktree's WORK.md back to
+master's version before commit anyway, so any local WORK.md edits you
+make are silently discarded. Use `$WORK_MD_PATH` so your changes
+actually stick.
 
 ## Steps
 
@@ -370,7 +389,7 @@ How to append:
 
 ```bash
 python3 ~/SpraxelAiCompany/scripts/workmd.py append \
-  ~/GameProjects/<game>/WORK.md --section todo \
+  "$WORK_MD_PATH" --section todo \
   "MANUAL - ART - Duck sprite + ducked-walk animation" \
   --detail "Spawned by: <your item title>" \
   --detail "Used: placeholder ColorRect at scripts/characters/duck_stub.gd:42" \
@@ -474,7 +493,7 @@ To escalate, call `clarify`. The item gets tagged `[needs-ceo]` and your
 questions land as indented details:
 
 ```bash
-python3 ~/SpraxelAiCompany/scripts/workmd.py clarify <path>/WORK.md "<title substring>" \
+python3 ~/SpraxelAiCompany/scripts/workmd.py clarify "$WORK_MD_PATH" "<title substring>" \
   --question "should starting skills be locked per character or random?" \
   --question "tree view or graph view for the UI?" \
   --question "do I scaffold the data structure first, or build the full 300-skill set?"

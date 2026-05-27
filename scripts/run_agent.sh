@@ -162,9 +162,14 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # --- Compose the prompt (with WORK_DIR-aware paths) ---
-# The agent spec is the contract; we append today's state. Paths point at
-# WORK_DIR (the worktree if active, $game_dir otherwise) so the agent reads
-# the right Philosophy.md / WORK.md and commits into the right tree.
+# The agent spec is the contract; we append today's state. Code/scene
+# paths use WORK_DIR (the worker's worktree). WORK.md operations use
+# the CANONICAL WORK_MD_PATH = $game_dir/WORK.md — the main checkout's
+# copy. Critical for parallel-dev: N workers all share that one file
+# via workmd.py's FileLock, so two devs can't produce conflicting
+# WORK.md state on their respective feat branches (which used to lead
+# to literal git-merge-conflict markers landing on master).
+WORK_MD_PATH="$game_dir/WORK.md"
 {
   cat "$spec"
   echo
@@ -172,12 +177,30 @@ trap cleanup EXIT INT TERM
   echo "## Today's runtime context"
   echo
   echo "Working directory: $WORK_DIR"
+  echo "WORK.md path:      $WORK_MD_PATH  ← USE THIS EXACT PATH for every workmd.py call"
   if [ -n "$WORKTREE_PATH" ]; then
     echo "(NOTE: this is a temporary worktree pinned at origin/master; the main"
     echo " game repo is at $game_dir on a feature branch. Do all your git work"
     echo " from $WORK_DIR. Push with: git push origin HEAD:master)"
   fi
   echo "Date: $(date '+%Y-%m-%d %H:%M %Z')"
+  echo
+  echo "## CRITICAL: WORK.md path discipline"
+  echo "ALL workmd.py invocations (clarify, append, retry, ship, etc.) MUST use the"
+  echo "canonical path $WORK_MD_PATH — NOT $WORK_DIR/WORK.md. Reason: with parallel"
+  echo "developers, each worker's worktree has its own copy of WORK.md. If devs"
+  echo "modify the worktree copy, their feat-branch squash-merges produce git"
+  echo "conflicts on WORK.md when landing concurrently on master. Always pointing"
+  echo "workmd.py at the main-checkout file ($WORK_MD_PATH) means workmd.py's own"
+  echo "FileLock serializes across all workers — no possible conflicts."
+  echo
+  echo "Examples (CORRECT):"
+  echo "  python3 ~/SpraxelAiCompany/scripts/workmd.py clarify $WORK_MD_PATH ..."
+  echo "  python3 ~/SpraxelAiCompany/scripts/workmd.py append  $WORK_MD_PATH ..."
+  echo
+  echo "WRONG (will corrupt WORK.md under parallel-dev):"
+  echo "  python3 ~/SpraxelAiCompany/scripts/workmd.py clarify ./WORK.md ..."
+  echo "  python3 ~/SpraxelAiCompany/scripts/workmd.py clarify $WORK_DIR/WORK.md ..."
   echo
   echo "### Philosophy.md (run_mode and budgets)"
   if [ -f "$WORK_DIR/Philosophy.md" ]; then
@@ -186,11 +209,11 @@ trap cleanup EXIT INT TERM
     echo "(no Philosophy.md found at $WORK_DIR/Philosophy.md)"
   fi
   echo
-  echo "### WORK.md (current state)"
-  if [ -f "$WORK_DIR/WORK.md" ]; then
-    cat "$WORK_DIR/WORK.md"
+  echo "### WORK.md (current state — read from canonical path)"
+  if [ -f "$WORK_MD_PATH" ]; then
+    cat "$WORK_MD_PATH"
   else
-    echo "(no WORK.md found at $WORK_DIR/WORK.md)"
+    echo "(no WORK.md found at $WORK_MD_PATH)"
   fi
   echo
   # Per-item brief (set by continuous_dev.sh — used by Developer for "this is your assignment").
@@ -218,7 +241,8 @@ fi
 # continuous loop would interpret that as a fresh CEO signal after every ship.
 cd "$WORK_DIR"
 echo "run_agent: $agent ($model_id) → $log" >&2
-if SPRAXEL_AGENT_RUN=1 claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
+# Export WORK_MD_PATH so the dev can use $WORK_MD_PATH in shell snippets.
+if SPRAXEL_AGENT_RUN=1 WORK_MD_PATH="$WORK_MD_PATH" claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
   echo "run_agent: $agent ok" >&2
   exit 0
 else
