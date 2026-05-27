@@ -792,6 +792,71 @@ except Exception:
       break
     fi
 
+    # ── Asset-gap audit (mechanical) ─────────────────────────────────────
+    # If the dev added new entity / level / archetype files but the commit
+    # body doesn't mention any MANUAL items, block the merge. Catches the
+    # "dog-with-Polygon2D-and-no-MANUAL-ART" failure mode (2026-05-27 CEO
+    # audit: the dog shipped with programmer art + no follow-up tasks).
+    #
+    # Patterns checked (file-add only, via --diff-filter=A):
+    #   - scenes/enemies/*.tscn      → expects MANUAL - ART  + MANUAL - SFX
+    #   - scripts/ai/<file>.gd       → expects MANUAL - ART  + MANUAL - SFX
+    #   - scenes/levels/sample/*.tscn → expects MANUAL - LEVEL
+    #
+    # Escape hatch: if the commit body contains "manual-asset audit: N/A"
+    # (with reason), the dev has explicitly attested no follow-ups needed.
+    asset_gap=$(python3 - "$item_log" <<'PY'
+import re, subprocess, sys
+log_path = sys.argv[1]
+# List files ADDED in this feat branch vs master
+try:
+    added = subprocess.check_output(
+        ["git", "diff", "--diff-filter=A", "--name-only", "master...HEAD"],
+        stderr=subprocess.DEVNULL, text=True
+    ).strip().splitlines()
+except subprocess.CalledProcessError:
+    added = []
+triggers = []
+for f in added:
+    if re.match(r"^scenes/enemies/.+\.tscn$", f):
+        triggers.append(("entity", f, ["ART", "SFX"]))
+    elif re.match(r"^scripts/ai/.+\.gd$", f):
+        triggers.append(("entity-script", f, ["ART", "SFX"]))
+    elif re.match(r"^scenes/levels/sample/.+\.tscn$", f):
+        triggers.append(("level", f, ["LEVEL"]))
+if not triggers:
+    sys.exit(0)
+# Find the COMMIT_BODY in the item log
+try:
+    log = open(log_path).read()
+except Exception:
+    log = ""
+m = re.findall(r"COMMIT_BODY:\s*\n(.*?)(?:\nEND_COMMIT_BODY|\Z)", log, re.S)
+body = m[-1] if m else ""
+if re.search(r"manual-asset audit:\s*N/?A\b", body, re.I):
+    sys.exit(0)  # explicit attestation, accept
+# Check each trigger has corresponding MANUAL - <CATEGORY> mention
+missing = []
+for kind, path, cats in triggers:
+    for cat in cats:
+        if not re.search(rf"MANUAL\s*-\s*{cat}\b", body, re.I):
+            missing.append(f"{path} (new {kind}) missing MANUAL - {cat}")
+if missing:
+    for line in missing:
+        print(line)
+    sys.exit(1)
+PY
+    )
+    asset_gap_rc=$?
+    if [ "$asset_gap_rc" -ne 0 ]; then
+      echo "continuous: ASSET-GAP audit FAILED — dev shipped a new entity/level without filing MANUAL follow-ups:" >> "$item_log"
+      echo "$asset_gap" >> "$item_log"
+      echo "$asset_gap" | sed 's/^/  /'
+      echo "continuous: (escape hatch: include 'manual-asset audit: N/A — <reason>' in COMMIT_BODY if no follow-up is needed)" >> "$item_log"
+      outcome=fail
+      break
+    fi
+
     # Build the full squash-merge commit message: subject line + blank
     # line + body paragraph(s). The developer is supposed to print BOTH
     # markers near the end of its run (per spraxel-developer.md step 9):
