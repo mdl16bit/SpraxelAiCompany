@@ -146,16 +146,51 @@ that after Reviewer + tests pass.
      test harness that the CEO needs to look at.
 
 8. **Commit**. Stage relevant files only (no `git add .`). Commit with the
-   developer bot identity (see _shared.md). Commit message: `feat: <title>`
-   or `fix: <title>`. The body should include:
-   - One line of what changed.
-   - A list of test files added/modified: `tests: + test_<slug>.gd`.
-   - Pre-existing test failures noted above (if any).
-   Do NOT push — overnight handles it.
+   developer bot identity (see _shared.md). Use **Conventional Commits**
+   format — NEVER echo the WORK.md title verbatim (the CEO writes those
+   colloquially as dictation; commit messages need to be professional and
+   readable to future you, the Reviewer, the Blogger, and anyone reading
+   `git log`).
 
-9. **Exit 0** if you committed. Exit 1 if you genuinely cannot implement
-   (specify why in the last stdout line — overnight uses this for the
-   escalation log).
+   Subject format: `<type>(<scope>): <imperative summary, 50-80 chars>`
+   - **type**: `feat` for new player-facing work, `fix` for bug repros,
+     `refactor` for internal cleanup, `test` for test-only changes,
+     `chore` for everything else
+   - **scope**: the affected area (`stealth`, `ai`, `ui`, `combat`,
+     `cutscene`, `planning`, `briefing`, etc.) — pick from existing
+     scopes in `git log` first
+   - **subject**: imperative ("add", "wire", "fix"), no trailing
+     punctuation, ≤80 chars
+
+   Good examples:
+   - `feat(stealth): hide-box ability — characters invisible inside marked crates`
+   - `feat(ai): guards form chat pairs when patrols intersect; 1-in-8 chance`
+   - `feat(ui): briefing screen scrolls when content overflows window`
+   - `fix(planning): plan-mode cooldown resets correctly on character switch`
+
+   Body (after a blank line) should include:
+   - One line of what changed (more detail than the subject).
+   - Test files added/modified: `tests: + test_<slug>.gd`.
+   - Pre-existing test failures noted above (if any).
+
+   Do NOT push — the wrapper handles it.
+
+9. **Print COMMIT_SUBJECT to stdout** as your final line before status.
+   The wrapper squash-merges your branch and replaces the squash commit's
+   subject with this — so it shows up clean on master regardless of what
+   intermediate subjects you used on the feature branch.
+
+   Format (exact, on its own line):
+   ```
+   COMMIT_SUBJECT: feat(stealth): hide-box ability — characters invisible inside marked crates
+   ```
+
+   If you can't fit a clean subject in 80 chars, the WORK.md item was too
+   broad — you should have escalated via `clarify` instead of shipping.
+
+10. **Exit 0** if you committed. Exit 1 if you genuinely cannot implement
+    (specify why in the last stdout line — the wrapper uses this for the
+    escalation log).
 
 ## Follow-up CEO tasks — when your implementation creates a human-only need
 

@@ -276,7 +276,7 @@ if d:
             2>/dev/null
           git add WORK.md 2>/dev/null
           git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-              commit --quiet -m "re-escalate: '$next_title' (rebase conflict)" 2>/dev/null
+              commit --quiet -m "chore(escalate): rebase conflict on resume — '$(echo "$next_title" | sed -E 's/^\[resume\] //' | cut -c1-50)...'" 2>/dev/null
           git push --quiet origin master 2>/dev/null || true
           return 1
         fi
@@ -436,15 +436,56 @@ except Exception:
       break
     fi
 
+    # Build a clean commit subject for the squash-merge. The developer is
+    # supposed to print `COMMIT_SUBJECT: <conv-commit subject>` near the end
+    # of its run (per spraxel-developer.md step 9). If present, use that
+    # verbatim. Otherwise fall back to a cleaned version of the WORK.md
+    # title — at least capitalize + strip trailing punctuation + truncate
+    # parenthetical tangents — so the commit doesn't echo the CEO's
+    # colloquial dictation language onto master.
+    commit_subject=$(grep -E '^COMMIT_SUBJECT:[[:space:]]*' "$item_log" 2>/dev/null \
+                     | tail -1 \
+                     | sed -E 's/^COMMIT_SUBJECT:[[:space:]]*//')
+    if [ -z "$commit_subject" ]; then
+      commit_subject=$(python3 -c "
+import sys
+t = sys.argv[1].strip().rstrip(' ?.,;:!')
+# Capitalize first letter if lowercase
+if t and t[0].islower():
+    t = t[0].upper() + t[1:]
+# If too long + has a parenthetical, drop the parenthetical
+if len(t) > 80 and '(' in t:
+    t = t.split('(')[0].strip().rstrip(' -—:,')
+# Cap at 100 chars hard
+print('feat: ' + t[:100])
+" "$next_title")
+    fi
+    # Ensure it starts with a conv-commit type. If the dev forgot, prepend feat:.
+    case "$commit_subject" in
+      feat:*|fix:*|refactor:*|perf:*|docs:*|chore:*|test:*|style:*|build:*|ci:*) ;;
+      feat\(*|fix\(*|refactor\(*|perf\(*|docs\(*|chore\(*|test\(*) ;;
+      *) commit_subject="feat: $commit_subject" ;;
+    esac
+
+    # Same cleanup for the `work: shipped` follow-up — truncate very long
+    # titles so the bookkeeping commit subject doesn't blow out git log.
+    short_title=$(python3 -c "
+import sys
+t = sys.argv[1].strip()
+if len(t) > 60:
+    t = t[:57] + '...'
+print(t)
+" "$next_title")
+
     git checkout --quiet master
     if git merge --squash --quiet "$branch" \
        && git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-              commit --quiet -m "feat: $next_title" \
+              commit --quiet -m "$commit_subject" \
        && git push --quiet origin master; then
       python3 "$WORKMD" ship "$game_dir/WORK.md" "$next_title" >> "$item_log" 2>&1 || true
       git add WORK.md 2>/dev/null
       git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-          commit --quiet -m "work: shipped '$next_title'" 2>/dev/null
+          commit --quiet -m "chore(work): mark '$short_title' as shipped" 2>/dev/null
       git push --quiet origin master 2>/dev/null
       git branch -d "$branch" --quiet 2>/dev/null || true
       outcome=ok
@@ -583,9 +624,18 @@ PY
       >> "$item_log" 2>&1 || true
     rm -f "$summary_file"
 
+    # Build a clean short title for the escalate commit subject (the body
+    # in WORK.md + escalations.md has the full context).
+    esc_short=$(python3 -c "
+import sys, re
+t = re.sub(r'^\[(resume|escalated)\]\s*', '', sys.argv[1]).strip().rstrip(' ?.,;:!')
+if t and t[0].islower():
+    t = t[0].upper() + t[1:]
+print(t[:60] + ('...' if len(t) > 60 else ''))
+" "$next_title")
     git add WORK.md "$game_dir/.factory/escalations.md" 2>/dev/null
     git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-        commit --quiet -m "escalate: '$next_title'" 2>/dev/null
+        commit --quiet -m "chore(escalate): $esc_short — tests failed after 2 attempts" 2>/dev/null
     git push --quiet origin master 2>/dev/null || true
     echo "continuous: ✗ escalated '$next_title' — branch '$branch' preserved on origin"
     return 1

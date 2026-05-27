@@ -129,7 +129,12 @@ python3 "$WORKMD" append "$game_dir/WORK.md" \
 
 git add WORK.md
 git -c user.email=ceo-reject@spraxel.ai -c user.name='CEO Reject' \
-    commit --quiet -m "reject: '$feat_title' re-queued for rework"
+    commit --quiet -m "chore(reject): re-queue $(python3 -c "
+import sys
+t = sys.argv[1].strip().rstrip(' ?.,;:!')
+if t and t[0].islower(): t = t[0].upper() + t[1:]
+print(t[:50] + ('...' if len(t) > 50 else ''))
+" "$feat_title") for rework"
 git push --quiet origin master 2>&1 | tail -1
 
 echo ""

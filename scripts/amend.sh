@@ -104,7 +104,12 @@ python3 "$WORKMD" append "$game_dir/WORK.md" \
 
 git add WORK.md
 git -c user.email=ceo-amend@spraxel.ai -c user.name='CEO Amend' \
-    commit --quiet -m "amend: '$feat_title' queued for refinement"
+    commit --quiet -m "chore(amend): queue refinement for $(python3 -c "
+import sys
+t = sys.argv[1].strip().rstrip(' ?.,;:!')
+if t and t[0].islower(): t = t[0].upper() + t[1:]
+print(t[:50] + ('...' if len(t) > 50 else ''))
+" "$feat_title")"
 git push --quiet origin master 2>&1 | tail -1
 
 echo ""
