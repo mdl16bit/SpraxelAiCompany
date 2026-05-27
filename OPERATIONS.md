@@ -59,7 +59,7 @@ run_agent.sh             continuous_dev.sh
 
 | Who | What |
 |-----|------|
-| **continuous_dev.sh** | Long-running Developer loop. Picks top eligible `## Todo` item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`; picks up `[resume]` and `[retry]`). Branch → Developer → tests → Reviewer → squash-merge → push. Counts ships against `schedule.yaml#continuous.target_per_batch` (default 10); sleeps when cap hit until any CEO signal (non-bot commit or `bash scripts/checkin.sh`). Failed items (tests/reviewer/merge): branch preserved on origin, item retagged **`[retry]`** in place with failure feedback in details — next dev fire picks them up silently. Does NOT escalate to CEO for dev-fixable failures. Runs `workmd.py sync-escalations` at start of every iter so `.factory/escalations.md` always reflects current `[escalated]` items. |
+| **continuous_dev.sh** | Long-running Developer loop. **Runs as N parallel workers** (one process per worker id; default `dev_concurrency: 3` — see `schedule.yaml`). Each worker has its own persistent worktree at `.worktrees/worker-<id>/` and atomically claims items via `workmd.py claim --worker-id N` (tags the item `[wip:N]` so other workers skip it). Picks top eligible `## Todo` item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`/`[wip:*]`; picks up `[resume]` and `[retry]`). Branch → Developer → tests → Reviewer → squash-merge → push. **Cap counter is SHARED**: 10 ships across all workers combined drains the batch. Merges serialize via `master-push.lockdir` (~1 s critical section in `game_dir`). Failed items (tests/reviewer/merge): branch preserved on origin, item retagged **`[retry]`** in place with failure feedback in details — next dev fire picks them up silently. Does NOT escalate to CEO for dev-fixable failures. Runs `workmd.py sync-escalations` at start of every iter so `.factory/escalations.md` always reflects current `[escalated]` items. |
 
 Daily crew (all times America/Los_Angeles):
 
@@ -369,7 +369,10 @@ python3 ~/SpraxelAiCompany/scripts/workmd.py top ~/GameProjects/<game>/WORK.md -
 
 ### 11:00 PM — Continuous loop keeps shipping
 
-You're asleep. `continuous_dev.sh` ships until the 10-item cap, then sleeps.
+You're asleep. **3 parallel `continuous_dev.sh` workers** (each in its own
+worktree) ship items concurrently until the shared 10-item cap, then all
+three sleep. Adjust the worker count in `schedule.yaml#continuous.dev_concurrency`
+(1 = serial, 3 = default, more = burns through the Max-plan cap faster).
 
 ---
 
