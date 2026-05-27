@@ -98,6 +98,36 @@ def pgrep(pattern: str) -> list[int]:
     return [int(x) for x in out.splitlines() if x.strip().isdigit()]
 
 
+def worker_phase(worker_id: int) -> tuple[str, int | None]:
+    """Return (phase_label, seconds_in_phase) for a parallel-dev worker.
+
+    Inspects the worker's wrapper PID + its current child process to infer
+    what stage of the ship pipeline it's in (dev / reviewing / tests / idle).
+    Returns ("(not running)", None) if the wrapper isn't alive at all.
+    """
+    pids = pgrep(f"continuous_dev.sh.*--worker-id {worker_id}")
+    if not pids:
+        return ("(not running)", None)
+    wrapper_pid = pids[0]
+    # Find direct children of the wrapper.
+    out = sh(f"pgrep -P {wrapper_pid} 2>/dev/null")
+    children = [int(c) for c in out.splitlines() if c.strip().isdigit()] if out else []
+    for cpid in children:
+        cmd = sh(f"ps -p {cpid} -o command=").strip()
+        et = process_etime(cpid)
+        if "run_agent.sh developer" in cmd:
+            return ("dev", et)
+        if "run_agent.sh reviewer" in cmd:
+            return ("review", et)
+        if "run_local_tests.sh" in cmd:
+            return ("tests", et)
+        if "sleep" in cmd and cmd.startswith("sleep"):
+            # main-loop sleep between iterations
+            return ("idle", et)
+    # No interesting child — wrapper is between phases or in a quick step.
+    return ("idle", None)
+
+
 def resolve_game_dir() -> Path | None:
     if not SCHEDULE.exists(): return None
     for line in SCHEDULE.read_text().splitlines():
@@ -367,9 +397,11 @@ def render(now: datetime, game_dir: Path | None) -> str:
     lines.append(f"  Cap counter    {cap_line}")
     lines.append("")
 
-    # Current items — one row per worker if parallel-dev is enabled.
-    # WORK.md is the source of truth for "what is each worker doing":
-    # claimed items carry a [wip:N] tag.
+    # Current items — one row per worker. Combines two sources:
+    #  - WORK.md [wip:N] tags → which item each worker claimed
+    #  - process tree of each wrapper → what phase (dev/tests/review/idle)
+    #                                   and how long the worker has been
+    #                                   on the current phase
     lines.append(f"  {BOLD}▸ Current items{RESET}")
     wip_items: dict[int, str] = {}
     if game_dir is not None:
@@ -383,17 +415,40 @@ def render(now: datetime, game_dir: Path | None) -> str:
                     # Strip [wip:N] + state/kind tags for display.
                     clean = re.sub(r"^\[wip:\d+\]\s*", "", it.title)
                     clean = re.sub(r"^\[(retry|resume|escalated|bug|feature|chore|game-feature)\]\s*", "", clean)
-                    clean = clean[:55] + ("…" if len(clean) > 55 else "")
+                    clean = clean[:48] + ("…" if len(clean) > 48 else "")
                     wip_items[wid] = clean
         except Exception:
             pass
-    if wip_items:
-        for wid in sorted(wip_items):
-            lines.append(f"    {DIM}w{wid}{RESET}  {CYAN}\"{wip_items[wid]}\"{RESET}")
-    elif wrapper_pids and not PAUSED.exists():
-        lines.append(f"    {DIM}(idle — workers sleeping or between items){RESET}")
+
+    # Worker count comes from the wrapper count. Show every worker even if
+    # it has no [wip:N] yet (idle / between items).
+    n_workers = len(wrapper_pids)
+    if n_workers == 0:
+        if PAUSED.exists():
+            lines.append(f"    {DIM}(nothing — system paused){RESET}")
+        else:
+            lines.append(f"    {RED}(nothing — workers not running!){RESET}")
     else:
-        lines.append(f"    {DIM}(nothing — system paused or stopped){RESET}")
+        # Phase → color
+        phase_color = {
+            "dev":          MAGENTA,
+            "tests":        BLUE,
+            "review":       YELLOW,
+            "idle":         GRAY,
+            "(not running)": RED,
+        }
+        for wid in range(1, n_workers + 1):
+            phase, secs = worker_phase(wid)
+            color = phase_color.get(phase, RESET)
+            tag = f"{color}{phase:<6}{RESET}"
+            age = fmt_etime(secs) if secs is not None else "    "
+            age_col = f"{DIM}{age:>5s}{RESET}"
+            title = wip_items.get(wid, f"{DIM}(no item claimed){RESET}")
+            if wid in wip_items:
+                title_disp = f"{CYAN}\"{wip_items[wid]}\"{RESET}"
+            else:
+                title_disp = f"{DIM}(no item claimed){RESET}"
+            lines.append(f"    {DIM}w{wid}{RESET}  {tag} {age_col}  {title_disp}")
     lines.append("")
 
     # Today's totals
