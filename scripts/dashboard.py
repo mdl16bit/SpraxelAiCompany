@@ -243,24 +243,40 @@ def pending_ceo_actions(game_dir: Path | None, n: int = 5) -> list[tuple[str, st
     return out[:n]
 
 
-def last_log_line(game_dir: Path | None) -> str:
-    """Last meaningful line from the continuous log."""
+def last_log_line(game_dir: Path | None) -> tuple[str, str]:
+    """Last meaningful `continuous:` line across ALL per-worker logs.
+
+    Returns (worker_label, line). worker_label is "w1" / "w2" / "w3" /
+    "—" for legacy single-wrapper logs. Picks the line with the most
+    recent file mtime across the per-worker logs so the dashboard shows
+    the truly newest event, not the legacy daily-aggregate file.
+    """
     today = datetime.now(TZ).strftime("%Y-%m-%d")
-    log = CONTINUOUS_LOG_DIR / f"{today}.log"
-    if not log.exists():
-        # Try yesterday in case midnight just passed
-        yesterday = (datetime.now(TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
-        log = CONTINUOUS_LOG_DIR / f"{yesterday}.log"
-    if not log.exists(): return "(no log)"
-    try:
-        lines = log.read_text().splitlines()
+    yesterday = (datetime.now(TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+    # Collect candidate log files (today's per-worker + yesterday's + legacy).
+    candidates: list[tuple[Path, str]] = []
+    for stamp in (today, yesterday):
+        for p in CONTINUOUS_LOG_DIR.glob(f"{stamp}-w*.log"):
+            m = re.search(r"-w(\d+)\.log$", p.name)
+            wid = f"w{m.group(1)}" if m else "—"
+            candidates.append((p, wid))
+        legacy = CONTINUOUS_LOG_DIR / f"{stamp}.log"
+        if legacy.exists():
+            candidates.append((legacy, "—"))
+    if not candidates:
+        return ("—", "(no log)")
+    # Sort by mtime desc — newest log first.
+    candidates.sort(key=lambda pair: pair[0].stat().st_mtime, reverse=True)
+    for path, wid in candidates:
+        try:
+            lines = path.read_text().splitlines()
+        except Exception:
+            continue
         for ln in reversed(lines):
             ln = ln.strip()
             if ln.startswith("continuous:"):
-                return ln[:80]
-    except Exception:
-        pass
-    return "(empty)"
+                return (wid, ln[:80])
+    return ("—", "(empty)")
 
 
 def escalations_today(game_dir: Path | None) -> int:
@@ -527,10 +543,10 @@ def render(now: datetime, game_dir: Path | None) -> str:
             lines.append(f"    {DIM}{sha} {age_col}{RESET}  {subj}")
     lines.append("")
 
-    # Most recent log line
+    # Most recent log line — across all per-worker continuous logs.
     lines.append(f"  {BOLD}▸ Last log line{RESET}")
-    last = last_log_line(game_dir)
-    lines.append(f"    {DIM}{last}{RESET}")
+    wid, last = last_log_line(game_dir)
+    lines.append(f"    {DIM}{wid:>3s}  {last}{RESET}")
     lines.append("")
 
     return "\n".join(lines)
