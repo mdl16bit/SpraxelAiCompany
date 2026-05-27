@@ -129,7 +129,7 @@ them. CEO sees them in MORNING.md's "Questions for CEO" section. CEO's
 options for each:
 
 ```bash
-WORK=~/GameProjects/infiltrators/WORK.md
+WORK=~/GameProjects/<game>/WORK.md
 WORKMD=~/SpraxelAiCompany/scripts/workmd.py
 
 # CONFIRM as a real bug — promote to active [bug] (removes [needs-ceo] tag).

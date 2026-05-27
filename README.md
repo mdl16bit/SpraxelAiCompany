@@ -7,10 +7,6 @@ You — the **CEO** — keep the human-only work: art, music, storyline, gamepla
 design, dictation, playtesting. A roster of Claude agents handles code,
 planning, code review, bug triage, devlog drafting, and asset hygiene.
 
-**First target game:** [`infiltrators`](https://github.com/mdl16bit/infiltrators) —
-a 2D stealth/heist in Godot 4.6.1 (Lost Vikings × Gunpoint, 8 thieves,
-plan-mode slow-mo).
-
 ## How a day works
 
 You don't keep a Claude Code window open. **Everything runs locally**:

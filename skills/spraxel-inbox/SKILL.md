@@ -19,7 +19,8 @@ features that shipped overnight and deciding what's next.
    This resets the ship-counter to 0, so the loop starts shipping the next
    batch of 10 as soon as the CEO finishes the routine.
 
-1. **Open** `~/GameProjects/<game>/.factory/local/MORNING.md` (default game: infiltrators).
+1. **Open** `~/GameProjects/<game>/.factory/local/MORNING.md` (the
+   active `<game>` is whatever `schedule.yaml`'s `game_dir:` points at).
    If it doesn't exist, the Morning Briefer hasn't run yet — check
    `~/SpraxelAiCompany/logs/morning-briefer/<latest>.log`.
 
@@ -101,8 +102,8 @@ one sitting. Half-done is fine; the rest will be in tomorrow's digest.
 
 | What | Command |
 |---|---|
-| Open MORNING.md | `cat ~/GameProjects/infiltrators/.factory/local/MORNING.md` |
-| Launch a feature | `cd ~/GameProjects/infiltrators && godot --demo-feature=<slug>` |
+| Open MORNING.md | `cat ~/GameProjects/<game>/.factory/local/MORNING.md` |
+| Launch a feature | `cd ~/GameProjects/<game> && godot --demo-feature=<slug>` |
 | See last overnight log | `ls -t ~/SpraxelAiCompany/logs/overnight/ \| head -1` |
 | See last morning-briefer log | `ls -t ~/SpraxelAiCompany/logs/morning-briefer/ \| head -1` |
 | Drain dictation now | `/spraxel-producer` (interactive in Claude Code) |

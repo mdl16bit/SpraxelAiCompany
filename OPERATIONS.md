@@ -92,7 +92,7 @@ You're asleep. `morning-briefer` is writing MORNING.md right now.
 **Time-boxed**. If you blow past 45 min, stop and commit what you have.
 
 ```bash
-cd ~/GameProjects/infiltrators
+cd ~/GameProjects/<game>
 cat MORNING.md
 ```
 
@@ -101,7 +101,7 @@ In Claude Code, type `/inbox` to open the walk-through skill (read-only view of 
 Walk the sections **in order** — here's what each step actually means in commands:
 
 ```bash
-WORK=~/GameProjects/infiltrators/WORK.md
+WORK=~/GameProjects/<game>/WORK.md
 WORKMD=~/SpraxelAiCompany/scripts/workmd.py
 ```
 
@@ -110,7 +110,7 @@ WORKMD=~/SpraxelAiCompany/scripts/workmd.py
 Glance at the commit range in MORNING.md. Any surprises? Drill in:
 
 ```bash
-cd ~/GameProjects/infiltrators
+cd ~/GameProjects/<game>
 git log master --since="yesterday 22:00 PT" --oneline
 git show <sha>           # if anything looks weird
 ```
@@ -120,7 +120,7 @@ git show <sha>           # if anything looks weird
 For each of the 10 features in MORNING.md, run the listed launch command:
 
 ```bash
-cd ~/GameProjects/infiltrators
+cd ~/GameProjects/<game>
 godot --demo-feature=<slug>
 ```
 
@@ -231,7 +231,7 @@ python3 $WORKMD drop $WORK "duplicate-bug-title-substring"
 #### 5. ▶ Escalations (3 min)
 
 ```bash
-cat ~/GameProjects/infiltrators/.factory/escalations.md
+cat ~/GameProjects/<game>/.factory/escalations.md
 ```
 
 **What's already happened**: when the wrapper escalates, it REMOVES the item
@@ -282,9 +282,9 @@ Anything new from play-testing or stray thoughts:
 
 ```bash
 echo "the run sound should be QUIETER for ducked-walking" \
-  >> ~/GameProjects/infiltrators/.factory/inbox/raw.md
+  >> ~/GameProjects/<game>/.factory/inbox/raw.md
 echo "extraction zone bug back — character #3 stuck after extracting" \
-  >> ~/GameProjects/infiltrators/.factory/inbox/raw.md
+  >> ~/GameProjects/<game>/.factory/inbox/raw.md
 ```
 
 Then in Claude Code, run the producer skill to convert them:
@@ -300,7 +300,7 @@ It reads `.factory/inbox/raw.md` (and any dictation files), classifies each note
 Your Decide/Triage/Escalations edits aren't pushed yet. Either commit yourself, or let the next agent run sweep them up naturally (PM/Janitor pick up changes on their next commit):
 
 ```bash
-cd ~/GameProjects/infiltrators
+cd ~/GameProjects/<game>
 git diff WORK.md                    # sanity check
 git commit -am "ceo: morning triage $(date +%Y-%m-%d)"
 git push
@@ -333,7 +333,7 @@ Before bed, if you want a productive overnight:
 
 ```bash
 # Sanity check WORK.md has enough items at the top
-python3 ~/SpraxelAiCompany/scripts/workmd.py top ~/GameProjects/infiltrators/WORK.md -n 12
+python3 ~/SpraxelAiCompany/scripts/workmd.py top ~/GameProjects/<game>/WORK.md -n 12
 
 # Drain any dictation you've accumulated today
 # (in Claude Code) /spraxel-producer
@@ -527,14 +527,14 @@ Note: the daemon targets ONE game at a time (the `game_dir` in
 `schedule.yaml`). For a second game running in parallel you'd need a
 second daemon — that's not yet supported. See TODO.md.
 
-## Setup — first time on this Mac (existing infiltrators game)
+## Setup — first time on this Mac (existing game)
 
 If you're setting up Spraxel for the first time on a Mac and the game
-repo (infiltrators) is already cloned:
+repo is already cloned:
 
 ```bash
 bash ~/SpraxelAiCompany/scripts/install_daemon.sh
-cd ~/GameProjects/infiltrators && bash scripts/install_local_tests.sh
+cd ~/GameProjects/<game> && bash scripts/install_local_tests.sh
 launchctl list | grep com.spraxel        # → expect 2 entries
 claude --version                          # → confirms Claude CLI is logged in
 ```
@@ -692,7 +692,7 @@ morning, mid-day, whenever you want a quick "is anything broken?" view.
 ### Manually move an item
 
 ```bash
-WORK=~/GameProjects/infiltrators/WORK.md
+WORK=~/GameProjects/<game>/WORK.md
 WORKMD=~/SpraxelAiCompany/scripts/workmd.py
 
 python3 $WORKMD parse $WORK | head -30
@@ -728,7 +728,7 @@ Just don't edit while the overnight loop is running (use `.paused`).
 No PR ceremony in this workflow. Branch, edit, merge yourself:
 
 ```bash
-cd ~/GameProjects/infiltrators
+cd ~/GameProjects/<game>
 
 # Touch up code without agent involvement
 git checkout -b ceo/<short-description> master
@@ -756,7 +756,7 @@ rm ~/SpraxelAiCompany/.paused
 ### Test the game
 
 ```bash
-cd ~/GameProjects/infiltrators
+cd ~/GameProjects/<game>
 
 # Full suite (GUT unit tests + every scripts/scenarios/*.gd)
 bash scripts/run_local_tests.sh
@@ -802,9 +802,9 @@ touch ~/SpraxelAiCompany/.paused      # let the weekly cap reset (~24h)
 ```bash
 # Drop raw notes whenever they hit you — typed or pasted from voice memos
 echo "the run sound should be QUIETER for ducked-walking" \
-  >> ~/GameProjects/infiltrators/.factory/inbox/raw.md
+  >> ~/GameProjects/<game>/.factory/inbox/raw.md
 echo "extraction zone bug back — character #3 stuck" \
-  >> ~/GameProjects/infiltrators/.factory/inbox/raw.md
+  >> ~/GameProjects/<game>/.factory/inbox/raw.md
 
 # Then in Claude Code:
 # /spraxel-producer
@@ -817,21 +817,21 @@ echo "extraction zone bug back — character #3 stuck" \
 ```bash
 # "What's next?"
 python3 ~/SpraxelAiCompany/scripts/workmd.py top \
-  ~/GameProjects/infiltrators/WORK.md -n 5
+  ~/GameProjects/<game>/WORK.md -n 5
 
 # "What shipped this week?"
-git -C ~/GameProjects/infiltrators log master --since='1 week ago' \
+git -C ~/GameProjects/<game> log master --since='1 week ago' \
   --oneline --grep='^feat:'
 
 # "What did the agents commit lately?"
-git -C ~/GameProjects/infiltrators log master --author='-bot@spraxel.ai' \
+git -C ~/GameProjects/<game> log master --author='-bot@spraxel.ai' \
   --since='1 week ago' --pretty='%h %an %s'
 
 # "Anything stuck?"
 ls ~/SpraxelAiCompany/.locks/  # each lockdir = an in-flight agent
 
 # "Revert something the overnight loop landed but broke things"
-cd ~/GameProjects/infiltrators
+cd ~/GameProjects/<game>
 git revert <sha> && git push origin master
 ```
 
@@ -839,7 +839,7 @@ git revert <sha> && git push origin master
 
 ```bash
 bash ~/SpraxelAiCompany/scripts/install_daemon.sh stop
-cd ~/GameProjects/infiltrators && bash scripts/install_local_tests.sh stop
+cd ~/GameProjects/<game> && bash scripts/install_local_tests.sh stop
 ```
 
 ---
@@ -849,7 +849,7 @@ cd ~/GameProjects/infiltrators && bash scripts/install_local_tests.sh stop
 Three sections separated by two dividers (10+ `-` or `=`):
 
 ```
-# infiltrators — work tracking
+# <game> — work tracking
 
 ## Shipped (previous releases)
 v0.3 — pushing mechanic
@@ -1145,7 +1145,7 @@ Common causes:
 ls -t ~/SpraxelAiCompany/logs/overnight/ | head -1 | xargs -I{} ls ~/SpraxelAiCompany/logs/overnight/{}
 
 # Recent escalations
-cat ~/GameProjects/infiltrators/.factory/escalations.md | tail -40
+cat ~/GameProjects/<game>/.factory/escalations.md | tail -40
 ```
 
 If `fail_streak: 3` appears in `~/SpraxelAiCompany/.cache/last-overnight.txt`,
@@ -1166,7 +1166,7 @@ agents. But manual `vim WORK.md` while an agent is mid-write **can**
 corrupt the file. Recovery:
 
 ```bash
-cd ~/GameProjects/infiltrators
+cd ~/GameProjects/<game>
 git log --oneline -5 WORK.md
 git show <last-good-sha>:WORK.md > WORK.md.recovered
 diff WORK.md WORK.md.recovered
@@ -1267,12 +1267,12 @@ plan.
 
 | What | Where |
 |------|-------|
-| Today's CEO routine | `~/GameProjects/infiltrators/MORNING.md` |
-| What's in flight / queued | `~/GameProjects/infiltrators/WORK.md` |
+| Today's CEO routine | `~/GameProjects/<game>/MORNING.md` |
+| What's in flight / queued | `~/GameProjects/<game>/WORK.md` |
 | What's been shipped | git log + WORK.md `## Shipped *` sections |
-| Failed items waiting on you | `~/GameProjects/infiltrators/.factory/escalations.md` |
-| Last test run | `~/GameProjects/infiltrators/.factory/local-tests-status.json` |
-| Reviewer's notes per branch | `~/GameProjects/infiltrators/.factory/reviews/<branch>.md` |
+| Failed items waiting on you | `~/GameProjects/<game>/.factory/escalations.md` |
+| Last test run | `~/GameProjects/<game>/.factory/local-tests-status.json` |
+| Reviewer's notes per branch | `~/GameProjects/<game>/.factory/reviews/<branch>.md` |
 | Agent run logs | `~/SpraxelAiCompany/logs/<agent>/<ts>.log` |
 | Daemon ticks | `~/SpraxelAiCompany/logs/tick/<YYYY-MM-DD>.log` |
 | Quick "is anything broken?" | `bash ~/SpraxelAiCompany/scripts/health_check.sh` |
@@ -1280,6 +1280,6 @@ plan.
 | Bootstrap a new game | `bash ~/SpraxelAiCompany/scripts/new_game.sh <dir>` |
 | Pause + preserve in-flight work | `bash ~/SpraxelAiCompany/scripts/interrupt.sh` |
 | Resume after a manual change | `bash ~/SpraxelAiCompany/scripts/resume.sh` |
-| Game's design tenets | `~/GameProjects/infiltrators/Philosophy.md` |
-| Feature inventory | `~/GameProjects/infiltrators/Game.md` |
+| Game's design tenets | `~/GameProjects/<game>/Philosophy.md` |
+| Feature inventory | `~/GameProjects/<game>/Game.md` |
 | WORK.md format spec | `~/SpraxelAiCompany/docs/WORK_MD_FORMAT.md` |

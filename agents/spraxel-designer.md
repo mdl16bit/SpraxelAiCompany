@@ -149,7 +149,7 @@ When CEO opens MORNING.md after a Designer run, the "Decide" section lists
 each idea with its details. CEO actions:
 
 ```bash
-WORK=~/GameProjects/infiltrators/WORK.md
+WORK=~/GameProjects/<game>/WORK.md
 WORKMD=~/SpraxelAiCompany/scripts/workmd.py
 
 # ACCEPT — strip [idea] tag, item becomes shippable
