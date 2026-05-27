@@ -513,6 +513,12 @@ bash ~/SpraxelAiCompany/scripts/install_daemon.sh
 # 6. Install the local-tests cron in THIS game repo
 cd ~/GameProjects/my-new-game
 bash scripts/install_local_tests.sh
+
+# 7. (Optional) Install ffmpeg if you want auto-capture of feature demos
+# (the demo-creator agent uses Godot's --write-movie + ffmpeg). Without
+# ffmpeg, the agent skips auto-capture but still produces recipe.md for
+# hand-recording.
+brew install ffmpeg
 ```
 
 Verify everything is loaded:

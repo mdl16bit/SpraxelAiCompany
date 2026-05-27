@@ -113,19 +113,16 @@ missing)">
 
 ### 4. Best-effort auto-capture
 
-Only attempt this if:
-- The previous run successfully auto-captured at least one feature, OR
-- It's been >7 days since you tried (re-probe in case perms were granted)
-- AND you can confirm the screen is unlocked:
+`scripts/capture_demo.sh` uses Godot's built-in `--write-movie` Movie
+Maker — captures the engine's framebuffer directly to .mp4 via ffmpeg.
+No screen-recording permission, no AppleScript, no foreground-app
+contamination. Still requires:
+- Mac is awake + a (briefly) visible Godot window — Movie Maker
+  refuses to record without a real renderer.
+- ffmpeg installed (`brew install ffmpeg`). If missing, the script
+  exits 3 cleanly; treat as "skipped."
 
-```bash
-# Returns "yes" if display is unlocked, "no" otherwise. If the command
-# itself fails, treat as no.
-ioreg -n IODisplayWrangler | grep -i "IOPowerManagement" \
-  | grep -q '"CurrentPowerState"=4' && echo yes || echo no
-```
-
-If you decide to try, for each feature:
+Try for each feature:
 
 ```bash
 bash ~/SpraxelAiCompany/scripts/capture_demo.sh <slug> \
@@ -133,10 +130,33 @@ bash ~/SpraxelAiCompany/scripts/capture_demo.sh <slug> \
   --out .factory/demos/$(date +%Y-%m-%d)/<slug>
 ```
 
-If `capture_demo.sh` exits non-zero, note WHY in memory (e.g. "AppleScript
-couldn't find Godot window — accessibility perms?"), update recipe.md's
-header line to "auto-capture skipped: <reason>", and CONTINUE. Don't
-fail the whole run because one feature couldn't auto-capture.
+Exit-code handling:
+| rc | meaning | what to do |
+|----|---------|------------|
+| 0 | success — `.mp4` + `.png` produced | reference both in recipe.md and the post |
+| 3 | ffmpeg missing | log + skip (recipe.md is the day's only output) |
+| 5 | recording is suspiciously short (<1/3 expected frames) — the scenario likely quits early (test-style script). The .mp4 exists but is empty/near-empty. | `rm` the bad .mp4; explicitly note in recipe.md's header "auto-capture: <slug> produced only N frames — hand-record" |
+| 1 / 4 | Godot launch failed or paths unresolvable | log + skip |
+
+**The "test-style scenario" constraint** (rc=5 case): many existing
+`scripts/scenarios/<slug>.gd` files were written as acceptance tests —
+they instantiate characters, call methods, assert, exit. They don't
+*play* the feature visually. Movie Maker captures the engine's render
+output, so for these scenarios it captures ~7 frames of an empty scene
+before the script quits. The .mp4 is technically valid but useless.
+
+For these, recipe.md is the answer — the CEO hand-records a real
+playthrough following the controls in the recipe. Going forward, new
+scenarios that want auto-capture should:
+- Load a real scene + camera
+- Drive scripted input (e.g. `Input.action_press("interact")` in a
+  timer) or animate characters visibly
+- Run for the full `--quit-after` duration (don't call `get_tree().quit()`
+  if `not DebugBoot.is_headless`)
+
+If `capture_demo.sh` exits non-zero, note WHY in memory, update
+recipe.md's header line accordingly, and CONTINUE. Don't fail the whole
+run because one feature couldn't auto-capture.
 
 ### 5. Update memory
 
