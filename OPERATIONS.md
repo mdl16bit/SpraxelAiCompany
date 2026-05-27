@@ -59,7 +59,7 @@ run_agent.sh             continuous_dev.sh
 
 | Who | What |
 |-----|------|
-| **continuous_dev.sh** | Long-running Developer loop. Picks top eligible `## Todo` item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`; picks up `[resume]`). Branch → Developer → tests → Reviewer → squash-merge → push. Counts ships against `schedule.yaml#continuous.target_per_batch` (default 10); sleeps when cap hit until any CEO signal (non-bot commit or `bash scripts/checkin.sh`). Failed items: branch preserved on origin, item retagged `[escalated]` in place, rich summary in `.factory/escalations.md`. |
+| **continuous_dev.sh** | Long-running Developer loop. Picks top eligible `## Todo` item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`; picks up `[resume]` and `[retry]`). Branch → Developer → tests → Reviewer → squash-merge → push. Counts ships against `schedule.yaml#continuous.target_per_batch` (default 10); sleeps when cap hit until any CEO signal (non-bot commit or `bash scripts/checkin.sh`). Failed items (tests/reviewer/merge): branch preserved on origin, item retagged **`[retry]`** in place with failure feedback in details — next dev fire picks them up silently. Does NOT escalate to CEO for dev-fixable failures. Runs `workmd.py sync-escalations` at start of every iter so `.factory/escalations.md` always reflects current `[escalated]` items. |
 
 Daily crew (all times America/Los_Angeles):
 
@@ -235,59 +235,74 @@ python3 $WORKMD drop $WORK "duplicate-bug-title-substring"
 # KEEP — just leave the line alone; overnight picks it up by priority order.
 ```
 
-#### 5. ▶ Escalations (3 min)
+#### 5. ▶ Escalations (1-3 min, usually 0)
 
-**What an escalation is**: the wrapper tried to ship an item, failed twice,
-and gave up. Two things happen on escalation (post 2026-05-26 redesign):
+**Important distinction (post 2026-05-27 redesign):** the wrapper has two
+different "the item didn't land" outcomes, and only ONE of them lands in
+your morning routine:
 
-1. The item **stays in WORK.md `## Todo`** but the `[escalated]` tag is
-   added to its title. The wrapper's `top_n` filter skips `[escalated]`,
-   so it won't auto-retry until you triage. Failure summary (why, attempt
-   timestamps, branch name, last commit) lands as indented detail lines
-   under the item.
-2. The dev's feature branch is **pushed to origin** (preserved). A rich
-   self-contained markdown block is appended to `.factory/escalations.md`
-   for history. **Master is never modified** by a failed attempt.
+| Outcome | Tag | Who triages | In escalations.md? |
+|---------|-----|-------------|---------------------|
+| Tests / reviewer / merge failed | `[retry]` | Nobody — silent retry on next dev fire | NO |
+| Real CEO-judgment issue (design/PM gameplay-ruiner, paid-asset block, story decision, dev's `clarify` for true ambiguity) | `[escalated]` (manual) or `[needs-ceo]` (via clarify) | **You** | `[escalated]` yes; `[needs-ceo]` no |
 
-So you triage **inside WORK.md** — you do NOT re-paste items from
-escalations.md. Two scans:
+**Most mornings this section is empty.** When it isn't, the items are
+ones that need your judgment — not your patience.
+
+##### `.factory/escalations.md` is **derived state**
+
+The wrapper regenerates the file from `[escalated]` items in WORK.md on
+every iter via `workmd.py sync-escalations`. Properties:
+
+- If a `[escalated]` item exists in WORK.md, the next tick rewrites
+  escalations.md to include it. Clearing the file alone does nothing.
+- The only way to make an item vanish from escalations.md is to
+  retag it in WORK.md: `[escalated]` → `[resume]`.
+- The file is a snapshot, not history. No append-only log to filter.
+- Item detail lines ARE the source of truth — anything you want
+  preserved must live in the WORK.md item.
+
+##### For each `[escalated]` item
 
 ```bash
-# All escalated items needing triage:
+# What's escalated right now (single source of truth):
 grep '^\[escalated\]' ~/GameProjects/<game>/WORK.md
 
-# Full history with rich context if you want to read:
+# Same thing in nicer formatting:
 cat ~/GameProjects/<game>/.factory/escalations.md
 ```
 
-##### For each `[escalated]` item, three options
+Two acceptable actions:
 
-**(a) Trash it** — delete the line(s) from WORK.md and save. The next
-janitor run will sweep the orphaned branch from origin. Use when the
-attempt convinced you the item isn't worth pursuing.
-
-**(b) Resume it** — edit the title/details to tighten the spec, then
-flip `[escalated]` → `[resume]`. Wrapper picks it up next overnight,
-checks out the saved branch, rebases on master, and hands off to the dev
-with full failure context.
+**(a) Resume it** — edit the item's detail lines in WORK.md with your
+decision/clarification, then flip `[escalated]` → `[resume]`. Wrapper
+picks it up next dev fire, checks out the saved branch (from the
+`branch:` detail line), rebases on master, hands off to the dev with
+your guidance + the prior attempt's context.
 
 ```bash
 # Either edit WORK.md directly, then change the tag; OR use the CLI:
 python3 ~/SpraxelAiCompany/scripts/workmd.py resume $WORK "<title-substring>"
 ```
 
-**(c) Park it** — replace `[escalated]` with `FUTURE - ` (still on the
-roadmap, not now) or `MANUAL - ` (you've decided it's human-only). The
-branch stays on origin until janitor sweeps it. The item stays visible
-in WORK.md so you remember.
+**(b) Acknowledge but defer** — read it, do nothing. The item stays
+`[escalated]` and reappears in escalations.md every tick until you
+decide. Useful when "I'll deal with this Wednesday" is the right call.
 
-##### What you DON'T do
-- **Don't edit `.factory/escalations.md`** — it's append-only history.
-  The triage signal is what you do in WORK.md, not what you do here.
-- **Don't paste items from escalations.md back into WORK.md** — that's
-  the old workflow. They're already there now (with `[escalated]`).
-- **Don't `git revert` an escalate commit** — the escalation already
-  preserved the branch on origin; rebooting via revert can lose work.
+##### What you do NOT do
+
+- **Never delete an item from WORK.md** — that's a HARD RULE.
+  Items only leave via `ship` (Todo → Shipped header, preserved) or
+  janitor's `[cold]` retag (still in Todo, tagged stale). If you
+  truly want an item gone forever, you can hand-edit WORK.md, but
+  that's a manual CEO action, never automated.
+- **Don't hand-edit `.factory/escalations.md`** — it's regenerated
+  each tick from WORK.md state. Anything you write there gets
+  overwritten. Write into the WORK.md item's detail lines instead.
+- **Don't `[retry]` items show up here** — they're handled silently
+  by the next dev run. If you see `[retry]` items piling up (5+), it
+  may signal a fragile test or reviewer pattern worth investigating,
+  but no action is required.
 
 #### 6. ▶ Dictation (5 min, optional)
 
@@ -730,14 +745,28 @@ python3 $WORKMD ship $WORK "<title substring>"
 # Accept a Designer [idea] (remove [idea]/[cold] tag)
 python3 $WORKMD promote $WORK "sleeping-gas grenade"
 
-# Reject / delete entirely (Designer idea, duplicate bug, anything)
+# Reject a Designer idea / dedup a bug. NOTE: HARD RULE is "items in
+# WORK.md are never deleted by agents" — but the CEO may delete by hand.
+# `drop` is fine for CEO use; agents/scripts must not call it.
 python3 $WORKMD drop $WORK "radio-tower mission"
 
 # Change a priority
 python3 $WORKMD bump $WORK "stairs teleport" p0
 
-# Push to escalations (out of rotation, kept for history)
-python3 $WORKMD escalate $WORK "<title>" --log "(manual)"
+# Manually escalate an item for real CEO judgment (gameplay-ruiner /
+# design issue / blocking decision). NOT used for tests/reviewer/merge
+# failures — those auto-retry via [retry]. The next sync-escalations
+# tick will surface this in `.factory/escalations.md`.
+python3 $WORKMD escalate $WORK "<title>" \
+  --detail "why: I think this whole approach undermines the stealth core loop"
+
+# Regenerate .factory/escalations.md from current [escalated] items
+# (idempotent; wrapper does this automatically every iter).
+python3 $WORKMD sync-escalations $WORK
+
+# Flip an [escalated] (or [retry]) item to [resume] so the wrapper picks
+# it up from the saved branch on the next dev fire.
+python3 $WORKMD resume $WORK "<title-substring>"
 ```
 
 You can also just **edit WORK.md directly** — the format is human-friendly.
@@ -902,8 +931,9 @@ Tag reference:
 | `[manual]` or `MANUAL - ` prefix | CEO-only — needs human hands (controller test, art, music, level design) | **NO** (skip until tag/prefix removed) |
 | `[needs-ceo]` | Developer added clarifying questions — CEO must answer | **NO** (skip until questions answered + tag removed) |
 | `[future]` or `FUTURE - ` prefix | Roadmap item — not ready to schedule (needs scoping, blocked, or deliberately deferred) | **NO** (skip until tag/prefix removed) |
-| `[escalated]` | Wrapper tried 2x, failed. Saved branch on origin (see `branch:` detail line). CEO triages: trash / resume / park. | **NO** (skip until CEO retags as `[resume]` or other) |
-| `[resume]` | CEO triaged an escalation. Wrapper picks it up, checks out saved branch, rebases on master, hands off to dev with full failure context. | **yes** (dev resumes from saved branch instead of fresh) |
+| `[retry]` | Wrapper auto-set after tests/reviewer/merge failed on the prior dev attempt. Saved branch on origin (see `branch:` detail line); failure feedback in details. **No CEO action** — next dev fire picks it up in RETRY MODE, addresses the feedback, tries again. | **yes** (dev resumes from saved branch with failure context) |
+| `[escalated]` | **Manually set** by CEO (or triager/designer/PM agent) for items needing real CEO judgment — gameplay-ruiner design issues, paid-asset blockers, story decisions, items the dev truly can't action. **Never auto-set by the wrapper.** Wrapper regenerates `.factory/escalations.md` from these every iter — clearing that file alone doesn't dismiss the item; only retagging in WORK.md does. | **NO** (skip until CEO retags as `[resume]`) |
+| `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up, checks out saved branch, rebases on master, hands off to dev with the CEO's clarification in details. | **yes** (dev resumes from saved branch with new guidance) |
 | `[concern]` | Designer (or future agents) flagged a game-wide issue (feature bloat, missing fundamentals, philosophical drift). Advisory text, not work to do. CEO triages: delete (dismiss), remove tag (convert into real work item), or leave (defer). | **NO** (skip until tag removed) |
 
 ### `MANUAL - ` sub-category labels
@@ -975,12 +1005,12 @@ FUTURE - DLC mission pack
 | **reviewer** | called by continuous loop, per item | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). Blocks merge on missing test, missing/incomplete Game.md, missing scenario file, missing debug-feature hook. |
 | **playtester** | daily 04:00 PT | sonnet | Actively plays the game to find problems. Beyond test scenarios — input spam, edge cases, mechanic combos. Writes candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
 | **triager** | daily 05:00 PT | haiku | Reads playtest findings + test failures, appends as `[needs-ceo] [bug]` items. CEO validates in MORNING.md before they become live bugs. |
-| **morning-briefer** | daily 06:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, escalations. Runs `health_check.sh` first to surface agent failures. |
+| **morning-briefer** | daily 06:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, real `[escalated]` items needing CEO judgment (usually 0 — auto-retries are silent and not surfaced). Shows a one-line `[retry]` queue count FYI but no action required. Runs `health_check.sh` first to surface agent failures. |
 | **demo-creator** | daily 06:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
 | **pm** | daily 07:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
 | **designer** | Tue + Fri 07:00 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
 | **blogger** | weekly Sat 10:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
-| **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items, prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (escalated-branch cleanup). |
+| **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |
 | **asset-librarian** | monthly 1st 08:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
 | **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. Flags ⚠️ concerns inline (cliché/complexity/balance/drift) but always appends the item — concerns are advisory, never gatekeep. |
 
