@@ -117,6 +117,7 @@ defaults = {
     "poll_interval_seconds":   60,
     "idle_threshold":          5,
     "idle_sleep_seconds":      300,
+    "max_dev_minutes":         30,
 }
 try:
     text = open(sys.argv[1]).read()
@@ -566,9 +567,31 @@ folds everything into one squash-merge to master at the end."
     fi
     echo "$item_brief" > "$item_log.brief"
 
-    # Fire developer. Capture the real exit code (the `if !` form drops it to 0).
-    SPRAXEL_ITEM_BRIEF="$item_log.brief" bash "$RUN_AGENT" developer >> "$item_log" 2>&1
+    # Fire developer with a HARD time limit (max_dev_minutes). A stuck
+    # claude session (idle API, internal loop, etc.) would otherwise block
+    # this worker forever — 2026-05-27 incident: w2's claude sat idle 29
+    # min before I killed it manually. The watchdog subshell SIGKILLs the
+    # dev's process group after $MAX_DEV_MINUTES; the wrapper sees the
+    # non-zero exit and treats it as a normal dev failure (→ retry).
+    SPRAXEL_ITEM_BRIEF="$item_log.brief" bash "$RUN_AGENT" developer >> "$item_log" 2>&1 &
+    dev_pid=$!
+    dev_timeout_secs=$((MAX_DEV_MINUTES * 60))
+    (
+      sleep "$dev_timeout_secs"
+      if kill -0 "$dev_pid" 2>/dev/null; then
+        echo "continuous: dev session exceeded ${MAX_DEV_MINUTES}m — killing PID $dev_pid" >> "$item_log"
+        # Kill the dev process tree (run_agent.sh + claude child). pkill
+        # -P targets direct children; loop twice for grandchildren too.
+        pkill -KILL -P "$dev_pid" 2>/dev/null
+        kill -KILL "$dev_pid" 2>/dev/null
+      fi
+    ) &
+    dev_watchdog_pid=$!
+    wait "$dev_pid" 2>/dev/null
     dev_rc=$?
+    # Cancel watchdog if dev finished within the budget.
+    kill -TERM "$dev_watchdog_pid" 2>/dev/null
+    wait "$dev_watchdog_pid" 2>/dev/null
     if [ "$dev_rc" -eq 2 ]; then
       # rc=2 = developer.lockdir held (orphan or concurrent fire). NOT a real
       # failure — wait for the lock to clear, then retry the SAME item.

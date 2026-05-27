@@ -59,6 +59,15 @@ continuous:
   idle_threshold:         5
   idle_sleep_seconds:     300
 
+  # Hard upper bound on a single developer agent invocation. If claude
+  # hangs (idle API response, internal loop, etc.) the wrapper kills it
+  # after this many minutes and counts the attempt as a failure. Without
+  # this, a stuck claude session blocks its worker indefinitely (the
+  # 2026-05-27 incident — w2's claude was idle 29 min with 1:18 CPU and
+  # I had to kill it manually). Default 30 minutes; most legitimate dev
+  # sessions finish in 10-20 min.
+  max_dev_minutes:        30
+
   description:      "always-on, paced by CEO checkins"
 
 # Local tests (Godot scenarios + GUT). Already managed by ~/Library/LaunchAgents/com.spraxel.localtests.plist.
