@@ -216,6 +216,14 @@ ship_one_item() {
     return 1
   fi
 
+  # Regenerate escalations.md from current [escalated] items in WORK.md.
+  # Idempotent: if the CEO cleared escalations.md without retagging items,
+  # the file reappears here on every iter — there's no way to make an
+  # [escalated] item silently vanish except by editing WORK.md.
+  python3 "$WORKMD" sync-escalations "$game_dir/WORK.md" \
+    --escalations "$game_dir/.factory/escalations.md" \
+    >> "$LOG_DIR/sync.log" 2>&1 || true
+
   local next_json next_title slug branch item_log
   next_json=$(python3 "$WORKMD" top "$game_dir/WORK.md" -n 1)
   next_title=$(echo "$next_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['title'] if d else '')")

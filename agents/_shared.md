@@ -27,8 +27,26 @@ Forbidden:
 Allowed:
 - `workmd.py append <path> --section todo <line>` to add items.
 - `workmd.py ship <path> <title>` to move Todo → Shipped-since-last-release.
-- `workmd.py escalate <path> <title>` to drop a Todo item into `.factory/escalations.md`.
-- Reading raw file contents to inspect state, but mutations go through the CLI.
+- `workmd.py clarify <path> <title> --question ...` to tag `[needs-ceo]`
+  and surface dev questions to the CEO.
+- `workmd.py retry <path> <title>` (wrapper-only) to bounce a failed dev
+  branch back into the queue. Crew agents do NOT call this — only
+  continuous_dev.sh does.
+- Reading raw file contents to inspect state, but mutations go through
+  the CLI.
+
+**HARD RULE: items in WORK.md are never deleted by agents.** The only
+acceptable lifecycle endpoints are:
+  - `ship` (Todo → Shipped-since-last-release; the item is preserved
+    under the Shipped header)
+  - CEO manual edit (the CEO can delete an item line by hand, but no
+    agent or script should)
+  - Janitor `[cold]` retag (stale archive — the item stays in Todo
+    tagged `[cold]`, never deleted)
+
+If an attempt fails (tests, reviewer, merge conflict), the item stays
+in Todo tagged `[retry]` with the failure feedback in details — it does
+NOT get dropped, and the CEO does NOT get escalated.
 
 The CLI holds an mkdir-based lock for the duration of each read-modify-write,
 so concurrent agents never corrupt the file.
@@ -45,6 +63,11 @@ Items in `## Todo` can carry tags that control loop behavior + signal kind:
 | `[needs-ceo]` | Developer left questions via `clarify` | **NO** until CEO answers + removes tag |
 | `[cold]` | Janitor stale-archived | **NO** until CEO removes tag |
 | `[manual]` or `MANUAL - ` prefix | CEO-only work (art, music, level design, tuning, writing) | **NO** ever |
+| `[future]` or `FUTURE - ` prefix | Roadmap item not ready to schedule | **NO** until CEO promotes |
+| `[concern]` | Designer/Producer advisory commentary | **NO** until CEO triages |
+| `[escalated]` | Needs real CEO judgment (design/PM gameplay-ruiner, paid-asset block, story decision). RARE — never set automatically; only by triager/designer/PM/CEO manually. Wrapper regenerates `.factory/escalations.md` from these every iter. | **NO** until CEO retags as `[resume]` |
+| `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up the saved branch | yes (high priority) |
+| `[retry]` | Wrapper auto-set after tests/reviewer/merge failed on prior dev attempt. Next dev fire resumes from saved branch with failure feedback in details. **Not a CEO action** — silently retried. | yes (high priority) |
 
 The `MANUAL - ` prefix is the most-used skip marker. Sub-category labels
 after it (`MANUAL - ART - `, `MANUAL - MUSIC - `, etc.) are documentary

@@ -38,6 +38,13 @@ CLI:
     workmd.py resume <path> <title>            Flip [escalated]/[retry]
                                                → [resume] so the wrapper
                                                picks it up.
+    workmd.py sync-escalations <path>          Regenerate escalations.md
+        [--escalations P]                      from current [escalated]
+                                               items in WORK.md. Idempotent.
+                                               Wrapper calls this every iter,
+                                               so CEO clearing escalations.md
+                                               without retagging just makes
+                                               it reappear next tick.
     workmd.py append <path> --section S <line> Append a raw item line (with
                                                optional indented details on
                                                subsequent --line args).
@@ -395,6 +402,62 @@ def ship(path: Path, title: str) -> WorkItem:
         return item
 
 
+def sync_escalations(work_path: Path, esc_path: Path) -> int:
+    """Regenerate esc_path from the current [escalated] items in WORK.md.
+
+    Idempotent: if WORK.md is unchanged, esc_path is rewritten byte-for-byte.
+    If the CEO clears esc_path manually without retagging items in WORK.md
+    (e.g., to acknowledge they've read it but haven't decided yet), the
+    next call rebuilds it. The only way to remove an item from
+    escalations.md is to retag it in WORK.md ([escalated] → [resume]) —
+    or, in the rare "I'm abandoning this entirely" case, delete the item
+    line from WORK.md by hand.
+
+    Returns the count of escalated items.
+    """
+    wm = parse(work_path)
+    escalated = [it for it in wm.todo if it.is_escalated]
+    esc_path.parent.mkdir(parents=True, exist_ok=True)
+
+    header = [
+        "# Escalations",
+        "",
+        f"Generated {time.strftime('%Y-%m-%d %H:%M %Z')} by continuous_dev.sh.",
+        "",
+        "This file is **derived state**, recomputed from WORK.md every wrapper",
+        "iteration. To resolve an item:",
+        "",
+        "- **Resume** (retry from saved branch with new guidance): retag",
+        "  `[escalated]` → `[resume]` in WORK.md and edit the item's detail",
+        "  lines with your decision/clarification.",
+        "- **Acknowledge but defer** (you've read this; doing it later):",
+        "  no action — the item will keep showing up here until retagged.",
+        "  Clearing this file alone does nothing; the next tick regenerates.",
+        "",
+    ]
+
+    if not escalated:
+        esc_path.write_text("\n".join(header + ["No items currently escalated.", ""]))
+        return 0
+
+    body: list[str] = []
+    for it in escalated:
+        title = re.sub(r"^\[escalated\]\s*", "", it.title, flags=re.I)
+        body.append(f"## {title}")
+        body.append("")
+        if it.details:
+            for d in it.details:
+                body.append(f"- {d}")
+        else:
+            body.append("- (no details captured — see git log of WORK.md for history)")
+        body.append("")
+        body.append("---")
+        body.append("")
+
+    esc_path.write_text("\n".join(header + body))
+    return len(escalated)
+
+
 def retry(
     path: Path,
     title: str,
@@ -703,6 +766,12 @@ def main(argv: list[str] | None = None) -> int:
     prt.add_argument("--detail", action="append", default=[],
                      help="indented detail line (repeatable). Use for branch:, attempt-N feedback, reviewer findings, test names, etc.")
 
+    pse = sub.add_parser("sync-escalations",
+        help="regenerate escalations.md from current [escalated] items in WORK.md (idempotent; called every wrapper tick).")
+    pse.add_argument("path", help="path to WORK.md")
+    pse.add_argument("--escalations", default=None,
+                     help="path to escalations.md (default: <path-parent>/.factory/escalations.md)")
+
     pa = sub.add_parser("append", help="append a new item to a section")
     pa.add_argument("path")
     pa.add_argument("--section", required=True, choices=("todo", "current", "shipped"))
@@ -767,6 +836,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "retry":
         item = retry(path, args.title, new_details=args.detail)
         print(f"retry (tagged in-place): {item.title}")
+        return 0
+
+    if args.cmd == "sync-escalations":
+        esc = Path(os.path.expanduser(args.escalations)) if args.escalations \
+              else path.parent / ".factory" / "escalations.md"
+        n = sync_escalations(path, esc)
+        print(f"sync-escalations: regenerated {esc} ({n} escalated item(s))")
         return 0
 
     if args.cmd == "resume":
