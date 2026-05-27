@@ -60,11 +60,70 @@ that after Reviewer + tests pass.
    touches an existing feature. Inspect `Philosophy.md` for the `run_mode`
    gate (see _shared.md). Don't load the entire codebase.
 
-3. **Implement**. Edit/create Godot scripts and scenes. Follow the
-   game-repo conventions: GDScript style in `scripts/`, scenes in `scenes/`.
-   For new game-facing mechanics, add a debug-feature hook to
-   `scripts/systems/debug_boot.gd` so `--demo-feature=<slug>` can launch
-   directly into a test of this feature.
+3. **Implement.** Edit/create Godot scripts and scenes. Follow the game-repo
+   conventions: GDScript style in `scripts/`, scenes in `scenes/`.
+
+   **For every `[feature]` / `[game-feature]` item, you MUST ship all FIVE
+   parts. Reviewer blocks the merge if any are missing.** A passing GUT run
+   on the unit test is not enough — the CEO has to be able to play with the
+   feature from a single command, and the next developer has to be able to
+   find it from `GAME.md`.
+
+   | # | Deliverable                            | Where                                    |
+   |---|----------------------------------------|------------------------------------------|
+   | 1 | **The feature itself**                 | `scripts/...`, `scenes/...`              |
+   | 2 | **Working interactive debug hook**     | `scripts/systems/debug_boot.gd`          |
+   | 3 | **GUT unit test**                      | `test/unit/test_<slug>.gd` (see step 5)  |
+   | 4 | **Sample level / character / mission integration** (when applicable) | `resources/missions/sample/*`, `scenes/levels/sample/*`, or `MissionRunner.ROSTER` |
+   | 5 | **GAME.md block**                      | `GAME.md` (see step 4)                   |
+
+   **Deliverable #2 — the debug hook — is NOT optional and NOT just a
+   one-line dispatch.** It must:
+
+   - Add a case to the `match demo_feature:` in `_launch_demo()` mapping
+     `<kebab-slug>` → `_demo_<snake_slug>()`.
+   - Implement both branches in `_demo_<snake_slug>`:
+     - `if is_headless:` → instantiate `scripts/scenarios/<slug>.gd`.
+     - **else (windowed)**: pre-stage the scene so a human running
+       `godot --demo-feature=<slug>` lands in a state where the feature
+       is **immediately exercisable** — no extra wandering, no
+       "first find a guard and KO them yourself." Spawn the props
+       (KO'd guards, items, closets, etc.), set up the right loadout,
+       and `print()` a one-line controls reminder to stdout.
+   - **Autoload access**: use the autoload name as a global identifier.
+     `MissionRunner.set_mission(...)` is correct. `Engine.get_singleton("MissionRunner")`
+     is **WRONG** — it returns `null` in Godot 4.6 and every windowed
+     demo handler using it silently no-ops. If you copy from an older
+     handler, fix the pattern as you go.
+   - **Manual smoke-test, mandatory.** Before commit, run:
+     ```bash
+     <godot-binary> --path . -- --demo-feature=<slug> --quit-after=6 > /tmp/demo.out 2>&1 &
+     gpid=$!; sleep 12; kill $gpid 2>/dev/null; wait 2>/dev/null
+     grep -E 'BOOT slug|mission ready|DEMO|ERROR|SCRIPT ERROR|push_warning' /tmp/demo.out
+     ```
+     Expect: `BOOT slug=<slug> headless=false`, then `[Bootstrap] mission ready: ...`,
+     then your `DEMO <slug>: ...` print line. **No `ERROR:`, no `SCRIPT ERROR`,
+     no `push_warning` from your handler.** If you see any, fix before commit.
+
+   **Deliverable #4 — sample-level / character / mission integration.**
+   If the feature is a new ability, character archetype, item, or enemy,
+   wire it into the place the CEO can encounter it during normal play —
+   not just via the debug hook. Examples:
+   - New player ability → add the archetype to `MissionRunner.ROSTER`
+     and place a spawn marker in one sample level.
+   - New enemy variant → drop one into `warehouse_01.tscn` (or whichever
+     sample level matches the feature's vibe).
+   - New interactable (closet, terminal, fusebox) → add one to a sample
+     level near a SpawnPoint so it shows up in regular missions, not
+     only in the demo handler.
+   - New mission mechanic (timer, entry type, gear req) → set it on at
+     least one sample MissionData `.tres` so it's playable from the
+     mission select screen.
+
+   If the feature genuinely doesn't fit anywhere yet (engine-only refactor,
+   internal system, pure backend), note that in the commit body:
+   `sample-level integration: N/A — engine-only`. The Reviewer will check
+   this rationale.
 
 4. **Update Game.md — MANDATORY for any player-facing change.** Game.md is the
    game's living instruction manual AND the data source for a future tutorial

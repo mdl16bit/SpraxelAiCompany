@@ -47,28 +47,58 @@ create it with `mkdir -p .factory/local`.
    - If overnight shipped fewer than 10, pad with items from previous nights that haven't been tested yet (track this via a `tested:` marker in Game.md, or just pick recent shipped items).
 
 4. **List the 10** with launch commands, controls, and a reject hatch.
-   For each feature, do the following lookups:
-     - **commit sha**: find the `feat: <title>` commit via
-       `git log master --grep="<title>" --format='%h'` (use the short sha)
-     - **controls**: locate the matching `### <Feature Name>` block in
-       Game.md and copy the keybinds/inputs it lists. If Game.md has no
-       entry, grep the dev's scenario file at
-       `scripts/scenarios/<slug>.gd` for `Input.is_key_pressed`,
-       `is_action_pressed`, or comment-block lines mentioning keys
-       (typically `# Press X to ...`). If you find nothing, write
-       "Controls: see scripts/scenarios/<slug>.gd" — better to point
-       than to make up keys.
-     - **verify**: 2-3 lines of what to look for. Be specific — UI
-       elements, expected timing, fail/pass cues. Pull from Game.md's
-       acceptance criteria where present.
+   **The CEO must be able to test every feature with zero guesswork.** Each
+   block must contain an explicit, runnable command path — never "open the
+   editor and figure it out." For each feature, do the following lookups:
+
+   - **commit sha**: find the `feat: <title>` commit via
+     `git log master --grep="<title>" --format='%h'` (use the short sha).
+   - **what it does**: one plain-English sentence pulled from Game.md's
+     `What it does` line or the commit body's first sentence. Don't make
+     up — quote.
+   - **controls**: locate the matching `### <Feature Name>` block in
+     Game.md and copy the keybinds/inputs. If Game.md has no entry, grep
+     the scenario file at `scripts/scenarios/<slug>.gd` for
+     `Input.is_key_pressed`, `is_action_pressed`, or comment-block lines
+     mentioning keys. Last resort: `git show <sha> -- scripts/` and grep
+     the diff for `is_action_pressed`. If you genuinely find nothing,
+     write `Controls: (none discovered — see <file>)` — pointer beats
+     fabrication.
+   - **verify**: 2-3 lines of what to look for. Pull from Game.md's
+     `Acceptance` bullets where present; from the dev's scenario
+     `_assert` messages otherwise.
+   - **launch — REQUIRED, MUST be runnable.** Decide the launch path
+     using this decision tree:
+     1. **`--demo-feature=<slug>` hook exists** — verify by grepping
+        `scripts/systems/debug_boot.gd` for `"<slug>":` (the case label
+        in `_launch_demo`). If present, emit:
+        `Launch:   godot --demo-feature=<slug>`
+     2. **No demo hook but the feature ships inside a sample level** —
+        find which level via Game.md's `First encounter:` field or by
+        grepping the diff for `scenes/levels/sample/*.tscn` additions.
+        Emit specific instructions: `Launch:   godot, then Main Menu →
+        Mission Select → <mission name> (e.g. "Warehouse Job")`.
+        Include any nav steps to reach the feature (`then walk to
+        the upper floor and look for the new <thing>`).
+     3. **No demo hook and no sample-level integration** — this is a
+        contract violation by the developer; the reviewer should have
+        blocked it. Surface it loudly:
+        `Launch:   ⚠️ NO TEST PATH — dev shipped without --demo-feature
+        or sample-level integration. Inspect commit <sha> manually or
+        reject.` Don't invent commands.
+
+     The point is: the CEO should be able to copy-paste ONE line from
+     MORNING.md and either land in the feature OR see clearly that the
+     dev didn't make it testable (and reject it).
 
    Format per feature:
    ```
    N. [<slug>] <Feature title>  — `<short-sha>`
+      What:     <one plain-English sentence>
       Controls: <key1, key2, ...>
       Verify:   <line 1>
                 <line 2 if needed>
-      Launch:   godot --demo-feature=<slug>
+      Launch:   <one of the three options above — REQUIRED>
       ✏️ Amend:  bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "<feedback>"
       ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
    ```
@@ -98,8 +128,28 @@ create it with `mkdir -p .factory/local`.
    re-attempt next run.
 
 8. **Escalations section** — read `.factory/escalations.md` and surface
-   any escalations from the past 24 hours. One line per escalation:
-   the item title + the Developer's reason + a path to the log.
+   any escalations from the past 24 hours. For each, list the item title,
+   the Developer's reason, the saved branch name, the log path, AND **the
+   one-line command the CEO would run to act on it**. Three actions
+   exist:
+
+   - **Resume** (let overnight retry once the CEO clarifies): edit the
+     `[escalated]` item in WORK.md to `[resume]` (just retag) and add
+     any clarifying detail lines. No script needed.
+   - **Reject** (give up on the attempt, re-queue from scratch):
+     `bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"`.
+   - **Drop** (decide not to do it at all): delete the item line from
+     WORK.md.
+
+   Format:
+   ```
+   - <title> — Developer: "<reason>".
+       Branch: <branch-name> @ <sha>
+       Log:    <path>
+       Resume: retag the item from [escalated] → [resume] in WORK.md
+       Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
+       Drop:   delete the item line from WORK.md
+   ```
 
 9. **Time box** — fixed template, total ~38 min (see template below).
 
@@ -123,15 +173,17 @@ create it with `mkdir -p .factory/local`.
 Commits: <first-sha> .. <last-sha> (`git log master --since=yesterday`).
 
 ## ▶ Play-test today (20 min)
-Launch each with: `godot --demo-feature=<slug>` from the game repo.
+Every feature below has a runnable Launch line — copy/paste it from the game repo.
+Run from `~/GameProjects/infiltrators` (or wherever your game repo is).
 ✏️ Amend keeps the feature, queues a refinement pass with your feedback.
 ❌ Reject reverts the feature on master, re-queues for re-implementation.
 
 1. [<slug>] <Feature title>  — `<short-sha>`
+   What:     <one plain-English sentence>
    Controls: <key1, key2, ...>
    Verify:   <line 1>
              <line 2 if needed>
-   Launch:   godot --demo-feature=<slug>
+   Launch:   <godot --demo-feature=<slug>>  OR  <"open game → Mission Select → ...">  OR  <⚠️ NO TEST PATH — see commit>
    ✏️ Amend:  bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "<feedback>"
    ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
 ... (10 total)
@@ -161,8 +213,13 @@ WORK.md (replace the questions with concrete details), then remove the
   ...
 
 ## ▶ Escalations (3 min)
-<N> items the Developer couldn't land last night:
-  - <title> — Developer: "<reason>". Log: <path>
+<N> items the Developer couldn't land last night. For each: Resume / Reject / Drop.
+  - <title> — Developer: "<reason>"
+      Branch: <branch-name> @ <sha>
+      Log:    <path>
+      Resume: retag [escalated] → [resume] in WORK.md (overnight retries)
+      Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
+      Drop:   delete the item line from WORK.md
   ...
 
 ## ▶ Time box

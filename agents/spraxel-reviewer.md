@@ -41,22 +41,52 @@ a schedule.
    - Hardcoded values that should be `@export`ed or come from Philosophy.md.
 
    **Blocking checks** (mark verdict `blocking` if any fails — never let
-   these slide):
+   these slide). For `[feature]` / `[game-feature]` items, the dev spec
+   requires FIVE deliverables. Each gets its own blocking check:
 
-   - **`test/unit/test_<slug>.gd` exists in the diff** for any
-     `[feature]` / `[game-feature]` / `[bug]` item. No new test = the
-     contract was violated.
-   - **`Game.md` updated** for any `[game-feature]` or player-facing
-     `[feature]`. The block must include ALL fields from the
-     developer-spec template: What / Controls / **First encounter** /
-     **Tutorial prompt** / Debug hook / Trace events / Test scenario /
-     Unit test / Acceptance. A missing or incomplete block is a block.
-     (Reason: Game.md feeds the future tutorial system; gaps now mean
-     un-tutorialable features later.)
-   - **`scripts/scenarios/<slug>.gd` exists** for any `[game-feature]`
-     or `[feature]` that adds a debug-feature hook.
-   - **`--demo-feature=<slug>` registered** in `scripts/systems/debug_boot.gd`
-     for the same.
+   1. **The feature itself** — `scripts/...` / `scenes/...` changes
+      compile, no obvious correctness defects (covered by general
+      review above).
+   2. **Working interactive debug hook** in
+      `scripts/systems/debug_boot.gd`:
+      - `--demo-feature=<slug>` case wired in `_launch_demo()`.
+      - `_demo_<snake_slug>()` defined.
+      - **Both branches present**: `if is_headless: → scenario.gd
+        instantiation`; **else windowed branch pre-stages the scene**
+        (spawns props, sets loadout, prints a one-line controls
+        reminder). A windowed branch that just calls `set_mission` +
+        `change_scene_to_file` without pre-staging is **insufficient**
+        unless the existing level already contains every prop the
+        feature needs. Block if the user would have to "find a guard
+        and KO them first" before the feature is exercisable.
+      - **Autoload pattern correct**: uses `MissionRunner.set_mission(...)`
+        as a global, NOT `Engine.get_singleton("MissionRunner")` (which
+        returns null in Godot 4.6 and silently no-ops). Block if you
+        see the broken pattern in new code.
+      - **Smoke-test evidence**: the commit body or PR notes mentions
+        a manual windowed run, OR the dev's commit shows the
+        `--demo-feature=<slug>` invocation worked. If neither, block
+        with a request to smoke-test.
+   3. **GUT unit test**: `test/unit/test_<slug>.gd` exists in the diff.
+      No new test = blocking.
+   4. **Sample-level / character / mission integration**: the feature
+      is reachable in normal play, not just via the debug hook. Check
+      for one of: a roster entry added to `MissionRunner.ROSTER`, a
+      new node placed in a `scenes/levels/sample/*.tscn`, a new
+      mission `.tres` referencing it, or a sample-level scene patched
+      to include the new interactable. If none, the commit body must
+      say `sample-level integration: N/A — <reason>`. Missing both is
+      a block.
+   5. **`GAME.md` updated** for any `[game-feature]` or player-facing
+      `[feature]`. The block must include ALL fields from the
+      developer-spec template: What / Controls / **First encounter** /
+      **Tutorial prompt** / Debug hook / Trace events / Test scenario /
+      Unit test / Acceptance. A missing or incomplete block is a block.
+      (Reason: GAME.md feeds the future tutorial system; gaps now mean
+      un-tutorialable features later.)
+   6. **`scripts/scenarios/<slug>.gd` exists** for the headless branch
+      to instantiate. Block if step 2's headless branch references a
+      file that doesn't exist in the diff or on master.
 
 3. **Write findings** to `.factory/reviews/<branch-slug>.md` (create dir
    if missing). Format:
