@@ -230,51 +230,57 @@ python3 $WORKMD drop $WORK "duplicate-bug-title-substring"
 
 #### 5. ▶ Escalations (3 min)
 
+**What an escalation is**: the wrapper tried to ship an item, failed twice,
+and gave up. Two things happen on escalation (post 2026-05-26 redesign):
+
+1. The item **stays in WORK.md `## Todo`** but the `[escalated]` tag is
+   added to its title. The wrapper's `top_n` filter skips `[escalated]`,
+   so it won't auto-retry until you triage. Failure summary (why, attempt
+   timestamps, branch name, last commit) lands as indented detail lines
+   under the item.
+2. The dev's feature branch is **pushed to origin** (preserved). A rich
+   self-contained markdown block is appended to `.factory/escalations.md`
+   for history. **Master is never modified** by a failed attempt.
+
+So you triage **inside WORK.md** — you do NOT re-paste items from
+escalations.md. Two scans:
+
 ```bash
+# All escalated items needing triage:
+grep '^\[escalated\]' ~/GameProjects/<game>/WORK.md
+
+# Full history with rich context if you want to read:
 cat ~/GameProjects/<game>/.factory/escalations.md
 ```
 
-**What's already happened**: when the wrapper escalates, it REMOVES the item
-from WORK.md `## Todo` entirely (see `workmd.py escalate` — pops the entry
-from the list, then writes the file back). The item title + details + log
-path are copied into `.factory/escalations.md`, which is append-only history.
+##### For each `[escalated]` item, three options
 
-So for each entry in `escalations.md` you have exactly **two options**:
+**(a) Trash it** — delete the line(s) from WORK.md and save. The next
+janitor run will sweep the orphaned branch from origin. Use when the
+attempt convinced you the item isn't worth pursuing.
 
-##### (a) Do nothing → item dies quietly
-It's already gone from `## Todo`. No further action required. The escalations
-entry stays in the file as a record of "we tried this and gave up." Skipping
-an entry is the equivalent of "permanent reject."
-
-##### (b) Re-add to WORK.md `## Todo` → fresh attempt next overnight
-Paste a new line under `## Todo` (the file, not the escalations file). Options:
+**(b) Resume it** — edit the title/details to tighten the spec, then
+flip `[escalated]` → `[resume]`. Wrapper picks it up next overnight,
+checks out the saved branch, rebases on master, and hands off to the dev
+with full failure context.
 
 ```bash
-# RESURRECT with clarifying details — addresses the Developer's blocker
-python3 $WORKMD append $WORK --section todo \
-  "[feature] p1 skill tree system" \
-  --detail "scope clarified: SCAFFOLDING only (data structure + 5 example" \
-  --detail "skills + UI). Full 300-skill list comes later."
-
-# RESURRECT as-is — Developer was just having a bad night
-python3 $WORKMD append $WORK --section todo "[feature] p1 <title>"
-
-# RESURRECT but park it — you want the idea preserved, not shipped now
-python3 $WORKMD append $WORK --section todo "FUTURE - <title>"
-
-# RESURRECT as human-only — you've realized it's not AI-shippable
-python3 $WORKMD append $WORK --section todo "MANUAL - <title>"
+# Either edit WORK.md directly, then change the tag; OR use the CLI:
+python3 ~/SpraxelAiCompany/scripts/workmd.py resume $WORK "<title-substring>"
 ```
 
-Or just open WORK.md in an editor and paste the line under `## Todo`. Same effect.
+**(c) Park it** — replace `[escalated]` with `FUTURE - ` (still on the
+roadmap, not now) or `MANUAL - ` (you've decided it's human-only). The
+branch stays on origin until janitor sweeps it. The item stays visible
+in WORK.md so you remember.
 
 ##### What you DON'T do
-- **Don't edit `escalations.md`** — it's append-only history. The escalation
-  entry stays there forever as the audit trail. Whether the item re-enters
-  rotation is determined entirely by what you do (or don't do) in WORK.md.
-- **Don't `git revert` the escalation commit** — that would re-add the item
-  to `## Todo` but you lose the chance to add clarifications, and the log
-  noise is unhelpful.
+- **Don't edit `.factory/escalations.md`** — it's append-only history.
+  The triage signal is what you do in WORK.md, not what you do here.
+- **Don't paste items from escalations.md back into WORK.md** — that's
+  the old workflow. They're already there now (with `[escalated]`).
+- **Don't `git revert` an escalate commit** — the escalation already
+  preserved the branch on origin; rebooting via revert can lose work.
 
 #### 6. ▶ Dictation (5 min, optional)
 
@@ -882,6 +888,8 @@ Tag reference:
 | `[manual]` or `MANUAL - ` prefix | CEO-only — needs human hands (controller test, art, music, level design) | **NO** (skip until tag/prefix removed) |
 | `[needs-ceo]` | Developer added clarifying questions — CEO must answer | **NO** (skip until questions answered + tag removed) |
 | `[future]` or `FUTURE - ` prefix | Roadmap item — not ready to schedule (needs scoping, blocked, or deliberately deferred) | **NO** (skip until tag/prefix removed) |
+| `[escalated]` | Wrapper tried 2x, failed. Saved branch on origin (see `branch:` detail line). CEO triages: trash / resume / park. | **NO** (skip until CEO retags as `[resume]` or other) |
+| `[resume]` | CEO triaged an escalation. Wrapper picks it up, checks out saved branch, rebases on master, hands off to dev with full failure context. | **yes** (dev resumes from saved branch instead of fresh) |
 
 ### `MANUAL - ` sub-category labels
 

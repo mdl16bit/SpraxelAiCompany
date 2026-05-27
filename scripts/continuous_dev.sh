@@ -225,11 +225,68 @@ ship_one_item() {
   fi
 
   slug=$(echo "$next_title" | python3 "$SLUGIFY")
-  branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
   item_log="$LOG_DIR/$slug.log"
-  echo "continuous: → '$next_title' on $branch"
 
-  git checkout --quiet -B "$branch" master
+  # ── Resume path ───────────────────────────────────────────────────────────
+  # If the item is tagged [resume], the CEO triaged a prior escalation and
+  # wants the dev to pick up the saved branch. Extract the branch name from
+  # the item's details (looking for a "branch: <name>" line), check it out,
+  # and rebase onto current master so the dev resumes on an up-to-date base.
+  local is_resume="false"
+  local saved_branch=""
+  if echo "$next_title" | grep -qiE '^\[resume\]'; then
+    is_resume="true"
+    saved_branch=$(echo "$next_json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+if d:
+    for det in d[0].get('details', []):
+        det = det.strip()
+        if det.lower().startswith('branch:'):
+            print(det.split(':', 1)[1].strip())
+            break
+")
+  fi
+
+  if [ "$is_resume" = "true" ] && [ -n "$saved_branch" ]; then
+    branch="$saved_branch"
+    echo "continuous: ↻ resuming '$next_title' on $branch"
+    # Fetch the saved branch from origin and check it out locally.
+    if ! git fetch --quiet origin "$branch" 2>/dev/null; then
+      echo "continuous: resume FAILED — branch '$branch' missing on origin. Falling back to fresh start." >&2
+      branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
+      git checkout --quiet -B "$branch" master
+      is_resume="false"
+    else
+      if ! git checkout --quiet -B "$branch" "origin/$branch" 2>/dev/null; then
+        echo "continuous: resume FAILED — could not checkout origin/$branch. Falling back." >&2
+        branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
+        git checkout --quiet -B "$branch" master
+        is_resume="false"
+      else
+        # Rebase the saved branch onto current master. If rebase conflicts,
+        # abort, re-tag as [escalated] with "rebase conflict" note.
+        if ! git rebase --quiet master 2>/dev/null; then
+          git rebase --abort 2>/dev/null || true
+          echo "continuous: resume FAILED — rebase conflicts. Re-escalating." >&2
+          clean_slate
+          # Re-mark the item as [escalated] (replacing [resume]) with the conflict note.
+          python3 "$WORKMD" escalate "$game_dir/WORK.md" "${next_title#\[resume\] }" \
+            --detail "RE-ESCALATED $(date '+%Y-%m-%d %H:%M %Z'): rebase of '$branch' onto master conflicted — hand-merge needed." \
+            2>/dev/null
+          git add WORK.md 2>/dev/null
+          git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+              commit --quiet -m "re-escalate: '$next_title' (rebase conflict)" 2>/dev/null
+          git push --quiet origin master 2>/dev/null || true
+          return 1
+        fi
+      fi
+    fi
+  else
+    branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
+    echo "continuous: → '$next_title' on $branch"
+    git checkout --quiet -B "$branch" master
+  fi
 
   local outcome=fail
   local baseline_failures=""
@@ -248,6 +305,25 @@ print(it['title'])
 for det in it.get('details', []):
     print(f'  {det}')
 ")
+    # Resume-mode prompt suffix: tell the dev they're picking up prior work
+    # on an existing branch (already checked out + rebased on master).
+    if [ "$is_resume" = "true" ]; then
+      item_brief="$item_brief
+
+## RESUME MODE
+
+You are resuming a previously-escalated work item. The branch \`$branch\` is
+already checked out and rebased on current master — the prior dev's commits
+are visible in \`git log\`. The CEO has reviewed the failure and edited the
+item details above (their feedback is what you should act on).
+
+Read what was tried (\`git log --oneline -10\` + \`git show <sha>\`) and either:
+  - Build on the existing code with new commits
+  - Or revert / amend specific bad pieces and replace them
+
+Do NOT delete the branch or reset to master. Commit your changes; the wrapper
+folds everything into one squash-merge to master at the end."
+    fi
     echo "$item_brief" > "$item_log.brief"
 
     # Fire developer. Capture the real exit code (the `if !` form drops it to 0).
@@ -381,24 +457,137 @@ except Exception:
   done
 
   if [ "$outcome" != "ok" ]; then
-    # Self-heal BEFORE recording the escalation. Without this, a wrecked
-    # tree (e.g. unresolved conflicts from a failed stash pop) would either
-    # block the escalate commit silently, or land it on the wrong branch —
-    # meaning the item never gets marked [needs-ceo] and the loop retries
-    # it forever.
+    # Capture the dev's branch state BEFORE clean_slate wipes the working
+    # tree (we want to preserve the branch on origin so CEO can resume from
+    # it after triage).
+    local last_commit_sha=""
+    last_commit_sha=$(git rev-parse --short "$branch" 2>/dev/null || echo "")
+
+    # Push the failed branch to origin so the work isn't lost when local
+    # tree is reset. The CEO can later flip [escalated] → [resume] and the
+    # wrapper will pull this branch back down.
+    if [ -n "$last_commit_sha" ]; then
+      git push --quiet --force-with-lease origin "$branch":"$branch" 2>/dev/null || \
+        echo "continuous: WARNING — could not push failed branch '$branch' to origin" >> "$item_log"
+    fi
+
+    # Self-heal before the escalation bookkeeping commit. Without this, a
+    # wrecked tree would block the escalate commit or land it on the wrong
+    # branch.
     if ! clean_slate; then
       echo "continuous: ESCALATION self-heal FAILED — cannot reach master to record '$next_title'" >> "$item_log"
       echo "continuous: ⚠️  could not escalate '$next_title' — fail_streak will brake the loop"
       return 1
     fi
-    git branch -D "$branch" --quiet 2>/dev/null || true
+
+    # Build a self-contained markdown summary block from the item log.
+    # The CEO reads this in escalations.md AND in WORK.md item details —
+    # no log-link chasing required.
+    local summary_file="$item_log.summary.md"
+    python3 - "$item_log" "$next_title" "$branch" "$last_commit_sha" > "$summary_file" <<'PY'
+import sys, re, time, os
+log_path, title, branch, last_sha = sys.argv[1:5]
+clean_title = re.sub(r'^\[(resume|escalated)\]\s*', '', title, flags=re.I)
+try:
+    with open(log_path) as f:
+        log = f.read()
+except FileNotFoundError:
+    log = ""
+attempts = []
+for chunk in re.split(r'=== attempt (\d+) at (.*?) ===', log):
+    pass
+# Simpler: re-split by attempt header lines.
+parts = re.split(r'^=== attempt (\d+) at (.*?) ===\s*$', log, flags=re.M)
+# parts[0] = preamble (ignored); then triples of (n, ts, body)
+i = 1
+while i + 2 < len(parts):
+    n, ts, body = parts[i], parts[i+1], parts[i+2]
+    # Extract baseline failure list (one capture per attempt usually)
+    baseline_match = re.search(r"baseline failures captured \((\d+)\)", body)
+    baseline_count = int(baseline_match.group(1)) if baseline_match else 0
+    new_fail_match = re.search(r"NEW failures on attempt \d+:\s*\n(.*?)(?=\n===|\nescalated:|\Z)", body, re.S)
+    new_fails = []
+    if new_fail_match:
+        for line in new_fail_match.group(1).splitlines():
+            line = line.strip()
+            if line and not line.startswith("continuous:") and not line.startswith("["):
+                new_fails.append(line)
+    # Detect categorical failure modes
+    if "reviewer BLOCKED" in body:
+        new_fails.insert(0, "reviewer rejected the diff")
+    if "developer rc=" in body and not new_fails:
+        rc_match = re.search(r"developer rc=(\d+)", body)
+        new_fails.append(f"dev agent crashed (rc={rc_match.group(1) if rc_match else '?'})")
+    if "merge/push FAILED" in body:
+        new_fails.append("merge to master failed")
+    attempts.append({
+        "n": int(n), "ts": ts.strip(),
+        "baseline": baseline_count, "new": new_fails,
+    })
+    i += 3
+out = []
+out.append("")
+out.append(f"## Escalated {time.strftime('%Y-%m-%d %H:%M %Z')} — {clean_title}")
+out.append("")
+out.append("**Outcome**: not merged. Master unchanged. Feature branch preserved on origin.")
+out.append("")
+if not attempts:
+    out.append("**Why it failed**: could not parse failure details from per-item log.")
+else:
+    cats = set()
+    for a in attempts:
+        for f in a["new"]:
+            cats.add(f)
+    if cats:
+        out.append(f"**Why it failed**: " + "; ".join(sorted(cats)) + ".")
+    else:
+        out.append("**Why it failed**: see attempt details below.")
+out.append("")
+for a in attempts:
+    out.append(f"**Attempt {a['n']}** ({a['ts']}):")
+    if a["baseline"]:
+        out.append(f"  - {a['baseline']} pre-existing baseline failure(s) ignored")
+    if a["new"]:
+        for f in a["new"]:
+            out.append(f"  - NEW: {f}")
+    else:
+        out.append("  - no NEW failures captured (see log for details)")
+    out.append("")
+out.append(f"**Branch saved on origin**: `{branch}` @ `{last_sha or 'unknown'}`")
+out.append("")
+out.append("**How to proceed**: edit the WORK.md item above to add scope/clarifications,")
+out.append("then change the `[escalated]` tag to `[resume]` (or run")
+out.append("`python3 scripts/workmd.py resume WORK.md \"<title>\"`). The wrapper will pick")
+out.append("it up next overnight and resume the dev on this branch. To trash instead,")
+out.append("delete the WORK.md item line — janitor will sweep the orphan branch.")
+out.append("")
+print("\n".join(out))
+PY
+
+    # Build the per-item detail lines that will live under the WORK.md item.
+    # Aggregate new failures for a one-line "why" detail.
+    local why_line
+    why_line=$(grep -h "NEW failures on attempt" "$item_log" 2>/dev/null | head -1)
+    local detail_args=()
+    detail_args+=(--detail "outcome: not merged; master unchanged")
+    detail_args+=(--detail "branch: $branch")
+    [ -n "$last_commit_sha" ] && detail_args+=(--detail "last-commit: $last_commit_sha")
+    if [ -n "$why_line" ]; then
+      detail_args+=(--detail "why: see escalations.md entry below")
+    fi
+    detail_args+=(--detail "to retry: change [escalated] → [resume] and edit scope above")
+
     python3 "$WORKMD" escalate "$game_dir/WORK.md" "$next_title" \
-      --log "$item_log" >> "$item_log" 2>&1 || true
+      --summary-file "$summary_file" \
+      "${detail_args[@]}" \
+      >> "$item_log" 2>&1 || true
+    rm -f "$summary_file"
+
     git add WORK.md "$game_dir/.factory/escalations.md" 2>/dev/null
     git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
         commit --quiet -m "escalate: '$next_title'" 2>/dev/null
     git push --quiet origin master 2>/dev/null || true
-    echo "continuous: ✗ escalated '$next_title'"
+    echo "continuous: ✗ escalated '$next_title' — branch '$branch' preserved on origin"
     return 1
   fi
 

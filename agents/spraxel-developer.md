@@ -46,6 +46,15 @@ that after Reviewer + tests pass.
      was wrong; don't repeat it. You can `git show <sha>` to see what was
      done (it's still in reflog) but treat it as a cautionary tale, not a
      starting point.
+   - If it's `[resume] <title>` — you're picking up a previously-escalated
+     work item. The wrapper has already checked out the saved branch and
+     rebased it on current master, so the prior dev's commits are visible
+     in `git log --oneline`. Read what was tried (`git show <sha>`) and the
+     CEO's updated scope in the detail lines (their edits to title/details
+     are the new spec). Either build on the existing commits or amend
+     specific bad pieces — your call. Look for a "## RESUME MODE" section
+     in the item brief: that's the wrapper signaling this case explicitly
+     and giving you the branch name.
 
 2. **Read related context** narrowly. Inspect Game.md only if the item
    touches an existing feature. Inspect `Philosophy.md` for the `run_mode`

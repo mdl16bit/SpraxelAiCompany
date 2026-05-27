@@ -25,8 +25,11 @@ CLI:
     workmd.py top    <path> [-n N]             Print top N todo items as JSON
                                                (skips [idea] and [cold]).
     workmd.py ship   <path> <title>            Move item from Todo → Shipped-since.
-    workmd.py escalate <path> <title> <log>    Remove from Todo; append to
-                                               .factory/escalations.md.
+    workmd.py escalate <path> <title>          Tag the item [escalated] in
+        [--summary-file F] [--detail D...]     place + append the summary
+                                               markdown to escalations.md.
+    workmd.py resume <path> <title>            Flip [escalated] → [resume]
+                                               so the wrapper picks it up.
     workmd.py append <path> --section S <line> Append a raw item line (with
                                                optional indented details on
                                                subsequent --line args).
@@ -51,7 +54,7 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume)\]", re.I)
 # Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
 MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 # Future-item prefix: "FUTURE - foo", "FUTURE: foo", "FUTURE foo" — overnight
@@ -104,6 +107,23 @@ class WorkItem:
         """True if Developer asked clarifying questions — needs CEO answers
         before overnight will re-attempt it."""
         return "needs-ceo" in self.tags
+
+    @property
+    def is_escalated(self) -> bool:
+        """True if the wrapper escalated this item after 2 failed attempts.
+        The feature branch has been preserved on origin (see the `branch:`
+        detail line); details capture the failure summary. Wrapper skips
+        [escalated] — CEO triages by either deleting the item, editing it
+        and retagging as [resume], or just leaving it (does nothing)."""
+        return "escalated" in self.tags
+
+    @property
+    def is_resume(self) -> bool:
+        """True if CEO has triaged an escalated item and wants the dev to
+        resume from the saved branch. Wrapper picks up [resume] items,
+        checks out the branch listed in details, rebases on master, and
+        hands off to the dev with full failure context."""
+        return "resume" in self.tags
 
     def to_dict(self) -> dict:
         return {
@@ -342,30 +362,55 @@ def ship(path: Path, title: str) -> WorkItem:
         return item
 
 
-def escalate(path: Path, title: str, log_ref: str, escalations_path: Path) -> WorkItem:
-    """Drop an item from Todo and record it in escalations.md.
+def escalate(
+    path: Path,
+    title: str,
+    escalations_path: Path,
+    summary_md: str = "",
+    new_details: list[str] | None = None,
+) -> WorkItem:
+    """Tag a Todo item as [escalated] in-place and append a rich summary
+    to escalations.md.
 
-    The item stays out of WORK.md until the CEO re-adds it. Escalation log
-    is append-only so historic context is preserved.
+    Replaces the previous behavior (which removed the item from Todo);
+    that lost the dev's branch and made it hard for the CEO to see all
+    pending work in one place.
+
+    NEW behavior:
+    - Adds `[escalated]` to the item's title (if not already).
+    - Appends `new_details` (failure summary, branch name, last commit,
+      etc.) under the item so the CEO can triage from WORK.md alone.
+    - Appends `summary_md` (a markdown block, no log path link) to
+      escalations.md — that file becomes a self-contained history.
+    - The item stays in Todo. The wrapper's top_n filter skips
+      [escalated], so it won't auto-retry until the CEO retags as
+      [resume].
     """
     with FileLock(path):
         wm = parse(path)
         idx = find_item(wm.todo, title)
         if idx < 0:
             raise ValueError(f"item not found in todo: {title!r}")
-        item = wm.todo.pop(idx)
+        item = wm.todo[idx]
+        # Tag the title with [escalated] if not already present. Also strip
+        # any prior [resume] tag — those are mutually exclusive states.
+        new_title = re.sub(r"\[resume\]\s*", "", item.title, flags=re.I)
+        if "escalated" not in [t.lower() for t in KIND_TAG_RE.findall(new_title)]:
+            new_title = "[escalated] " + new_title
+        item.title = new_title
+        # Append new detail lines (caller passes failure summary).
+        if new_details:
+            for d in new_details:
+                if d not in item.details:
+                    item.details.append(d)
+        # Rebuild raw_lines so serialize() emits the updated title + details.
+        item.raw_lines = [item.title] + [f"  {d}" for d in item.details]
         path.write_text(serialize(wm))
 
-    escalations_path.parent.mkdir(parents=True, exist_ok=True)
-    block = [
-        "",
-        f"## Escalated {time.strftime('%Y-%m-%d %H:%M %Z')} — {item.title}",
-        f"log: {log_ref}",
-    ]
-    for d in item.details:
-        block.append(f"  {d}")
-    with escalations_path.open("a") as f:
-        f.write("\n".join(block) + "\n")
+    if summary_md:
+        escalations_path.parent.mkdir(parents=True, exist_ok=True)
+        with escalations_path.open("a") as f:
+            f.write(summary_md.rstrip() + "\n")
     return item
 
 
@@ -487,13 +532,18 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
     """Return the first N eligible Todo items.
 
     Eligible = not [idea], not [cold], not [manual]/MANUAL, not [needs-ceo],
-    not [future]/FUTURE, not in skip_attempted. Preserves file order.
+    not [future]/FUTURE, not [escalated], not in skip_attempted.
+
+    [resume] items ARE eligible — they're escalated items the CEO has
+    triaged and wants the dev to retry, picking up from the saved branch.
+
+    Preserves file order.
     """
     wm = parse(path)
     skip = {s.strip().lower() for s in (skip_attempted or [])}
     out: list[WorkItem] = []
     for it in wm.todo:
-        if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo or it.is_future:
+        if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo or it.is_future or it.is_escalated:
             continue
         if it.title.strip().lower() in skip:
             continue
@@ -554,12 +604,21 @@ def main(argv: list[str] | None = None) -> int:
     ps.add_argument("path")
     ps.add_argument("title")
 
-    pe = sub.add_parser("escalate", help="drop Todo item and record in escalations.md")
+    pe = sub.add_parser("escalate",
+        help="tag a Todo item [escalated] in-place + append self-contained summary to escalations.md")
     pe.add_argument("path")
     pe.add_argument("title")
-    pe.add_argument("--log", default="(no log)")
+    pe.add_argument("--summary-file", default=None,
+                    help="path to a markdown file whose contents are appended to escalations.md as the summary block (no log path link).")
+    pe.add_argument("--detail", action="append", default=[],
+                    help="indented detail line to append under the item (repeatable). Use for branch:, last-commit:, attempt summaries, etc.")
     pe.add_argument("--escalations", default=None,
-                    help="path to escalations.md (default: <repo>/.factory/escalations.md)")
+                    help="path to escalations.md (default: <path-parent>/.factory/escalations.md)")
+
+    pre = sub.add_parser("resume",
+        help="flip an [escalated] item to [resume] — CEO has triaged and wants the dev to pick it back up next overnight")
+    pre.add_argument("path")
+    pre.add_argument("title")
 
     pa = sub.add_parser("append", help="append a new item to a section")
     pa.add_argument("path")
@@ -613,8 +672,33 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "escalate":
         esc = Path(os.path.expanduser(args.escalations)) if args.escalations \
               else path.parent / ".factory" / "escalations.md"
-        item = escalate(path, args.title, args.log, esc)
-        print(f"escalated: {item.title} → {esc}")
+        summary_md = ""
+        if args.summary_file:
+            sf = Path(os.path.expanduser(args.summary_file))
+            if sf.exists():
+                summary_md = sf.read_text()
+        item = escalate(path, args.title, esc, summary_md=summary_md, new_details=args.detail)
+        print(f"escalated (tagged in-place): {item.title}")
+        return 0
+
+    if args.cmd == "resume":
+        with FileLock(path):
+            wm = parse(path)
+            section, idx = _find_in_all(wm, args.title)
+            if idx < 0:
+                print(f"item not found: {args.title!r}", file=sys.stderr)
+                return 1
+            item = getattr(wm, section)[idx]
+            new_title = re.sub(r"\[escalated\]\s*", "", item.title, flags=re.I)
+            if new_title == item.title:
+                print(f"item is not [escalated]: {item.title!r}", file=sys.stderr)
+                return 1
+            new_title = "[resume] " + new_title
+            item.title = new_title
+            if item.raw_lines:
+                item.raw_lines[0] = new_title
+            path.write_text(serialize(wm))
+        print(f"resumed: {item.title}")
         return 0
 
     if args.cmd == "append":

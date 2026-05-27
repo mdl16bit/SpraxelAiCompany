@@ -60,6 +60,36 @@ Keep unmerged `feat/` branches (CEO may still want them) and any branch
 that doesn't match the bot-loop pattern (e.g., `ceo/*` branches you made
 during manual edits, `blog/*` branches from Blogger awaiting review).
 
+### 2b. Sweep orphan escalated branches
+
+The continuous-dev wrapper preserves failed dev branches on origin under
+their original `feat/cont-*` name so the CEO can resume them. If the CEO
+deletes the corresponding `[escalated]` item from WORK.md (the "trash"
+path), the branch becomes orphaned. Sweep it.
+
+```bash
+# Build a set of branches still referenced by WORK.md items (the `branch:`
+# detail line under any [escalated]/[resume] item).
+referenced=$(grep -E '^\s*branch:\s*' WORK.md | sed -E 's/^\s*branch:\s*//' | sort -u)
+
+# For each origin branch with a feat/cont- prefix that is NOT in master's
+# reachable history AND NOT referenced by any WORK.md item, delete it.
+for b in $(git branch -r | grep -E 'origin/feat/cont-' | sed 's|origin/||'); do
+  if git merge-base --is-ancestor "origin/$b" master 2>/dev/null; then
+    continue   # already covered by step 2 above
+  fi
+  if grep -qxF "$b" <<<"$referenced"; then
+    continue   # still referenced by an [escalated] or [resume] item
+  fi
+  git push origin --delete "$b"
+  echo "janitor: swept orphan escalated branch $b"
+done
+```
+
+`branch:` detail lines under WORK.md items are the source of truth for
+"this branch is still wanted." If the CEO deletes the item line, the
+branch falls out of the referenced set on the next janitor run.
+
 ### 3. Prune logs
 
 Delete `~/SpraxelAiCompany/logs/*/<file>` older than **60 days**:
