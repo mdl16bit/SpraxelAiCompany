@@ -51,9 +51,13 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future)\]", re.I)
 # Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
 MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
+# Future-item prefix: "FUTURE - foo", "FUTURE: foo", "FUTURE foo" — overnight
+# skips these too. Signals to the CEO that this is on the roadmap but not yet
+# ready (needs scoping / blocked on something / deliberately deferred).
+FUTURE_PREFIX_RE = re.compile(r"^\s*FUTURE\b\s*[-:–—]?\s*", re.I)
 
 
 @dataclass
@@ -85,6 +89,15 @@ class WorkItem:
         """True if item is CEO-only — either tagged [manual] or starts with
         a MANUAL prefix (e.g. 'MANUAL - test the game with controller')."""
         return "manual" in self.tags or bool(MANUAL_PREFIX_RE.match(self.title))
+
+    @property
+    def is_future(self) -> bool:
+        """True if item is parked for later — either tagged [future] or starts
+        with a FUTURE prefix (e.g. 'FUTURE - multiplayer co-op'). Overnight
+        skips these. Use for things on the roadmap that aren't ready: needs
+        scoping, blocked on a dependency, or deliberately deferred until a
+        later milestone. The CEO removes the tag when ready to schedule it."""
+        return "future" in self.tags or bool(FUTURE_PREFIX_RE.match(self.title))
 
     @property
     def is_needs_ceo(self) -> bool:
@@ -474,13 +487,13 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
     """Return the first N eligible Todo items.
 
     Eligible = not [idea], not [cold], not [manual]/MANUAL, not [needs-ceo],
-    not in skip_attempted. Preserves file order.
+    not [future]/FUTURE, not in skip_attempted. Preserves file order.
     """
     wm = parse(path)
     skip = {s.strip().lower() for s in (skip_attempted or [])}
     out: list[WorkItem] = []
     for it in wm.todo:
-        if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo:
+        if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo or it.is_future:
             continue
         if it.title.strip().lower() in skip:
             continue

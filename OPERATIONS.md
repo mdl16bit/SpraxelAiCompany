@@ -856,6 +856,7 @@ Tag reference:
 | `[cold]` | Janitor archived as stale | **NO** (must remove tag first) |
 | `[manual]` or `MANUAL - ` prefix | CEO-only — needs human hands (controller test, art, music, level design) | **NO** (skip until tag/prefix removed) |
 | `[needs-ceo]` | Developer added clarifying questions — CEO must answer | **NO** (skip until questions answered + tag removed) |
+| `[future]` or `FUTURE - ` prefix | Roadmap item — not ready to schedule (needs scoping, blocked, or deliberately deferred) | **NO** (skip until tag/prefix removed) |
 
 ### `MANUAL - ` sub-category labels
 
@@ -883,6 +884,36 @@ feat: add duck mechanic
 tests: + test_duck.gd
 follow-ups added to WORK.md:
   - MANUAL - ART - Duck sprite + ducked-walk animation
+```
+
+### `FUTURE - ` parked roadmap items
+
+`FUTURE - <desc>` or `[future] <desc>` marks something you want to do
+**eventually** but isn't ready to schedule yet. Overnight skips these
+the same way it skips `MANUAL` and `[needs-ceo]` — they sit in `## Todo`
+as a visible roadmap without competing for tonight's batch.
+
+Use it when:
+- **You haven't scoped it yet.** Idea is good, but you don't know what
+  "done" looks like — needs a design pass before the Developer can ship it.
+- **Blocked on something.** Depends on a system that hasn't been built yet,
+  a third-party decision, a real-world asset, etc.
+- **Deliberately deferred.** It's on the roadmap for v0.4, but you're
+  shipping v0.2 right now.
+
+Difference from neighbors:
+- `MANUAL - ` = human-only forever (art, audio, casting); will never
+  become AI-eligible.
+- `FUTURE - ` = AI-eligible later; just not now. Flip to a regular item
+  by removing the prefix/tag when ready.
+- `[needs-ceo]` = Developer already tried, got stuck, asked questions —
+  CEO answers, removes tag, Developer retries.
+
+Examples:
+```
+FUTURE - Co-op multiplayer (network layer needs design)
+FUTURE - DLC mission pack
+[future] [game-feature] p2 Mid-mission gear-swap drone — needs gear-system v2 first
 ```
 
 ---
