@@ -102,14 +102,19 @@ def worker_phase(worker_id: int) -> tuple[str, int | None]:
     """Return (phase_label, seconds_in_phase) for a parallel-dev worker.
 
     Inspects the worker's wrapper PID + its current child process to infer
-    what stage of the ship pipeline it's in (dev / reviewing / tests / idle).
+    what stage of the ship pipeline it's in:
+      - dev    : claude session writing code
+      - review : reviewer agent reviewing the diff
+      - tests  : actively running godot scenarios
+      - wait   : in run_local_tests.sh lock-wait loop (another worker
+                 is currently holding the test lock)
+      - idle   : sleeping in the main loop between iterations
     Returns ("(not running)", None) if the wrapper isn't alive at all.
     """
     pids = pgrep(f"continuous_dev.sh.*--worker-id {worker_id}")
     if not pids:
         return ("(not running)", None)
     wrapper_pid = pids[0]
-    # Find direct children of the wrapper.
     out = sh(f"pgrep -P {wrapper_pid} 2>/dev/null")
     children = [int(c) for c in out.splitlines() if c.strip().isdigit()] if out else []
     for cpid in children:
@@ -120,11 +125,22 @@ def worker_phase(worker_id: int) -> tuple[str, int | None]:
         if "run_agent.sh reviewer" in cmd:
             return ("review", et)
         if "run_local_tests.sh" in cmd:
-            return ("tests", et)
+            # Distinguish actively-testing (godot grandchild exists)
+            # from lock-waiting (no godot, just polling the lockdir).
+            gc_out = sh(f"pgrep -P {cpid} 2>/dev/null")
+            has_godot = False
+            if gc_out:
+                for gc in gc_out.splitlines():
+                    gc = gc.strip()
+                    if not gc.isdigit():
+                        continue
+                    gc_cmd = sh(f"ps -p {gc} -o command=").strip()
+                    if "godot" in gc_cmd.lower():
+                        has_godot = True
+                        break
+            return ("tests" if has_godot else "wait", et)
         if "sleep" in cmd and cmd.startswith("sleep"):
-            # main-loop sleep between iterations
             return ("idle", et)
-    # No interesting child — wrapper is between phases or in a quick step.
     return ("idle", None)
 
 
@@ -433,6 +449,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
         phase_color = {
             "dev":          MAGENTA,
             "tests":        BLUE,
+            "wait":         GRAY,
             "review":       YELLOW,
             "idle":         GRAY,
             "(not running)": RED,
