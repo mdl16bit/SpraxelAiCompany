@@ -23,6 +23,16 @@
 
 set -o pipefail
 
+# --- arg parsing ---
+WORKER_ID=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --worker-id) WORKER_ID="$2"; shift 2 ;;
+    --worker-id=*) WORKER_ID="${1#*=}"; shift ;;
+    *) echo "continuous_dev: unknown arg '$1'" >&2; exit 2 ;;
+  esac
+done
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULE="$REPO_DIR/schedule.yaml"
 RUN_AGENT="$REPO_DIR/scripts/run_agent.sh"
@@ -31,6 +41,8 @@ SLUGIFY="$REPO_DIR/scripts/slugify.py"
 PAUSED_FLAG="$REPO_DIR/.paused"
 LOCKS_DIR="$REPO_DIR/.locks"
 CACHE_DIR="$REPO_DIR/.cache"
+# Cap counter is SHARED across all parallel-dev workers — one batch of N
+# ships drains the counter for everyone. last_signal_* / last_ts likewise.
 STATE_FILE="$CACHE_DIR/continuous-state.json"
 CHECKIN_FILE="$CACHE_DIR/ceo-checkin.ts"
 mkdir -p "$LOCKS_DIR" "$CACHE_DIR"
@@ -57,14 +69,16 @@ trace() { echo "$(date '+%Y-%m-%d %H:%M:%S %Z')  $*" >> "$TRACE_FILE"; }
 } > "$TRACE_FILE"
 trace "step: starting"
 
-# --- single-instance lock ---
-LOCK="$LOCKS_DIR/continuous.lockdir"
+# --- per-worker single-instance lock ---
+# Each worker has its own lockdir so 3 workers can coexist. tick.sh sweeps
+# stale lockdirs for workers whose pid is no longer running.
+LOCK="$LOCKS_DIR/continuous-w$WORKER_ID.lockdir"
 if ! mkdir "$LOCK" 2>/dev/null; then
-  trace "step: exit 0 (lockdir already held — another instance running)"
-  exit 0   # another instance is running
+  trace "step: exit 0 (lockdir already held — another instance of worker $WORKER_ID running)"
+  exit 0   # another instance of THIS worker is running
 fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
-trace "step: lock acquired"
+trace "step: lock acquired for worker $WORKER_ID"
 
 # Resolve game_dir + target.
 game_dir=$(python3 - "$SCHEDULE" <<'PY'
@@ -101,6 +115,33 @@ if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
 fi
 trace "step: game_dir validated"
 
+# --- per-worker worktree setup ---
+# Each parallel worker operates inside its own dedicated worktree so 3
+# workers can be on 3 different feat branches simultaneously without
+# fighting over the main checkout's HEAD. The worktree is persistent —
+# created on first use, reused across iterations (faster than recreating).
+# Worker's HEAD is detached on origin/master between items; per-item the
+# worker creates a feat branch in its worktree.
+WORK_DIR="$REPO_DIR/.worktrees/worker-$WORKER_ID"
+if [ ! -d "$WORK_DIR" ]; then
+  trace "step: creating worker worktree at $WORK_DIR"
+  mkdir -p "$REPO_DIR/.worktrees"
+  cd "$game_dir"
+  git fetch --quiet origin master 2>/dev/null
+  if ! git worktree add --quiet --detach "$WORK_DIR" origin/master 2>/dev/null; then
+    trace "step: FATAL — failed to create worktree at $WORK_DIR"
+    echo "continuous: failed to create worktree for worker $WORKER_ID at $WORK_DIR" >&2
+    exit 1
+  fi
+  trace "step: worktree created"
+fi
+trace "step: worktree ready at $WORK_DIR"
+
+# On startup, release any orphaned [wip:$WORKER_ID] claims from a prior
+# crash so the worker doesn't deadlock on its own claim tag.
+python3 "$WORKMD" release-wip "$game_dir/WORK.md" --worker-id "$WORKER_ID" \
+  >> "$TRACE_FILE" 2>&1 || true
+
 # --- state helpers ---
 init_state_if_missing() {
   if [ ! -f "$STATE_FILE" ]; then
@@ -124,6 +165,34 @@ s = json.load(open('$STATE_FILE'))
 s['$1'] = '$2' if not '$2'.isdigit() else int('$2')
 s['last_ts'] = '$(date '+%Y-%m-%d %H:%M:%S %Z')'
 json.dump(s, open('$STATE_FILE','w'), indent=2)
+PY
+}
+# Atomic read-modify-write +1 for parallel-dev: lockdir guards against
+# concurrent workers losing increments. Prints the NEW value to stdout.
+inc_state() {
+  python3 - <<PY
+import json, os, time
+state_file = '$STATE_FILE'
+key = '$1'
+lock = state_file + '.lockdir'
+deadline = time.time() + 10
+while True:
+    try:
+        os.mkdir(lock)
+        break
+    except FileExistsError:
+        if time.time() > deadline:
+            raise SystemExit(2)
+        time.sleep(0.05)
+try:
+    s = json.load(open(state_file))
+    s[key] = int(s.get(key, 0)) + 1
+    s['last_ts'] = '$(date '+%Y-%m-%d %H:%M:%S %Z')'
+    json.dump(s, open(state_file, 'w'), indent=2)
+    print(s[key])
+finally:
+    try: os.rmdir(lock)
+    except FileNotFoundError: pass
 PY
 }
 
@@ -178,7 +247,7 @@ PY
 # master, 1 otherwise (the only way that fails is a genuinely broken repo
 # — disk full, lock held by another process, etc.).
 clean_slate() {
-  cd "$game_dir" || return 1
+  cd "$WORK_DIR" || return 1
   # Abort any in-progress merge/rebase/cherry-pick.
   git merge --abort 2>/dev/null
   git rebase --abort 2>/dev/null
@@ -189,16 +258,20 @@ clean_slate() {
   done
   # Discard any staged / unstaged changes from a wrecked iteration.
   git reset --hard HEAD --quiet 2>/dev/null
-  # Force-switch to master, then sync to origin.
+  # Worker worktree uses DETACHED HEAD on origin/master between items — never
+  # `git checkout master`, because the main checkout (or another worker)
+  # may hold master. Detached HEAD avoids the worktree-branch-conflict.
   git fetch --quiet origin master 2>/dev/null
-  if ! git checkout -f master 2>/dev/null; then
+  if ! git checkout --detach origin/master --quiet 2>/dev/null; then
     return 1
   fi
   git reset --hard origin/master --quiet 2>/dev/null
-  # Confirm HEAD really is master.
-  local head_branch
-  head_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
-  [ "$head_branch" = "master" ]
+  # Delete any stale local feat/cont-* branches in this worktree (left over
+  # from successful ships — the squash-commit lives on origin/master now).
+  for b in $(git branch --list 'feat/cont-*' --format='%(refname:short)' 2>/dev/null); do
+    git branch -D "$b" --quiet 2>/dev/null || true
+  done
+  return 0
 }
 
 # --- the per-item ship logic ---
@@ -206,7 +279,11 @@ clean_slate() {
 ship_one_item() {
   local LOG_DIR="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)"
   mkdir -p "$LOG_DIR"
-  cd "$game_dir" || return 1
+  cd "$WORK_DIR" || return 1
+  # Pass our worktree path to any child run_agent.sh calls — the dev +
+  # reviewer agents inherit this WORK_DIR instead of doing their own
+  # worktree creation.
+  export SPRAXEL_WORK_DIR="$WORK_DIR"
 
   # Self-heal: previous iteration may have left a conflicted index, an
   # in-progress merge, a stale stash, or HEAD on a feature branch. Without
@@ -224,16 +301,28 @@ ship_one_item() {
     --escalations "$game_dir/.factory/escalations.md" \
     >> "$LOG_DIR/sync.log" 2>&1 || true
 
+  # Atomically claim the next eligible item — tags it [wip:$WORKER_ID] so
+  # other parallel workers don't grab the same one. Returns full JSON
+  # (the title here INCLUDES the [wip:N] prefix workmd.py added).
   local next_json next_title slug branch item_log
-  next_json=$(python3 "$WORKMD" top "$game_dir/WORK.md" -n 1)
-  next_title=$(echo "$next_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['title'] if d else '')")
-  if [ -z "$next_title" ]; then
-    echo "continuous: no eligible items in WORK.md ## Todo"
+  next_json=$(python3 "$WORKMD" claim "$game_dir/WORK.md" --worker-id "$WORKER_ID" 2>/dev/null)
+  if [ -z "$next_json" ] || [ "$next_json" = "claim: no eligible items" ]; then
+    echo "continuous: worker $WORKER_ID — no eligible items in WORK.md ## Todo"
     return 3   # nothing to do
   fi
+  next_title=$(echo "$next_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['title'])" 2>/dev/null)
+  if [ -z "$next_title" ]; then
+    echo "continuous: worker $WORKER_ID — claim returned malformed json"
+    return 3
+  fi
+  # All workmd.py operations below (retry, ship, etc.) match by title
+  # substring and tolerate the [wip:N] prefix, but for slug + logs we
+  # want the un-wipped form.
+  local unwipped_title
+  unwipped_title=$(echo "$next_title" | sed -E 's/^\[wip:[0-9]+\]\s*//')
 
-  slug=$(echo "$next_title" | python3 "$SLUGIFY")
-  item_log="$LOG_DIR/$slug.log"
+  slug=$(echo "$unwipped_title" | python3 "$SLUGIFY")
+  item_log="$LOG_DIR/w${WORKER_ID}-${slug}.log"
 
   # ── Resume / Retry path ───────────────────────────────────────────────────
   # If the item is tagged [resume] OR [retry], the dev's prior attempt left
@@ -274,39 +363,58 @@ if d:
     if ! git fetch --quiet origin "$branch" 2>/dev/null; then
       echo "continuous: resume FAILED — branch '$branch' missing on origin. Falling back to fresh start." >&2
       branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
-      git checkout --quiet -B "$branch" master
+      git checkout --quiet -B "$branch" origin/master
       is_resume="false"
     else
       if ! git checkout --quiet -B "$branch" "origin/$branch" 2>/dev/null; then
         echo "continuous: resume FAILED — could not checkout origin/$branch. Falling back." >&2
         branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
-        git checkout --quiet -B "$branch" master
+        git checkout --quiet -B "$branch" origin/master
         is_resume="false"
       else
         # Rebase the saved branch onto current master. If rebase conflicts,
         # abort + bounce the item back as [retry] with a "rebase conflict"
         # note. The next dev run resolves the conflict on the saved branch.
-        if ! git rebase --quiet master 2>/dev/null; then
+        if ! git rebase --quiet origin/master 2>/dev/null; then
           git rebase --abort 2>/dev/null || true
           echo "continuous: $resume_kind FAILED — rebase conflicts. Bouncing back to [retry]." >&2
           clean_slate
           local stripped_title
           stripped_title=$(echo "$next_title" | sed -E 's/^\[(resume|retry)\] //')
-          python3 "$WORKMD" retry "$game_dir/WORK.md" "$stripped_title" \
-            --detail "retry $(date '+%Y-%m-%d %H:%M %Z'): rebase of '$branch' onto master conflicted — next dev run resolves the conflict on the saved branch" \
-            2>/dev/null
-          git add WORK.md 2>/dev/null
-          git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-              commit --quiet -m "chore(retry): rebase conflict — '$(echo "$stripped_title" | cut -c1-50)...'" 2>/dev/null
-          git push --quiet origin master 2>/dev/null || true
+          # Push the [retry] retag + conflict-note via the merge lock.
+          local rclock="$LOCKS_DIR/master-push.lockdir"
+          local rcwait=0
+          while ! mkdir "$rclock" 2>/dev/null; do
+            sleep 0.3
+            rcwait=$((rcwait + 1))
+            if [ $rcwait -gt 200 ]; then break; fi
+          done
+          (
+            trap 'rmdir "'"$rclock"'" 2>/dev/null' EXIT
+            cd "$game_dir" || exit 1
+            git fetch --quiet origin master 2>/dev/null
+            git checkout --quiet master 2>/dev/null || exit 1
+            git reset --hard origin/master --quiet 2>/dev/null
+            python3 "$WORKMD" retry "$game_dir/WORK.md" "$stripped_title" \
+              --detail "retry $(date '+%Y-%m-%d %H:%M %Z'): rebase of '$branch' onto master conflicted — next dev run resolves the conflict on the saved branch" \
+              >> /dev/null 2>&1 || exit 1
+            git add WORK.md 2>/dev/null
+            git diff --cached --quiet && exit 0
+            git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+                commit --quiet -m "chore(retry): rebase conflict — '$(echo "$stripped_title" | cut -c1-50)...'" 2>/dev/null || exit 1
+            git push --quiet origin master 2>/dev/null
+          )
+          rmdir "$rclock" 2>/dev/null
           return 1
         fi
       fi
     fi
   else
-    branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
-    echo "continuous: → '$next_title' on $branch"
-    git checkout --quiet -B "$branch" master
+    # Include worker id in branch name so 3 workers picking different
+    # items at the same minute don't collide on naming if slugs match.
+    branch="feat/cont-$(date +%Y%m%d-%H%M)-w${WORKER_ID}-$slug"
+    echo "continuous: worker $WORKER_ID → '$next_title' on $branch"
+    git checkout --quiet -B "$branch" origin/master
   fi
 
   local outcome=fail
@@ -371,7 +479,7 @@ folds everything into one squash-merge to master at the end."
       # rc=2 = developer.lockdir held (orphan or concurrent fire). NOT a real
       # failure — wait for the lock to clear, then retry the SAME item.
       echo "continuous: developer LOCKED — waiting (will retry same item, not escalate)" >> "$item_log"
-      git checkout --quiet master
+      git checkout --detach origin/master --quiet 2>/dev/null
       git branch -D "$branch" --quiet 2>/dev/null || true
       for waited in 30 60 120 240 480 600; do
         sleep "$waited"
@@ -393,7 +501,7 @@ folds everything into one squash-merge to master at the end."
     # Mid-run pause check.
     if [ -e "$PAUSED_FLAG" ]; then
       echo "continuous: paused mid-run after developer" >> "$item_log"
-      git checkout --quiet master
+      git checkout --detach origin/master --quiet 2>/dev/null
       git branch -D "$branch" --quiet 2>/dev/null || true
       return 2
     fi
@@ -412,12 +520,33 @@ sys.exit(1)
 " 2>/dev/null; then
       echo "continuous: ↪ clarified '$next_title'" >> "$item_log"
       echo "continuous: ↪ clarified '$next_title'"
-      git add WORK.md 2>/dev/null || true
-      git diff --cached --quiet || \
+      # Push the dev's clarify-modified WORK.md to origin master via the
+      # serialized merge lock (the dev wrote into the worker's worktree).
+      local clarify_lock="$LOCKS_DIR/master-push.lockdir"
+      local clarify_wait=0
+      while ! mkdir "$clarify_lock" 2>/dev/null; do
+        sleep 0.3
+        clarify_wait=$((clarify_wait + 1))
+        if [ $clarify_wait -gt 200 ]; then break; fi
+      done
+      (
+        trap 'rmdir "'"$clarify_lock"'" 2>/dev/null' EXIT
+        cd "$game_dir" || exit 1
+        git fetch --quiet origin master 2>/dev/null
+        git checkout --quiet master 2>/dev/null || exit 1
+        git reset --hard origin/master --quiet 2>/dev/null
+        cp "$WORK_DIR/WORK.md" "$game_dir/WORK.md" 2>/dev/null || exit 1
+        git add WORK.md 2>/dev/null
+        git diff --cached --quiet && exit 0   # already in sync
         git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-            commit --quiet -m "needs-ceo: clarifications on '$next_title'" 2>/dev/null
-      git push --quiet origin master 2>/dev/null || true
-      git checkout --quiet master
+            commit --quiet -m "needs-ceo: clarifications on '$next_title'" 2>/dev/null || exit 1
+        git push --quiet origin master 2>/dev/null
+      )
+      rmdir "$clarify_lock" 2>/dev/null
+      # Worker cleanup
+      cd "$WORK_DIR"
+      git fetch --quiet origin master 2>/dev/null
+      git checkout --detach origin/master --quiet 2>/dev/null
       git branch -D "$branch" --quiet 2>/dev/null || true
       return 2   # don't count toward batch
     fi
@@ -429,7 +558,7 @@ sys.exit(1)
     if [ -z "${baseline_failures:-}" ]; then
       # First attempt: capture baseline from master (before Developer's commit).
       git stash push --quiet -m "baseline-test-stash" 2>/dev/null
-      git checkout --quiet master 2>/dev/null
+      git checkout --detach origin/master --quiet 2>/dev/null
       bash "$game_dir/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1 || true
       baseline_failures=$(python3 -c "
 import json
@@ -515,21 +644,57 @@ if len(t) > 60:
 print(t)
 " "$next_title")
 
-    git checkout --quiet master
-    if git merge --squash --quiet "$branch" \
-       && git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-              commit --quiet -m "$commit_subject" \
-       && git push --quiet origin master; then
-      python3 "$WORKMD" ship "$game_dir/WORK.md" "$next_title" >> "$item_log" 2>&1 || true
-      git add WORK.md 2>/dev/null
-      git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-          commit --quiet -m "chore(work): mark '$short_title' as shipped" 2>/dev/null
-      git push --quiet origin master 2>/dev/null
+    # ── Merge: serialize via shared lock, run from game_dir ──────────────
+    # Workers each have a worktree on a feat branch. To merge, we briefly
+    # cd into game_dir (the main checkout) — only one worker can be in this
+    # critical section at a time. The merge itself is < 1 s so this is a
+    # negligible bottleneck. game_dir's master is "free" because no
+    # worktree ever checks out master (workers use detached HEAD between
+    # items — see clean_slate).
+    local merge_lock="$LOCKS_DIR/master-push.lockdir"
+    local waited=0
+    while ! mkdir "$merge_lock" 2>/dev/null; do
+      sleep 0.3
+      waited=$((waited + 1))
+      if [ $waited -gt 200 ]; then
+        echo "continuous: merge lock held >60s — aborting" >> "$item_log"
+        outcome=fail
+        break 2
+      fi
+    done
+    # Subshell so cd doesn't leak; trap to release lock no matter what.
+    (
+      trap 'rmdir "$merge_lock" 2>/dev/null' EXIT
+      cd "$game_dir" || exit 1
+      git fetch --quiet origin master 2>/dev/null
+      git checkout --quiet master 2>/dev/null || exit 1
+      git reset --hard origin/master --quiet 2>/dev/null
+      if git merge --squash --quiet "$branch" \
+         && git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+                commit --quiet -m "$commit_subject" \
+         && git push --quiet origin master; then
+        python3 "$WORKMD" ship "$game_dir/WORK.md" "$next_title" >> "$item_log" 2>&1 || true
+        git add WORK.md 2>/dev/null
+        git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+            commit --quiet -m "chore(work): mark '$short_title' as shipped" 2>/dev/null
+        git push --quiet origin master 2>/dev/null
+        exit 0
+      else
+        exit 1
+      fi
+    )
+    local merge_rc=$?
+    rmdir "$merge_lock" 2>/dev/null
+    if [ $merge_rc -eq 0 ]; then
+      # Local cleanup in the worker's worktree.
+      cd "$WORK_DIR"
+      git fetch --quiet origin master 2>/dev/null
+      git checkout --detach origin/master --quiet 2>/dev/null
       git branch -d "$branch" --quiet 2>/dev/null || true
       outcome=ok
       break
     else
-      echo "continuous: merge/push FAILED" >> "$item_log"
+      echo "continuous: merge/push FAILED (lock-protected merge in game_dir returned rc=$merge_rc)" >> "$item_log"
       outcome=fail
       break
     fi
@@ -619,10 +784,6 @@ PY
     local stripped_title
     stripped_title=$(echo "$next_title" | sed -E 's/^\[(resume|retry|escalated)\]\s*//')
 
-    python3 "$WORKMD" retry "$game_dir/WORK.md" "$stripped_title" \
-      "${detail_args[@]}" \
-      >> "$item_log" 2>&1 || true
-
     # Commit subject — keep it short + sortable in git log.
     local retry_short
     retry_short=$(python3 -c "
@@ -632,11 +793,33 @@ if t and t[0].islower():
     t = t[0].upper() + t[1:]
 print(t[:55] + ('...' if len(t) > 55 else ''))
 " "$stripped_title")
-    git add WORK.md 2>/dev/null
-    git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-        commit --quiet -m "chore(retry): $retry_short — bounced back to queue" 2>/dev/null
-    git push --quiet origin master 2>/dev/null || true
-    echo "continuous: ↻ retry '$stripped_title' — branch '$branch' preserved, will retry next dev fire"
+    # Push the [retry] retag + details to origin/master via the
+    # serialized merge lock. workmd.py runs INSIDE the lock so any
+    # concurrent ship by another worker doesn't get wiped by our reset.
+    local retry_lock="$LOCKS_DIR/master-push.lockdir"
+    local retry_wait=0
+    while ! mkdir "$retry_lock" 2>/dev/null; do
+      sleep 0.3
+      retry_wait=$((retry_wait + 1))
+      if [ $retry_wait -gt 200 ]; then break; fi
+    done
+    (
+      trap 'rmdir "'"$retry_lock"'" 2>/dev/null' EXIT
+      cd "$game_dir" || exit 1
+      git fetch --quiet origin master 2>/dev/null
+      git checkout --quiet master 2>/dev/null || exit 1
+      git reset --hard origin/master --quiet 2>/dev/null
+      python3 "$WORKMD" retry "$game_dir/WORK.md" "$stripped_title" \
+        "${detail_args[@]}" \
+        >> "$item_log" 2>&1 || exit 1
+      git add WORK.md 2>/dev/null
+      git diff --cached --quiet && exit 0
+      git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+          commit --quiet -m "chore(retry): $retry_short — bounced back to queue" 2>/dev/null || exit 1
+      git push --quiet origin master 2>/dev/null
+    )
+    rmdir "$retry_lock" 2>/dev/null
+    echo "continuous: ↻ worker $WORKER_ID — retry '$stripped_title' — branch '$branch' preserved, will retry next dev fire"
     return 1
   fi
 
@@ -685,8 +868,8 @@ while true; do
     0) # success
       fail_streak=0
       idle_streak=0
-      shipped=$(read_state shipped_since_last_signal)
-      write_state shipped_since_last_signal $((shipped + 1))
+      # Atomic +1 across parallel workers — never lose an increment.
+      inc_state shipped_since_last_signal >/dev/null
       ;;
     1) # genuine failure
       fail_streak=$((fail_streak + 1))

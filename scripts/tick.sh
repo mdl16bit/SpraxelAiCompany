@@ -70,15 +70,38 @@ while IFS='|' read -r name cron; do
   fi
 done <<< "$agent_entries"
 
-# Continuous Developer loop — always-on, self-paces against the CEO-checkin
-# counter. Ensure it's running; if its lockdir exists but no process owns it
-# (crash), clean and respawn.
+# Continuous Developer loop — N parallel workers, self-paced against the
+# shared CEO-checkin counter (cap = continuous.target_per_batch across
+# all workers combined). Each worker has its own lockdir + worktree.
 mkdir -p "$LOCKS_DIR"
-CONT_LOCK="$LOCKS_DIR/continuous.lockdir"
-if [ -d "$CONT_LOCK" ] && ! pgrep -f "continuous_dev.sh" >/dev/null 2>&1; then
-  rmdir "$CONT_LOCK" 2>/dev/null
-  errors+=("cleared stale continuous.lockdir")
+
+# Read dev_concurrency from schedule.yaml (default 1).
+dev_concurrency=$(python3 - "$SCHEDULE" <<'PY'
+import sys, re
+with open(sys.argv[1]) as f:
+    text = f.read()
+m = re.search(r"^continuous:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
+if m:
+    mm = re.search(r"\s*dev_concurrency:\s*(\d+)", m.group(1))
+    if mm:
+        print(mm.group(1)); sys.exit()
+print(1)
+PY
+)
+
+# Sweep stale per-worker continuous lockdirs (process died without releasing).
+for id in $(seq 1 "$dev_concurrency"); do
+  lock="$LOCKS_DIR/continuous-w$id.lockdir"
+  if [ -d "$lock" ] && ! pgrep -f "continuous_dev.sh.*--worker-id $id" >/dev/null 2>&1; then
+    rmdir "$lock" 2>/dev/null
+    errors+=("cleared stale continuous-w$id.lockdir")
+  fi
+done
+# Also sweep the legacy single-worker lockdir from before parallel-dev.
+if [ -d "$LOCKS_DIR/continuous.lockdir" ]; then
+  rmdir "$LOCKS_DIR/continuous.lockdir" 2>/dev/null
 fi
+
 # Also clean orphan agent lockdirs (developer, reviewer, designer, etc.).
 # Without this, a SIGKILLed agent leaves its lockdir behind and every
 # subsequent run_agent invocation exits rc=2 — silently wedging the
@@ -86,16 +109,26 @@ fi
 for lock in "$LOCKS_DIR"/*.lockdir; do
   [ -d "$lock" ] || continue
   agent_name=$(basename "$lock" .lockdir)
-  # The continuous.lockdir is handled above; skip.
-  [ "$agent_name" = "continuous" ] && continue
+  # The continuous lockdirs are handled above; skip.
+  case "$agent_name" in
+    continuous|continuous-w*) continue ;;
+  esac
   if ! pgrep -f "run_agent.sh $agent_name" >/dev/null 2>&1; then
     rmdir "$lock" 2>/dev/null && errors+=("cleared stale $agent_name.lockdir")
   fi
 done
-if [ ! -d "$CONT_LOCK" ] && [ -x "$CONTINUOUS" ]; then
+
+# Spawn missing workers (1..dev_concurrency).
+if [ -x "$CONTINUOUS" ]; then
   mkdir -p "$REPO_DIR/logs/continuous"
-  nohup bash "$CONTINUOUS" >>"$REPO_DIR/logs/continuous/$(date +%Y-%m-%d).log" 2>&1 &
-  dispatched+=("continuous_dev spawned")
+  for id in $(seq 1 "$dev_concurrency"); do
+    lock="$LOCKS_DIR/continuous-w$id.lockdir"
+    if [ ! -d "$lock" ]; then
+      logf="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)-w$id.log"
+      nohup bash "$CONTINUOUS" --worker-id "$id" >>"$logf" 2>&1 &
+      dispatched+=("continuous_dev w$id spawned")
+    fi
+  done
 fi
 
 if [ ${#dispatched[@]} -eq 0 ] && [ ${#errors[@]} -eq 0 ]; then

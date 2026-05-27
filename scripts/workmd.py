@@ -69,7 +69,8 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern|wip:\d+)\]", re.I)
+WIP_TAG_RE = re.compile(r"\[wip:(\d+)\]", re.I)
 # Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
 MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 # Future-item prefix: "FUTURE - foo", "FUTURE: foo", "FUTURE foo" — overnight
@@ -142,6 +143,22 @@ class WorkItem:
         checks out the branch listed in details, rebases on master, and
         hands off to the dev with full failure context."""
         return "resume" in self.tags
+
+    @property
+    def is_wip(self) -> bool:
+        """True if a parallel-dev worker has claimed this item (tagged
+        `[wip:N]` where N is the worker id). Other workers' top_n calls
+        skip [wip:*] items so two workers never grab the same item.
+        Released on ship (item moves to Shipped) or retry (re-tagged as
+        [retry]). Workers also strip their own [wip:<my-id>] on startup
+        in case a prior crash left one behind."""
+        return bool(WIP_TAG_RE.search(self.title))
+
+    @property
+    def wip_worker_id(self) -> int | None:
+        """If is_wip, returns the integer worker id; else None."""
+        m = WIP_TAG_RE.search(self.title)
+        return int(m.group(1)) if m else None
 
     @property
     def is_retry(self) -> bool:
@@ -389,7 +406,8 @@ def ship(path: Path, title: str) -> WorkItem:
     """Move an item from Todo → Shipped-since-last-release.
 
     Appends to the end of `current` so the section stays in chronological
-    completion order. Raises ValueError if not found.
+    completion order. Strips any [wip:N] tag (a shipping item is by
+    definition no longer claimed). Raises ValueError if not found.
     """
     with FileLock(path):
         wm = parse(path)
@@ -397,6 +415,8 @@ def ship(path: Path, title: str) -> WorkItem:
         if idx < 0:
             raise ValueError(f"item not found in todo: {title!r}")
         item = wm.todo.pop(idx)
+        item.title = WIP_TAG_RE.sub("", item.title).strip()
+        item.raw_lines = [item.title] + [f"  {d}" for d in item.details]
         wm.current.append(item)
         path.write_text(serialize(wm))
         return item
@@ -482,8 +502,9 @@ def retry(
         if idx < 0:
             raise ValueError(f"item not found in todo: {title!r}")
         item = wm.todo[idx]
-        # Strip mutually exclusive tags, add [retry] if not already present.
+        # Strip mutually exclusive tags + any [wip:N] claim, then add [retry].
         new_title = re.sub(r"\[(resume|escalated|retry)\]\s*", "", item.title, flags=re.I)
+        new_title = WIP_TAG_RE.sub("", new_title).strip()
         new_title = "[retry] " + new_title
         item.title = new_title
         if new_details:
@@ -682,7 +703,8 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
     out: list[WorkItem] = []
     for it in wm.todo:
         if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo \
-                or it.is_future or it.is_escalated or it.is_concern:
+                or it.is_future or it.is_escalated or it.is_concern \
+                or it.is_wip:
             continue
         if it.title.strip().lower() in skip:
             continue
@@ -690,6 +712,83 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
         if len(out) >= n:
             break
     return out
+
+
+def claim(path: Path, worker_id: int) -> WorkItem | None:
+    """Atomically pick the top eligible item AND tag it [wip:<worker_id>].
+
+    Two parallel dev workers calling claim() never grab the same item —
+    the FileLock around the read-modify-write serialises the operation,
+    and the [wip:N] tag makes the item invisible to other workers'
+    top_n / claim calls until released.
+
+    Returns the claimed WorkItem (with the new [wip:N] tag in its title),
+    or None if no eligible items exist.
+    """
+    with FileLock(path):
+        wm = parse(path)
+        chosen_idx = -1
+        for i, it in enumerate(wm.todo):
+            if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo \
+                    or it.is_future or it.is_escalated or it.is_concern \
+                    or it.is_wip:
+                continue
+            chosen_idx = i
+            break
+        if chosen_idx < 0:
+            return None
+        item = wm.todo[chosen_idx]
+        item.title = f"[wip:{worker_id}] " + item.title
+        item.raw_lines = [item.title] + [f"  {d}" for d in item.details]
+        path.write_text(serialize(wm))
+        return item
+
+
+def unclaim(path: Path, title: str) -> WorkItem | None:
+    """Strip the [wip:N] tag from an item (called by the worker when its
+    work concludes — either ship or retry, both already handle the title
+    transition themselves, but unclaim is the safe fallback for crash
+    recovery).
+
+    Returns the item with the [wip:N] tag stripped, or None if not found.
+    """
+    with FileLock(path):
+        wm = parse(path)
+        for section in ("todo", "current", "shipped"):
+            sec_items: list[WorkItem] = getattr(wm, section)
+            for it in sec_items:
+                if WIP_TAG_RE.search(it.title):
+                    # Match the un-wipped title against the requested title
+                    stripped = WIP_TAG_RE.sub("", it.title).strip()
+                    requested = WIP_TAG_RE.sub("", title).strip()
+                    if stripped.lower().startswith(requested.lower()[:60]) \
+                       or requested.lower().startswith(stripped.lower()[:60]):
+                        it.title = WIP_TAG_RE.sub("", it.title).strip()
+                        it.raw_lines = [it.title] + [f"  {d}" for d in it.details]
+                        path.write_text(serialize(wm))
+                        return it
+        return None
+
+
+def release_wip(path: Path, worker_id: int) -> int:
+    """Strip all [wip:<worker_id>] tags. Workers call this on startup so
+    a prior crash (lockfile orphan, SIGKILL, etc.) doesn't leave items
+    stuck in wip state. Returns the count of items released.
+    """
+    pattern = re.compile(rf"\[wip:{worker_id}\]\s*", re.I)
+    released = 0
+    with FileLock(path):
+        wm = parse(path)
+        for section in ("todo", "current", "shipped"):
+            sec_items: list[WorkItem] = getattr(wm, section)
+            for it in sec_items:
+                if pattern.search(it.title):
+                    it.title = pattern.sub("", it.title).strip()
+                    it.raw_lines = [it.title] + [f"  {d}" for d in it.details]
+                    released += 1
+        if released:
+            path.write_text(serialize(wm))
+    return released
 
 
 def clarify(path: Path, title: str, questions: list[str]) -> WorkItem:
@@ -772,6 +871,21 @@ def main(argv: list[str] | None = None) -> int:
     pse.add_argument("--escalations", default=None,
                      help="path to escalations.md (default: <path-parent>/.factory/escalations.md)")
 
+    pcl = sub.add_parser("claim",
+        help="atomically claim the next eligible Todo item — tag [wip:<worker-id>] + return its title. Used by parallel-dev workers.")
+    pcl.add_argument("path")
+    pcl.add_argument("--worker-id", type=int, required=True)
+
+    puc = sub.add_parser("unclaim",
+        help="strip [wip:N] from an item (release without ship/retry — used by crash recovery).")
+    puc.add_argument("path")
+    puc.add_argument("title")
+
+    prw = sub.add_parser("release-wip",
+        help="strip ALL [wip:<worker-id>] tags. Workers call this on startup so a prior crash doesn't leave items stuck claimed.")
+    prw.add_argument("path")
+    prw.add_argument("--worker-id", type=int, required=True)
+
     pa = sub.add_parser("append", help="append a new item to a section")
     pa.add_argument("path")
     pa.add_argument("--section", required=True, choices=("todo", "current", "shipped"))
@@ -843,6 +957,27 @@ def main(argv: list[str] | None = None) -> int:
               else path.parent / ".factory" / "escalations.md"
         n = sync_escalations(path, esc)
         print(f"sync-escalations: regenerated {esc} ({n} escalated item(s))")
+        return 0
+
+    if args.cmd == "claim":
+        item = claim(path, args.worker_id)
+        if item is None:
+            print("claim: no eligible items")
+            return 1
+        print(json.dumps(item.to_dict(), indent=2))
+        return 0
+
+    if args.cmd == "unclaim":
+        item = unclaim(path, args.title)
+        if item is None:
+            print(f"unclaim: no item found matching {args.title!r}", file=sys.stderr)
+            return 1
+        print(f"unclaimed: {item.title}")
+        return 0
+
+    if args.cmd == "release-wip":
+        n = release_wip(path, args.worker_id)
+        print(f"release-wip: released {n} item(s) tagged [wip:{args.worker_id}]")
         return 0
 
     if args.cmd == "resume":

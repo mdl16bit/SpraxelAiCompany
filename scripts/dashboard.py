@@ -301,14 +301,16 @@ def render(now: datetime, game_dir: Path | None) -> str:
     tick_line = f"{GREEN}✓ loaded{RESET}" if tick_loaded else f"{RED}✗ NOT LOADED{RESET}"
     lines.append(f"  Tick daemon    {tick_line}")
 
-    # Wrapper
+    # Wrappers (one per parallel-dev worker)
     wrapper_pids = pgrep("continuous_dev.sh")
     if wrapper_pids:
-        et = process_etime(wrapper_pids[0]) or 0
-        wrapper_line = f"{GREEN}alive{RESET} {DIM}PID {wrapper_pids[0]}, up {fmt_etime(et)}{RESET}"
+        n = len(wrapper_pids)
+        ets = sorted([process_etime(p) or 0 for p in wrapper_pids], reverse=True)
+        max_age = fmt_etime(ets[0])
+        wrapper_line = f"{GREEN}{n} worker(s){RESET} {DIM}oldest up {max_age}{RESET}"
     else:
         wrapper_line = f"{GRAY}not running{RESET}" if PAUSED.exists() else f"{RED}⚠ not running{RESET}"
-    lines.append(f"  Wrapper        {wrapper_line}")
+    lines.append(f"  Wrappers       {wrapper_line}")
 
     # Cap counter
     cap_line = "?"
@@ -331,29 +333,31 @@ def render(now: datetime, game_dir: Path | None) -> str:
     lines.append(f"  Cap counter    {cap_line}")
     lines.append("")
 
-    # Current item
-    dev_pids = pgrep("run_agent.sh developer")
-    claude_pids = pgrep("claude --model claude-sonnet-4-6 --dangerously-skip-permissions")
-    lines.append(f"  {BOLD}▸ Current item{RESET}")
-    if dev_pids and claude_pids:
-        et = process_etime(claude_pids[0]) or 0
-        # Try to extract the title from the last "→ '...' on" log entry
-        cur_item = "(working)"
-        log = CONTINUOUS_LOG_DIR / f"{now:%Y-%m-%d}.log"
-        if log.exists():
-            try:
-                lines_in = log.read_text().splitlines()
-                for ln in reversed(lines_in):
-                    m = re.search(r"continuous: → '([^']+)'", ln)
-                    if m:
-                        cur_item = m.group(1)[:55]
-                        break
-            except Exception:
-                pass
-        lines.append(f"    {CYAN}\"{cur_item}\"{RESET}")
-        lines.append(f"    {DIM}dev session at PID {claude_pids[0]}, {fmt_etime(et)} in{RESET}")
+    # Current items — one row per worker if parallel-dev is enabled.
+    # WORK.md is the source of truth for "what is each worker doing":
+    # claimed items carry a [wip:N] tag.
+    lines.append(f"  {BOLD}▸ Current items{RESET}")
+    wip_items: dict[int, str] = {}
+    if game_dir is not None:
+        sys.path.insert(0, str(Path(__file__).parent))
+        try:
+            from workmd import parse as parse_wm
+            wm = parse_wm(game_dir / "WORK.md")
+            for it in wm.todo:
+                if it.is_wip:
+                    wid = it.wip_worker_id
+                    # Strip [wip:N] + state/kind tags for display.
+                    clean = re.sub(r"^\[wip:\d+\]\s*", "", it.title)
+                    clean = re.sub(r"^\[(retry|resume|escalated|bug|feature|chore|game-feature)\]\s*", "", clean)
+                    clean = clean[:55] + ("…" if len(clean) > 55 else "")
+                    wip_items[wid] = clean
+        except Exception:
+            pass
+    if wip_items:
+        for wid in sorted(wip_items):
+            lines.append(f"    {DIM}w{wid}{RESET}  {CYAN}\"{wip_items[wid]}\"{RESET}")
     elif wrapper_pids and not PAUSED.exists():
-        lines.append(f"    {DIM}(idle — wrapper sleeping or between items){RESET}")
+        lines.append(f"    {DIM}(idle — workers sleeping or between items){RESET}")
     else:
         lines.append(f"    {DIM}(nothing — system paused or stopped){RESET}")
     lines.append("")

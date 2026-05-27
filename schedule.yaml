@@ -30,6 +30,12 @@ agents:
 continuous:
   target_per_batch: 10
   retry_per_item:   1
+  # Number of parallel developer workers. Each runs in its own git
+  # worktree under .worktrees/worker-N/. Workers share the cap counter
+  # (target_per_batch is the total across all of them, not per-worker).
+  # Default 1 (single-worker); bump to 3 to burn through items faster
+  # — at the cost of ~3x faster Max-plan weekly-cap consumption.
+  dev_concurrency:  3
   description:      "always-on, paced by CEO checkins"
 
 # Local tests (Godot scenarios + GUT). Already managed by ~/Library/LaunchAgents/com.spraxel.localtests.plist.
