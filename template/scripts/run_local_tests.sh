@@ -126,11 +126,11 @@ for f in "${failures[@]}"; do
   echo "  - $f" | tee -a "$LOG"
 done
 
-# 6. macOS notification (if not --quiet)
-if [ "$QUIET" -eq 0 ] && command -v osascript >/dev/null 2>&1; then
-  TITLE="Local tests FAILED"
-  MSG="${#failures[@]} failures — see $STATUS_FILE"
-  osascript -e "display notification \"$MSG\" with title \"$TITLE\" sound name \"Sosumi\"" 2>/dev/null || true
-fi
+# Test failures are surfaced via:
+#   - $STATUS_FILE (JSON, read by morning-briefer + dashboard.py)
+#   - $LOG (per-run output)
+#   - triager agent (batches into [bug] WORK.md items the next morning)
+# No macOS notification — they were noisy + the CEO doesn't need a beep
+# for transient test failures the [retry] loop will handle on its own.
 
 exit 1
