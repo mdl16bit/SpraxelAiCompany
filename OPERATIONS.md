@@ -55,23 +55,30 @@ run_agent.sh             continuous_dev.sh
 
 ## A day in the system
 
-Daily cycle (all times America/Los_Angeles):
+**Continuous loop** (always on, paced by CEO interaction — no clock time):
+
+| Who | What |
+|-----|------|
+| **continuous_dev.sh** | Long-running Developer loop. Picks top eligible `## Todo` item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`; picks up `[resume]`). Branch → Developer → tests → Reviewer → squash-merge → push. Counts ships against `schedule.yaml#continuous.target_per_batch` (default 10); sleeps when cap hit until any CEO signal (non-bot commit or `bash scripts/checkin.sh`). Failed items: branch preserved on origin, item retagged `[escalated]` in place, rich summary in `.factory/escalations.md`. |
+
+Daily crew (all times America/Los_Angeles):
 
 | Time | Who | What |
 |------|-----|------|
-| 23:00 PT | **overnight_dev.sh** | Loop: pick top of `## Todo` → Developer → tests → Reviewer → merge → push. Stops at 10 features OR 06:00 PT. Failed items → `.factory/escalations.md`. |
-| 05:00 PT | **triager** | Reads overnight test failures, appends `[bug]` items to `## Todo`. |
-| 06:00 PT | **morning-briefer** | Writes `MORNING.md` with: 10 features to play-test, Designer `[idea]` items, new bugs, escalations, time-boxed routine. |
-| 07:00 PT | **pm** | Re-sorts top of `## Todo` so the next overnight loop ships the right things. |
-| ~07:00 PT | **CEO (you)** | Open `MORNING.md`. Walk the time-boxed sections. ~38 minutes. |
+| 04:00 PT | **playtester** | Actively plays the game (beyond scripted tests). Writes bug candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
+| 05:00 PT | **triager** | Reads playtest findings + local-tests-status.json, appends `[needs-ceo] [bug]` items to `## Todo`. CEO validates before they become live bugs. |
+| 06:00 PT | **morning-briefer** | Writes `.factory/local/MORNING.md` (gitignored — CEO-local artifact). 10 features to play-test with launch + amend + reject one-liners, decisions to make, escalations, time-boxed routine. |
+| 06:30 PT | **demo-creator** | Always writes `.factory/demos/<date>/recipe.md` (launch + controls + suggested capture command per recently-shipped feature). Best-effort auto-capture via Godot `--write-movie` + ffmpeg → `.mp4` + `.png`. |
+| 07:00 PT | **pm** | Re-sorts top of `## Todo`. Biweekly Monday: tags `v0.N`, generates release notes, rolls WORK.md sections. |
+| ~07:00 PT | **CEO (you)** | `/spraxel-inbox` → walk MORNING.md sections. ~38 minutes. |
 
 Weekly:
 
 | Time | Who | What |
 |------|-----|------|
-| Fri 07:00 PT | **designer** | Drops 4-6 `[idea]`-tagged items into `## Todo` for CEO triage. |
-| Sat 10:00 PT | **blogger** | Drafts `blog/<YYYY-MM-DD>.md` from the week's commits. Pushes branch; CEO merges manually. |
-| Sun 02:00 PT | **janitor** | Cold-archives stale items (30+ days), deletes merged branches, prunes old logs. |
+| Tue + Fri 07:00 PT | **designer** | Drops 4-6 `[idea]`-tagged items + 0-3 `[concern]` items into `## Todo`. Concerns flag game-wide issues (feature bloat, philosophical drift). |
+| Sat 10:00 PT | **blogger** | Drafts `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` from the week's `feat:` commits (player-facing filter — skips test/infra/process). Pushes `blog/<date>` branch; CEO humanizes + merges. |
+| Sun 02:00 PT | **janitor** | Cold-archives 30+ day stale items, prunes merged `feat/*` branches + 60+ day logs, sweeps orphan `feat/cont-*` branches whose WORK.md item is gone. |
 | 1st 08:00 PT | **asset-librarian** | Scans `assets/`, reports orphans + license gaps. |
 
 Every 30 minutes (separately scheduled — `com.spraxel.localtests.plist`):
@@ -565,14 +572,15 @@ bash ~/SpraxelAiCompany/scripts/run_agent.sh pm --dry-run     # see prompt, don'
 
 Logs land at `~/SpraxelAiCompany/logs/<agent>/<ts>.log`.
 
-### Manually run the overnight loop now
+### Manually run the continuous loop now
 
 ```bash
-bash ~/SpraxelAiCompany/scripts/overnight_dev.sh
+bash ~/SpraxelAiCompany/scripts/continuous_dev.sh
 ```
 
-It'll hard-stop at 06:00 PT — useful for a one-off mid-day burst if you've
-got dictation backed up.
+(This is the same script `tick.sh` spawns automatically — usually you don't
+run it by hand. It keeps shipping items until it hits the per-CEO-signal cap,
+then sleeps.)
 
 ### Pause everything
 
@@ -581,7 +589,7 @@ touch ~/SpraxelAiCompany/.paused
 ```
 
 The daemon keeps ticking but `tick.sh` and `run_agent.sh` and
-`overnight_dev.sh` all check this flag and exit silently. Resume with:
+`continuous_dev.sh` all check this flag and exit silently. Resume with:
 
 ```bash
 rm ~/SpraxelAiCompany/.paused
@@ -610,7 +618,7 @@ bash ~/SpraxelAiCompany/scripts/resume.sh --drop
 
 What `interrupt.sh` does:
 1. `touch .paused` (block new agent dispatches)
-2. SIGTERM all `overnight_dev.sh / run_agent.sh / claude -p` processes
+2. SIGTERM all `continuous_dev.sh / run_agent.sh / claude -p` processes
 3. Clear stale lockdirs
 4. `git stash` any uncommitted work in the game repo (preserves it)
 5. `git checkout master && git pull --ff-only`
@@ -733,7 +741,7 @@ python3 $WORKMD escalate $WORK "<title>" --log "(manual)"
 ```
 
 You can also just **edit WORK.md directly** — the format is human-friendly.
-Just don't edit while the overnight loop is running (use `.paused`).
+Just don't edit while the continuous loop is running (use `.paused`).
 
 ### Make a manual code change
 
@@ -842,7 +850,7 @@ git -C ~/GameProjects/<game> log master --author='-bot@spraxel.ai' \
 # "Anything stuck?"
 ls ~/SpraxelAiCompany/.locks/  # each lockdir = an in-flight agent
 
-# "Revert something the overnight loop landed but broke things"
+# "Revert something the continuous loop landed but broke things"
 cd ~/GameProjects/<game>
 git revert <sha> && git push origin master
 ```
@@ -867,11 +875,11 @@ Three sections separated by two dividers (10+ `-` or `=`):
 v0.3 — pushing mechanic
 v0.2 — character switch lock-out
 ----------
-## Shipped since last release         ← overnight loop appends here (chronological)
+## Shipped since last release         ← continuous loop appends here (chronological)
 [game-feature] p1 Run button + stamina bar
 [bug] p0 Stairs teleport fixed
 ==========
-## Todo                               ← overnight loop picks from top
+## Todo                               ← continuous loop picks from top
 [game-feature] p0 Diving stealth in water
 [bug] p0 Extraction zone broken
 [game-feature] p1 Skill tree system
@@ -962,19 +970,19 @@ FUTURE - DLC mission pack
 
 | Agent | Cadence | Model | What it does |
 |-------|---------|-------|--------------|
-| **overnight_dev** | nightly 23:00 → 06:00 PT | n/a (shell) | Loops up to 10 features. Branches → Developer → tests → Reviewer → merge. |
-| **developer** | called by continuous loop | sonnet | Implements one WORK.md item end-to-end on a feature branch. **Always adds a GUT test under `test/unit/` and runs `bash scripts/run_local_tests.sh` before committing.** Also appends `MANUAL - <CATEGORY> - ...` follow-up items if work needs CEO art/music/etc. |
-| **reviewer** | called by continuous loop | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). |
+| **continuous_dev.sh** | always on (paced by CEO signal cap) | n/a (shell) | Long-running Developer loop. Ships items until target_per_batch since last CEO signal, then sleeps. Spawned + watched by `tick.sh`. |
+| **developer** | called by continuous loop, per item | sonnet | Implements one WORK.md item end-to-end on a feature branch. **MANDATORY**: GUT test under `test/unit/`, Game.md block with `First encounter` + `Tutorial prompt` for player-facing features, debug-feature hook, scenario file. Reviewer blocks merge if any are missing. Handles `[amend]`, `[reject]`, `[resume]` items differently (read prior code first). |
+| **reviewer** | called by continuous loop, per item | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). Blocks merge on missing test, missing/incomplete Game.md, missing scenario file, missing debug-feature hook. |
 | **playtester** | daily 04:00 PT | sonnet | Actively plays the game to find problems. Beyond test scenarios — input spam, edge cases, mechanic combos. Writes candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
-| **triager** | daily 05:00 PT | haiku | Reads playtest findings + test failures, appends as `[needs-ceo] [bug]` items. CEO confirms in MORNING.md before they become live bugs. |
-| **morning-briefer** | daily 06:00 PT | haiku | Writes MORNING.md — runs `health_check.sh` first, then 10 features to play-test, decisions to make, escalations. |
-| **demo-creator** | daily 06:30 PT (Mac-awake req) | sonnet | Captures video + screenshot for newly-shipped features via `--demo-feature=<slug>` + `screencapture`. Writes to `.factory/demos/<date>/`. Blogger embeds these. |
+| **triager** | daily 05:00 PT | haiku | Reads playtest findings + test failures, appends as `[needs-ceo] [bug]` items. CEO validates in MORNING.md before they become live bugs. |
+| **morning-briefer** | daily 06:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, escalations. Runs `health_check.sh` first to surface agent failures. |
+| **demo-creator** | daily 06:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
 | **pm** | daily 07:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
-| **designer** | Tue + Fri 07:00 PT | sonnet | Reads Philosophy + memory + inspiration. Generates 2-3× target candidates, ranks, takes top N (config: `designer.ideas_per_run`). Drops as `[idea]` items. |
-| **blogger** | weekly Sat 10:00 PT | sonnet | Drafts devlog from week's commits + release notes + demo assets. Pushes `blog/<date>` branch. CEO humanizes in morning routine, then merges + publishes. |
-| **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items, prunes merged branches (matches `feat/(overnight|cont|issue)-*`), prunes 60+ day logs. |
+| **designer** | Tue + Fri 07:00 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
+| **blogger** | weekly Sat 10:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
+| **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items, prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (escalated-branch cleanup). |
 | **asset-librarian** | monthly 1st 08:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
-| **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. Originally called "Director" in the project spec. |
+| **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. Flags ⚠️ concerns inline (cliché/complexity/balance/drift) but always appends the item — concerns are advisory, never gatekeep. |
 
 ---
 
@@ -989,12 +997,14 @@ FUTURE - DLC mission pack
 | **`run_agent.sh <name>`** | Wraps one Claude invocation. Reads the agent spec, composes prompt (spec + Philosophy + WORK.md + optional `SPRAXEL_ITEM_BRIEF`), passes `--model` based on spec frontmatter, calls `claude -p`. Per-agent lock prevents double-fire. | `tick.sh` (cron), `continuous_dev.sh` (per item), CEO manually |
 | **`install_daemon.sh`** | Drops `com.spraxel.tick.plist` into `~/Library/LaunchAgents/`. Args: `install` / `stop` / `status` / `restart`. | CEO, one-time |
 | **`new_game.sh <dir>`** | Bootstraps a new game repo with Philosophy.md, Game.md, WORK.md, `.gitignore`, `.factory/`, `test/unit/`, `scripts/scenarios/`, and the local-tests cron installer. | CEO, when starting a new game |
-| **`workmd.py`** | Parser + CLI for WORK.md. Subcommands: `parse / top / append / ship / escalate / promote / drop / bump / clarify`. Atomic mkdir-locked. | every agent + CEO |
-| **`cron_match.py`** | Evaluates a 5-field cron expression against `now` in a timezone. Used by `tick.sh` to decide who fires. | `tick.sh` |
+| **`workmd.py`** | Parser + CLI for WORK.md. Subcommands: `parse / top / append / ship / escalate / resume / promote / drop / bump / clarify / release-cut`. Atomic mkdir-locked. | every agent + CEO |
+| **`cron_match.py`** | Evaluates a 5-field cron expression against `now` in a timezone. Used by `tick.sh` to decide who fires and by `spraxel_report.py` to compute next firings. | `tick.sh`, `spraxel_report.py` |
 | **`slugify.py`** | Title → kebab-case branch slug. | `continuous_dev.sh` for branch names |
 | **`health_check.sh`** | Scans today's `logs/*/<YYYY-MM-DD>*.log` for error patterns (unknown model, rate limit, session expired, fatal, traceback). Outputs a markdown block. | `morning-briefer` agent (step 1), CEO manually |
+| **`spraxel_report.py`** | Status snapshot generator: right-now state, last 24h, last 7 days, next 20 scheduled events. Pure-local read-only — no Claude tokens. Powers `/spraxel-report`. | CEO via `/spraxel-report` skill or directly |
 | **`token_report.sh`** | Counts `claude -p` invocations per agent over a window. Compares to `Philosophy.budgets.by_agent_percent`. Flags drift >25%. | CEO manually (weekly check); not yet scheduled |
-| **`capture_demo.sh <slug>`** | macOS screen-capture helper. Launches `godot --demo-feature=<slug>` windowed + records 10s video + still via `screencapture`. Output `.mov`+`.png` to `.factory/demos/`. | `demo-creator` agent |
+| **`capture_demo.sh <slug>`** | Records a Godot --demo-feature run via Godot's built-in Movie Maker (`--write-movie`) + ffmpeg encoding to H.264 .mp4 + extracts a .png still at 3s. No Screen Recording permission needed (engine framebuffer, not screen pixels). Requires ffmpeg on PATH; exits rc=3 if missing. Exits rc=5 with warning if recording is suspiciously short (test-style scenarios that auto-quit). | `demo-creator` agent |
+| **`backfill_escalations.py`** | One-shot migration. Reads pre-redesign `.factory/escalations.md` entries (terse with log-link format), restores items to WORK.md as `[escalated]`, rewrites escalations.md with the new self-contained per-block format. Idempotent. | CEO, one-time per game repo |
 | **`checkin.sh`** | Explicit CEO signal — touches `.cache/ceo-checkin.ts`. `continuous_dev.sh` polls this and resets the counter on detection. | CEO manually when read-only interaction wasn't enough |
 | **`amend.sh <slug-or-sha> "feedback"`** | CEO keeps a shipped feature but queues a refinement pass. Appends `[amend] Refine: <title>` to WORK.md `## Todo` with sha + feedback. Master untouched — Developer iterates on existing code next overnight. | CEO during play-test |
 | **`reject.sh <slug-or-sha> "reason"`** | CEO undoes a shipped feature. `git revert` the `feat:` + paired `work: shipped` commits on master, appends `[reject] Re-implement: <title>` to WORK.md `## Todo` with sha + reason. Developer re-implements next overnight, knowing the old approach was wrong. | CEO during play-test |
@@ -1050,14 +1060,15 @@ Things to watch for that mean trouble:
 | **janitor** | haiku | Sun 02:00 PT | `tick.sh` cron | WORK.md (cold-archives), branches (deletes merged), logs (prunes >60 days) |
 | **asset-librarian** | haiku | monthly 1st 08:00 PT | `tick.sh` cron | `.factory/asset-report-<date>.md`, MORNING.md note |
 | **producer** | sonnet | on-demand (`/spraxel-producer`) | CEO via skill | WORK.md `## Todo` (from `.factory/inbox/raw.md`) |
-| **demo-creator** | (stub) | not yet implemented | — | — |
+| **demo-creator** | sonnet | daily 06:30 PT | `tick.sh` cron | `.factory/demos/<date>/recipe.md` (always) + best-effort `.mp4`+`.png` (when Mac awake + ffmpeg installed) |
 
-### Skills (`~/SpraxelAiCompany/skills/`)
+### Skills (`~/SpraxelAiCompany/skills/`, hardlinked to `~/.claude/skills/`)
 
 | Skill | Trigger | Purpose |
 |-------|---------|---------|
 | **`/spraxel-inbox`** (or `/inbox`) | CEO types in Claude Code | Walks the morning routine: opens MORNING.md, surfaces sections in order, quick commands |
-| **`/spraxel-producer`** (or `/producer`) | CEO types in Claude Code | Converts `.factory/inbox/raw.md` + dictation files into clean WORK.md items |
+| **`/spraxel-producer`** (or `/producer`) | CEO types in Claude Code | Converts `.factory/inbox/raw.md` + dictation files into clean WORK.md items; flags ⚠️ concerns inline |
+| **`/spraxel-report`** (or `/report`) | CEO types in Claude Code, or "what's going on?" | Immediate system status: now / last 24h / last week / next 20 scheduled events. Runs `scripts/spraxel_report.py` (no Claude tokens used for data gathering) |
 
 ### Per-agent memory files
 
@@ -1167,10 +1178,10 @@ If `fail_streak: 3` appears in `~/SpraxelAiCompany/.cache/last-overnight.txt`,
 the Claude CLI hit 3 consecutive failures (likely rate limit or session
 expiry). Re-auth and re-run.
 
-### "I committed code at midnight and now overnight fails to push"
+### "I committed code mid-cycle and now the continuous loop fails to push"
 
-The overnight loop fetches and rebases at start, but if you committed
-between its fetch and its push, the push fails. Easy fix: run a quick
+The continuous loop fetches and rebases at start of each item, but if
+you committed between its fetch and its push, the push fails. Easy fix: run a quick
 manual rebase next morning, or just wait — the next night picks up where
 it left off.
 
@@ -1200,7 +1211,7 @@ mv WORK.md.recovered WORK.md && git add WORK.md && git commit -m "fix WORK.md"
 | GitHub Actions | $0 — we don't use them anymore. |
 | Anthropic `/schedule` routines | $0 — we don't use them anymore. |
 | LFS storage | $0 if you stay under 1 GB total LFS objects. |
-| Mac electricity | Marginal — overnight loop adds ~10-30 min of CPU per night. |
+| Mac electricity | Marginal — continuous loop runs claude in bursts, mostly idle between dev calls. |
 
 The system's only **bounded** resource is your Claude Max weekly token
 quota. Sonnet runs (Developer, Designer, Blogger) consume most. If you hit
@@ -1238,7 +1249,7 @@ See "Risks" below for mitigation.
   if it builds up.
 
 - **Reviewer over-blocks**: if the Reviewer agent gets pessimistic, it
-  exits 1 often and the overnight loop escalates everything. CEO has to
+  exits 1 often and the continuous loop escalates everything. CEO has to
   re-tune the spec.
   *Mitigation*: regular review of `.factory/reviews/<branch>.md` files.
   Most should be `clean`.
