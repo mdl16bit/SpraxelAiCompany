@@ -60,6 +60,32 @@ Keep unmerged `feat/` branches (CEO may still want them) and any branch
 that doesn't match the bot-loop pattern (e.g., `ceo/*` branches you made
 during manual edits, `blog/*` branches from Blogger awaiting review).
 
+### 2a. Sweep orphan crew worktrees
+
+`run_agent.sh` creates a temporary git worktree at
+`~/SpraxelAiCompany/.worktrees/<agent>-<pid>` when the main game-repo
+checkout is on a feature branch (so crew commits go onto master cleanly
+without disturbing the wrapper's dev work). Worktrees are removed in
+the agent's EXIT trap, but if the agent was SIGKILL'd, the worktree
+can be left behind. Sweep them:
+
+```bash
+WT_ROOT=~/SpraxelAiCompany/.worktrees
+[ -d "$WT_ROOT" ] || exit 0
+for wt in "$WT_ROOT"/*; do
+  [ -d "$wt" ] || continue
+  # Extract agent name + pid from path: .worktrees/<agent>-<pid>
+  base=$(basename "$wt")
+  pid="${base##*-}"
+  # If the pid is no longer running a run_agent, treat as orphaned
+  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+    cd ~/GameProjects/<game> && git worktree remove --force "$wt" 2>/dev/null \
+      && echo "janitor: swept orphan worktree $base"
+  fi
+done
+rmdir "$WT_ROOT" 2>/dev/null   # remove empty parent if all gone
+```
+
 ### 2b. Sweep orphan escalated branches
 
 The continuous-dev wrapper preserves failed dev branches on origin under

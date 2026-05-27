@@ -78,31 +78,100 @@ mkdir -p "$LOGS_DIR/$agent" "$LOCKS_DIR"
 ts=$(date +%Y-%m-%d-%H%M)
 log="$LOGS_DIR/$agent/$ts.log"
 
-# Compose the prompt. The agent spec is the contract; we append today's state.
+# --- Per-agent lock (mkdir is atomic on macOS — flock not available by default) ---
+lock_dir="$LOCKS_DIR/$agent.lockdir"
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  echo "run_agent: $agent already running (lock: $lock_dir)" >&2
+  exit 2
+fi
+
+# --- Worktree resolution ---
+# Crew agents (everything but `developer`) commit to master-only state files
+# (WORK.md, .factory/local/MORNING.md, .factory/escalations.md). But when the
+# continuous wrapper is mid-ship, the main game-repo checkout is on a feature
+# branch, possibly with uncommitted dev work. Switching the main checkout's
+# HEAD would race with the wrapper.
+#
+# Solution: create a temporary git WORKTREE pointing at origin/master, and
+# run the crew agent inside it. The main checkout stays on the feat branch,
+# untouched. The agent's commits land on master in the worktree and push to
+# origin from there. Wrapper picks them up via clean_slate's
+# `reset --hard origin/master` at the start of its next iter.
+#
+# When the main checkout is ALREADY on master (wrapper idle / cap-sleep),
+# skip the worktree dance and just operate in $game_dir directly — faster
+# and avoids unnecessary disk churn.
+WORK_DIR="$game_dir"
+WORKTREE_PATH=""
+cd "$game_dir"
+if [ "$agent" != "developer" ]; then
+  current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+  if [ "$current_branch" != "master" ] && [ -n "$current_branch" ]; then
+    WORKTREE_PATH="$REPO_DIR/.worktrees/${agent}-$$"
+    mkdir -p "$REPO_DIR/.worktrees"
+    # Pull latest origin/master so the worktree starts from the freshest state.
+    git fetch --quiet origin master 2>/dev/null
+    if ! git worktree add --quiet --detach "$WORKTREE_PATH" origin/master 2>/dev/null; then
+      echo "run_agent: $agent — failed to create worktree at $WORKTREE_PATH; deferring" >&2
+      rmdir "$lock_dir" 2>/dev/null || true
+      exit 5
+    fi
+    # Detached HEAD at origin/master. Create a local 'master' ref inside the
+    # worktree (separate from the main repo's master ref) so commits can go on
+    # a named branch + push to origin master via HEAD:master.
+    WORK_DIR="$WORKTREE_PATH"
+    echo "run_agent: $agent — using worktree $WORKTREE_PATH (main checkout is on $current_branch)" >&2
+  fi
+fi
+
+# Trap: always release the lockdir + remove worktree on exit.
+cleanup() {
+  if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+    # If the agent committed in the worktree, push HEAD to origin/master.
+    # The agent's own workflow normally pushes, but this is belt-and-suspenders
+    # in case the agent committed but failed to push (network blip, etc).
+    git -C "$WORKTREE_PATH" push --quiet origin HEAD:master 2>/dev/null || true
+    git -C "$game_dir" worktree remove --force "$WORKTREE_PATH" 2>/dev/null || true
+    # Best-effort: also remove any stale parent dir if empty.
+    rmdir "$REPO_DIR/.worktrees" 2>/dev/null || true
+  fi
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# --- Compose the prompt (with WORK_DIR-aware paths) ---
+# The agent spec is the contract; we append today's state. Paths point at
+# WORK_DIR (the worktree if active, $game_dir otherwise) so the agent reads
+# the right Philosophy.md / WORK.md and commits into the right tree.
 {
   cat "$spec"
   echo
   echo "---"
   echo "## Today's runtime context"
   echo
-  echo "Working directory: $game_dir"
+  echo "Working directory: $WORK_DIR"
+  if [ -n "$WORKTREE_PATH" ]; then
+    echo "(NOTE: this is a temporary worktree pinned at origin/master; the main"
+    echo " game repo is at $game_dir on a feature branch. Do all your git work"
+    echo " from $WORK_DIR. Push with: git push origin HEAD:master)"
+  fi
   echo "Date: $(date '+%Y-%m-%d %H:%M %Z')"
   echo
   echo "### Philosophy.md (run_mode and budgets)"
-  if [ -f "$game_dir/Philosophy.md" ]; then
-    sed -n '1,80p' "$game_dir/Philosophy.md"
+  if [ -f "$WORK_DIR/Philosophy.md" ]; then
+    sed -n '1,80p' "$WORK_DIR/Philosophy.md"
   else
-    echo "(no Philosophy.md found at $game_dir/Philosophy.md)"
+    echo "(no Philosophy.md found at $WORK_DIR/Philosophy.md)"
   fi
   echo
   echo "### WORK.md (current state)"
-  if [ -f "$game_dir/WORK.md" ]; then
-    cat "$game_dir/WORK.md"
+  if [ -f "$WORK_DIR/WORK.md" ]; then
+    cat "$WORK_DIR/WORK.md"
   else
-    echo "(no WORK.md found at $game_dir/WORK.md)"
+    echo "(no WORK.md found at $WORK_DIR/WORK.md)"
   fi
   echo
-  # Per-item brief (set by overnight_dev.sh — used by Developer for "this is your assignment").
+  # Per-item brief (set by continuous_dev.sh — used by Developer for "this is your assignment").
   if [ -n "${SPRAXEL_ITEM_BRIEF:-}" ] && [ -f "$SPRAXEL_ITEM_BRIEF" ]; then
     echo "---"
     cat "$SPRAXEL_ITEM_BRIEF"
@@ -110,65 +179,22 @@ log="$LOGS_DIR/$agent/$ts.log"
   fi
   echo "---"
   echo "Do your role's work now per the spec above. Tools: Bash, Read, Edit, Write, Grep, Glob."
-  echo "Write to files under $game_dir as your spec describes. Print one short status line to stdout."
+  echo "Write to files under $WORK_DIR as your spec describes. Print one short status line to stdout."
 } > "$log.prompt"
 
 if [ "$dry_run" = "--dry-run" ]; then
   echo "Prompt written to: $log.prompt"
-  echo "Would run: claude --model $model_id -p (cwd=$game_dir, log=$log)"
+  echo "Would run: claude --model $model_id -p (cwd=$WORK_DIR, log=$log)"
   exit 0
 fi
 
-# Per-agent lock (mkdir is atomic on macOS — flock is not available by default).
-# If the lockdir already exists, another instance of this agent is in flight.
-lock_dir="$LOCKS_DIR/$agent.lockdir"
-if ! mkdir "$lock_dir" 2>/dev/null; then
-  echo "run_agent: $agent already running (lock: $lock_dir)" >&2
-  exit 2
-fi
-
-# Branch guard. Crew agents (everything but `developer`) write to master-only
-# state files (WORK.md, .factory/local/MORNING.md, .factory/escalations.md).
-# But when the continuous wrapper is mid-ship, HEAD is on its feature branch.
-# Without this guard, the crew agent's commits land on that feature branch
-# and get nuked when the wrapper does its mid-run branch -D cleanup.
-# Strategy: save the current branch, switch to master before claude, restore
-# after. Refuse the run if the working tree is dirty (switching could lose
-# the wrapper's unstaged work).
-saved_branch=""
-cd "$game_dir"
-if [ "$agent" != "developer" ]; then
-  current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
-  if [ "$current_branch" != "master" ] && [ -n "$current_branch" ]; then
-    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-      echo "run_agent: $agent — wrapper has uncommitted work on '$current_branch', deferring this run (will retry next cron)" >&2
-      rmdir "$lock_dir" 2>/dev/null || true
-      exit 5
-    fi
-    if ! git checkout master --quiet 2>/dev/null; then
-      echo "run_agent: $agent — cannot checkout master from '$current_branch'; deferring" >&2
-      rmdir "$lock_dir" 2>/dev/null || true
-      exit 5
-    fi
-    saved_branch="$current_branch"
-    echo "run_agent: $agent — switched HEAD master ← $saved_branch (will restore)" >&2
-  fi
-fi
-
-# Trap: always release the lockdir and restore the wrapper's branch on exit.
-cleanup() {
-  if [ -n "$saved_branch" ]; then
-    git checkout "$saved_branch" --quiet 2>/dev/null || true
-  fi
-  rmdir "$lock_dir" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
-
-# Run claude headless. --dangerously-skip-permissions enables Bash/Edit/Write without prompts.
+# --- Run claude headless ---
+# --dangerously-skip-permissions enables Bash/Edit/Write without prompts.
 # stdin = composed prompt, stdout/stderr → log. Model is per-agent (see frontmatter).
 # SPRAXEL_AGENT_RUN=1 tells the global SessionStart hook to skip checkin.sh —
 # without it, every agent's claude session would touch ceo-checkin.ts and the
 # continuous loop would interpret that as a fresh CEO signal after every ship.
+cd "$WORK_DIR"
 echo "run_agent: $agent ($model_id) → $log" >&2
 if SPRAXEL_AGENT_RUN=1 claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
   echo "run_agent: $agent ok" >&2

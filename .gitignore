@@ -7,20 +7,14 @@ venv/
 *.log
 .idea/
 .vscode/
-logs/ # dont track runtime logs
-  echo ".locks/" >> .gitignore
-  echo ".cache/" >> .gitignore
-  echo ".paused" >> .gitignore
-  git add .gitignore schedule.yaml scripts/ agents/ skills/ docs/ template/ \
-          OPERATIONS.md README.md TODO.md
-  git commit -m "offline: full migration to local cron daemon"
-  git push
-cd ~/SpraxelAiCompany
-  echo "logs/" >> .gitignore   # dont track runtime logs
-.locks/
-.cache/
-.paused
+
+# Runtime state — local-only, never committed
 logs/
 .locks/
 .cache/
 .paused
+
+# Crew-agent worktrees — transient git worktrees created by run_agent.sh
+# when the main game-repo checkout is on a feature branch. Removed at the
+# end of each agent run; only present here transiently.
+.worktrees/
