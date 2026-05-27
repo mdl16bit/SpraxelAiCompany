@@ -433,7 +433,7 @@ if it:
                 commit --quiet -m "chore(retry): rebase conflict — '$(echo "$stripped_title" | cut -c1-50)...'" 2>/dev/null || exit 1
             git push --quiet origin master 2>/dev/null
           )
-          rmdir "$rclock" 2>/dev/null
+          # Lock release via subshell EXIT trap; no outside-safety rmdir (would race).
           return 1
         fi
       fi
@@ -572,7 +572,7 @@ sys.exit(1)
             commit --quiet -m "needs-ceo: clarifications on '$next_title'" 2>/dev/null || exit 1
         git push --quiet origin master 2>/dev/null
       )
-      rmdir "$clarify_lock" 2>/dev/null
+      # Lock release via subshell EXIT trap; no outside-safety rmdir (would race).
       # Worker cleanup
       cd "$WORK_DIR"
       git fetch --quiet origin master 2>/dev/null
@@ -750,7 +750,11 @@ print(t)
       fi
     )
     local merge_rc=$?
-    rmdir "$merge_lock" 2>/dev/null
+    # Lock release is handled by the subshell's EXIT trap above. Do NOT
+    # rmdir here as a "safety net" — if another worker has already
+    # mkdir'd the lock again (raced into the critical section), this
+    # rmdir would clobber THEIR lock and let a third worker enter,
+    # corrupting WORK.md bookkeeping.
     if [ $merge_rc -eq 0 ]; then
       # Local cleanup in the worker's worktree.
       cd "$WORK_DIR"
@@ -884,7 +888,7 @@ print(t[:55] + ('...' if len(t) > 55 else ''))
           commit --quiet -m "chore(retry): $retry_short — bounced back to queue" 2>/dev/null || exit 1
       git push --quiet origin master 2>/dev/null
     )
-    rmdir "$retry_lock" 2>/dev/null
+    # Lock release via subshell EXIT trap; no outside-safety rmdir (would race).
     echo "continuous: ↻ worker $WORKER_ID — retry '$stripped_title' — branch '$branch' preserved, will retry next dev fire"
     return 1
   fi
