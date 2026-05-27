@@ -302,6 +302,38 @@ def ships_today(game_dir: Path | None) -> int:
         return 0
 
 
+def ship_throughput(game_dir: Path | None) -> dict[str, int | float]:
+    """Compute lifetime + recent ship counts straight from git log.
+
+    Returns:
+      lifetime:  total continuous-bot `feat:` commits ever
+      today:     ships since midnight
+      seven_day: ships in the last 7 days
+      avg_per_day: 7d ships ÷ 7 (rolling average)
+
+    No state file maintenance — git log is the source of truth.
+    """
+    if not game_dir:
+        return {"lifetime": 0, "today": 0, "seven_day": 0, "avg_per_day": 0.0}
+    def n(args: str) -> int:
+        out = sh(
+            f"git log master {args} --pretty='%h' --grep='^feat:' "
+            f"--author='continuous-bot' | wc -l",
+            cwd=game_dir,
+        )
+        try: return int(out)
+        except ValueError: return 0
+    lifetime  = n("")
+    today     = n("--since=midnight")
+    seven_day = n("--since=7.days.ago")
+    return {
+        "lifetime":   lifetime,
+        "today":      today,
+        "seven_day":  seven_day,
+        "avg_per_day": round(seven_day / 7.0, 1),
+    }
+
+
 def last_n_ships(game_dir: Path | None, n: int = 20) -> list[tuple[str, str, str]]:
     """Return the last n shipped feat commits as (sha, age, subject).
 
@@ -487,10 +519,13 @@ def render(now: datetime, game_dir: Path | None) -> str:
             lines.append(f"    {DIM}w{wid}{RESET}  {tag} {age_col}  {title_disp}")
     lines.append("")
 
-    # Today's totals
-    lines.append(f"  {BOLD}▸ Today{RESET}")
-    lines.append(f"    Ships:        {GREEN}{ships_today(game_dir)}{RESET}")
-    lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir)}{RESET}")
+    # Throughput — git-log derived, no state file race
+    tput = ship_throughput(game_dir)
+    lines.append(f"  {BOLD}▸ Throughput{RESET}")
+    lines.append(f"    Today:        {GREEN}{tput['today']:>3}{RESET} {DIM}(continuous-bot ships){RESET}")
+    lines.append(f"    7-day:        {GREEN}{tput['seven_day']:>3}{RESET} {DIM}avg {tput['avg_per_day']}/day{RESET}")
+    lines.append(f"    Lifetime:     {DIM}{tput['lifetime']:>3}{RESET}")
+    lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir)}{RESET} {DIM}(today, CEO-bound){RESET}")
     lines.append("")
 
     # Next 10 scheduled fires
