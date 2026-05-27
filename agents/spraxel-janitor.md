@@ -63,7 +63,46 @@ Keep unmerged `feat/` branches (CEO may still want them) and any branch
 that doesn't match the bot-loop pattern (e.g., `ceo/*` branches you made
 during manual edits, `blog/*` branches from Blogger awaiting review).
 
-### 2a. Sweep orphan crew worktrees
+### 2a. Kill stale godot --headless processes
+
+Scenario runs occasionally hang if a process was launched without `--quit-after`
+or if the safety timer didn't fire (e.g., before the 2026-05-27 debug_boot fix).
+Kill any `godot --headless` process that has been running for more than 2 hours.
+
+```bash
+cutoff=$(( $(date +%s) - 7200 ))
+while IFS= read -r pid; do
+  lstart=$(ps -p "$pid" -o lstart= 2>/dev/null | sed 's/^ *//')
+  [ -z "$lstart" ] && continue
+  start_ts=$(date -jf "%a %b %d %T %Y" "$lstart" +%s 2>/dev/null)
+  [ -z "$start_ts" ] && continue
+  age=$(( $(date +%s) - start_ts ))
+  if [ "$age" -gt 7200 ]; then
+    kill "$pid" 2>/dev/null && echo "janitor: killed stale godot --headless pid=$pid (age ${age}s)"
+  fi
+done < <(pgrep -f "godot.*--headless" 2>/dev/null || true)
+```
+
+### 2a-bis. Kill orphan run_local_tests.sh processes
+
+When the continuous_dev wrapper dies (crash, SIGKILL, etc.) its child
+`run_local_tests.sh` can survive by getting reparented to launchd (PID 1).
+The orphan then holds the test lockdir + blocks all live workers from
+running their tests. The wrapper's EXIT trap now runs `pkill -P $$` to
+prevent this, but a janitor sweep catches anything that slipped through
+(e.g., process spawned in a way that bypassed the trap).
+
+```bash
+# An orphan = parent is launchd (PID 1)
+while IFS= read -r pid; do
+  ppid=$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ')
+  if [ "$ppid" = "1" ]; then
+    kill -KILL "$pid" 2>/dev/null && echo "janitor: killed orphan run_local_tests.sh pid=$pid"
+  fi
+done < <(pgrep -f "run_local_tests.sh" 2>/dev/null || true)
+```
+
+### 2b. Sweep orphan crew worktrees
 
 `run_agent.sh` creates a temporary git worktree at
 `~/SpraxelAiCompany/.worktrees/<agent>-<pid>` when the main game-repo

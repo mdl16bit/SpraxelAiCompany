@@ -77,7 +77,20 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   trace "step: exit 0 (lockdir already held — another instance of worker $WORKER_ID running)"
   exit 0   # another instance of THIS worker is running
 fi
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
+## Cleanup on wrapper exit: kill ALL direct children (run_local_tests.sh,
+## run_agent.sh, any sleep in the main loop), then release the lockdir.
+## Without the child-kill, a wrapper that dies (SIGKILL, crash, normal exit)
+## leaves its run_local_tests.sh + their godot grandchildren reparented to
+## launchd — orphan zombies eating resources + holding the test lockdir
+## (2026-05-27 incident — orphan run_local_tests.sh from a prior wrapper
+## generation held the test lock for 30 min, blocking all 3 workers).
+##
+## pkill -P $$ targets only direct children (the same process group as
+## this script). Each child's own EXIT trap then propagates the kill
+## deeper (run_local_tests.sh kills its godot via the run_bounded killer
+## subshell + EXIT trap; run_agent.sh kills its claude session via
+## SIGTERM handler).
+trap 'pkill -P $$ 2>/dev/null; sleep 0.2; rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
 trace "step: lock acquired for worker $WORKER_ID"
 
 # Resolve game_dir + target.
