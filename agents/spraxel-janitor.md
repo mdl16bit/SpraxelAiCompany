@@ -23,17 +23,20 @@ git branches, and run logs.
 ### 1. Cold-archive stale Todo items
 
 For every item in WORK.md `## Todo`:
-- If the item title hasn't been touched in the past **30 days** (compared
+- If the item title hasn't been touched in the past **N days** (compared
   against the file's git history for the line range), AND the item isn't
   tagged `[idea]`, prepend `[cold]` to its title.
+- N = `Philosophy.md#janitor.cold_threshold_days` (default 30 if missing).
 - `[cold]` items are skipped by the overnight loop. CEO can resurrect by
   removing the tag during a morning routine.
 
-Detect "hasn't been touched" by:
+Read the threshold + apply via:
 ```bash
-git log --since=30.days.ago -- WORK.md | grep -l "<item-title-substring>"
+N=$(grep -E '^\s*cold_threshold_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
+[ -z "$N" ] && N=30
+git log --since=${N}.days.ago -- WORK.md | grep -l "<item-title-substring>"
 ```
-If no commit mentions the title in 30 days, it's cold.
+If no commit mentions the title in $N days, it's cold.
 
 ### 2. Delete orphan branches
 
@@ -119,9 +122,12 @@ branch falls out of the referenced set on the next janitor run.
 
 ### 3. Prune logs
 
-Delete `~/SpraxelAiCompany/logs/*/<file>` older than **60 days**:
+Delete `~/SpraxelAiCompany/logs/*/<file>` older than **N days**, where N =
+`Philosophy.md#janitor.log_retention_days` (default 60 if missing):
 ```bash
-find ~/SpraxelAiCompany/logs -type f -mtime +60 -delete
+N=$(grep -E '^\s*log_retention_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
+[ -z "$N" ] && N=60
+find ~/SpraxelAiCompany/logs -type f -mtime +${N} -delete
 find ~/SpraxelAiCompany/logs -type d -empty -delete
 ```
 

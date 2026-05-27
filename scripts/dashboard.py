@@ -281,8 +281,42 @@ def last_n_ships(game_dir: Path | None, n: int = 20) -> list[tuple[str, str, str
     return rows
 
 
+def read_philosophy_int(game_dir: Path | None, dotted_key: str, default: int) -> int:
+    """Read a numeric YAML-ish value from Philosophy.md.
+
+    `dotted_key` is e.g. "dashboard.recent_ships". We grep for the inner
+    key (after the dot) under a top-level section line matching the
+    outer key (before the dot). The parser is intentionally lenient —
+    same shape as the bash readers in continuous_dev.sh / agent specs.
+    """
+    if game_dir is None:
+        return default
+    phil = game_dir / "Philosophy.md"
+    if not phil.exists():
+        return default
+    try:
+        text = phil.read_text()
+    except Exception:
+        return default
+    outer, inner = dotted_key.split(".", 1)
+    m = re.search(rf"^{re.escape(outer)}:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
+    if not m:
+        return default
+    block = m.group(1)
+    mm = re.search(rf"^\s+{re.escape(inner)}:\s*(\d+)", block, re.M)
+    if mm:
+        try:
+            return int(mm.group(1))
+        except ValueError:
+            return default
+    return default
+
+
 def render(now: datetime, game_dir: Path | None) -> str:
     lines = []
+    # Read configurable dashboard counts from Philosophy.md (with defaults).
+    recent_ships_n = read_philosophy_int(game_dir, "dashboard.recent_ships", 20)
+    ceo_actions_n  = read_philosophy_int(game_dir, "dashboard.ceo_actions", 10)
     title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
     bar = "─" * len(title)
     lines.append(f"{BOLD}{CYAN}{title}{RESET}")
@@ -384,9 +418,9 @@ def render(now: datetime, game_dir: Path | None) -> str:
             lines.append(f"    {DIM}{day:5s} {ts:%H:%M PT}{RESET}  {name}")
     lines.append("")
 
-    # Next 10 CEO action items (things blocking on you)
-    lines.append(f"  {BOLD}▸ Next 10 CEO action items{RESET}")
-    actions = pending_ceo_actions(game_dir, 10)
+    # Next N CEO action items (things blocking on you)
+    lines.append(f"  {BOLD}▸ Next {ceo_actions_n} CEO action items{RESET}")
+    actions = pending_ceo_actions(game_dir, ceo_actions_n)
     if not actions:
         lines.append(f"    {DIM}(none — queue is clear){RESET}")
     else:
@@ -408,9 +442,9 @@ def render(now: datetime, game_dir: Path | None) -> str:
             lines.append(f"    {tag} {clean}")
     lines.append("")
 
-    # Last 20 things shipped
-    lines.append(f"  {BOLD}▸ Last 20 shipped{RESET}")
-    ships = last_n_ships(game_dir, 20)
+    # Last N things shipped
+    lines.append(f"  {BOLD}▸ Last {recent_ships_n} shipped{RESET}")
+    ships = last_n_ships(game_dir, recent_ships_n)
     if not ships:
         lines.append(f"    {DIM}(no ships found in git log){RESET}")
     else:

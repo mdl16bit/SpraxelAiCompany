@@ -496,7 +496,8 @@ Address the license gaps when they appear (~5 min).
 ## Setup — adding a new game
 
 If you're starting a fresh game and want to wire it into the Spraxel
-factory, the bootstrap is one script + a few config edits:
+factory, the bootstrap is one script + a few config edits. The whole
+process takes ~10 minutes.
 
 ```bash
 # 1. Create the game repo (or use an existing one)
@@ -508,30 +509,103 @@ bash ~/SpraxelAiCompany/scripts/new_game.sh ~/GameProjects/my-new-game \
   --name "My New Game" --ceo your-github-login
 
 # This drops in:
-#   Philosophy.md           ← edit run_mode, dev.godot_binary, must_include
+#   Philosophy.md           ← edit run_mode, dev.godot_binary, identity, knobs
 #   Game.md                 ← feature inventory; bots append blocks here
 #   WORK.md                 ← work tracking (3 sections, 2 dashed-line dividers)
-#   .gitignore              ← Godot cache, .uid files, etc.
-#   .factory/               ← runtime state dirs
+#   .gitignore              ← Godot cache, .uid files, .factory/local/, etc.
+#   .factory/               ← runtime state dirs (memory/, inbox/, reviews/, local/)
 #   scripts/install_local_tests.sh
 #   scripts/run_local_tests.sh      ← full GUT + scenarios + status JSON
 #   scripts/run_unit_tests.sh       ← fast unit-test only runner
 #   test/unit/.gitkeep              ← Developer agent puts GUT tests here
 #   scripts/scenarios/.gitkeep      ← Developer agent puts scenario tests here
-
-# 3. Edit Philosophy.md: set the godot binary path
-$EDITOR ~/GameProjects/my-new-game/Philosophy.md
-# Change:  dev.godot_binary: "/Users/.../Godot.app/Contents/MacOS/Godot"
-# Confirm: run_mode: "live"
 ```
 
-Then wire the framework's daemon to point at this game:
+### Edit Philosophy.md (per-game config)
+
+The template is annotated with `TODO:` markers where game-specific
+content goes. The MUST-edit fields:
+
+```yaml
+identity:
+  name: "My New Game"
+  pitch: "<one-line elevator pitch>"
+  must_include:    ["<3-5 things this game MUST be>"]
+  must_not_include: ["<3-5 things this game must NOT be — the Designer
+                     and Producer enforce these>"]
+dev:
+  language: "GDScript"           # or whatever
+  engine: "Godot 4.6.1"
+  godot_binary: "/Users/.../Godot.app/Contents/MacOS/Godot"
+  main_scene: "res://scenes/<your-title>.tscn"
+run_mode: "live"                 # "dryrun" until you're ready
+```
+
+The OPTIONAL knobs (have sensible defaults — only edit if you want
+non-default behavior). See the "Configuration reference" section above
+for the full table.
+
+```yaml
+# Per-agent CEO-tunable thresholds — all optional. Defaults shown.
+janitor:
+  cold_threshold_days:    30
+  log_retention_days:     60
+morning_briefer:
+  playtest_count:         10
+dashboard:
+  recent_ships:           20
+  ceo_actions:            10
+designer:
+  ideas_per_run:          5
+
+# Model assignments — defaults are fine. Adjust if you're hitting your
+# Max-plan weekly cap and want to push more agents onto haiku.
+budgets:
+  model_assignments:
+    developer:        claude-sonnet-4-6
+    reviewer:         claude-sonnet-4-6
+    designer:         claude-sonnet-4-6
+    morning_briefer:  claude-haiku-4-5-20251001
+    janitor:          claude-haiku-4-5-20251001
+    # ...
+```
+
+### Edit schedule.yaml (framework runtime)
 
 ```bash
-# 4. Tell the daemon which game to target
+# 4. Tell the daemon which game to target + tune the continuous loop
 $EDITOR ~/SpraxelAiCompany/schedule.yaml
-# Change:  game_dir: ~/GameProjects/my-new-game
+```
 
+The MUST-edit field:
+
+```yaml
+game_dir: ~/GameProjects/my-new-game
+```
+
+The OPTIONAL knobs (defaults are sensible — only touch if you have a
+reason). See the "Configuration reference" section above.
+
+```yaml
+continuous:
+  target_per_batch:       10      # ships before sleep until next CEO signal
+  dev_concurrency:        3       # parallel workers; 1 = single, 3 = aggressive
+  max_fail_streak:        3       # consecutive failures → backoff
+  fail_backoff_seconds:   1800    # 30 min backoff
+  poll_interval_seconds:  60      # how often to re-check pause/cap
+  idle_threshold:         5       # empty-queue ticks → long sleep
+  idle_sleep_seconds:     300
+
+agents:
+  # cron expression per agent — edit cadences here. Format:
+  #   minute hour day-of-month month day-of-week  (PT timezone)
+  playtester:      { cron: "0 4 * * *",  ... }
+  triager:         { cron: "0 5 * * *",  ... }
+  morning_briefer: { cron: "0 6 * * *",  ... }
+  # ...
+```
+
+```bash
 # 5. Install (or re-install) the daemon — idempotent
 bash ~/SpraxelAiCompany/scripts/install_daemon.sh
 
@@ -1017,6 +1091,66 @@ FUTURE - DLC mission pack
 | **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |
 | **asset-librarian** | monthly 1st 08:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
 | **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. Flags ⚠️ concerns inline (cliché/complexity/balance/drift) but always appends the item — concerns are advisory, never gatekeep. |
+
+---
+
+## Configuration reference
+
+Two files hold all CEO-tunable knobs. The split is intentional:
+
+- **`schedule.yaml`** (in this framework repo) — **how the daemon runs**.
+  Cron expressions, parallel-worker count, ship-cap, retry/backoff
+  policy. Shared across all games this Mac runs.
+- **`Philosophy.md`** (in each game repo) — **what this game cares
+  about**. Identity, model assignments, per-agent thresholds, dashboard
+  preferences, dev binary. One per game.
+
+If you have to choose, ask "does it depend on the game?" → Philosophy.md;
+"does it depend on the daemon's runtime behavior?" → schedule.yaml.
+
+### `schedule.yaml#continuous` knobs (framework runtime)
+
+| Knob | Default | What it does |
+|---|---|---|
+| `target_per_batch` | 10 | Ships per CEO signal before all workers sleep. Shared across parallel workers. |
+| `retry_per_item` | 1 | Max attempts per developer item before bouncing to `[retry]`. |
+| `dev_concurrency` | 1 | Parallel worker count (worktrees + claude sessions). Each shares the cap. |
+| `max_fail_streak` | 3 | Consecutive failures (any worker) before the cascade brake kicks in. |
+| `fail_backoff_seconds` | 1800 | Sleep duration when fail-streak brake fires. |
+| `poll_interval_seconds` | 60 | Cadence to re-check pause flag + cap counter. |
+| `idle_threshold` | 5 | Empty-queue ticks before dropping to long sleep. |
+| `idle_sleep_seconds` | 300 | Long sleep duration when queue is empty. |
+
+### `schedule.yaml#agents` knobs
+
+Cron expression per crew agent. Edit freely — changes apply on next tick
+(within 60s). All evaluated in America/Los_Angeles. Format:
+`minute hour day-of-month month day-of-week`.
+
+### `Philosophy.md` knobs (per-game)
+
+| Section | Knob | Default | What it does |
+|---|---|---|---|
+| `identity` | `name`, `pitch`, `must_include`, `must_not_include` | (game-specific) | Used by Designer/Producer to filter ideas against the game's tone. |
+| `cadence` | `<agent>: "<English description>"` | (matches schedule.yaml crons) | Defense-in-depth: agents read this and exit cleanly if today isn't their day. Update both schedule.yaml AND Philosophy.cadence if you change. |
+| `budgets` | `monthly_usd_hard_cap`, `by_agent_percent` | (game-specific) | Informational on Max plan. `token_report.sh` warns if actual usage drifts >25% from target. |
+| `budgets.model_assignments` | per-agent: `claude-haiku-*` / `claude-sonnet-*` / `claude-opus-*` | (game-specific) | **SOURCE OF TRUTH** for which model each agent uses. `run_agent.sh` reads this. |
+| `designer` | `ideas_per_run` | 5 | How many `[idea]` items the Designer drops per run. |
+| `designer` | `quality_criteria` | (game-specific) | Sentence describing what counts as a "good" idea. |
+| `ceo` | `do_not_disturb` | `["00:00-07:30"]` | Time windows when agents must not page the CEO. |
+| `blog` | `voice`, `template`, `publish_target` | (game-specific) | Blogger reads this for tone + format. |
+| `dev` | `godot_binary` | (system path) | Used by `run_local_tests.sh` + `capture_demo.sh`. |
+| `dev` | `velocity_issues_per_release` | 6 | Producer/PM target for parallel issues in flight. |
+| `janitor` | `cold_threshold_days` | 30 | Untouched Todo items get `[cold]` retag after this many days. |
+| `janitor` | `log_retention_days` | 60 | Delete agent log files older than this. |
+| `morning_briefer` | `playtest_count` | 10 | Features to surface in MORNING.md ▶ Play-test section. |
+| `dashboard` | `recent_ships` | 20 | "Last N shipped" rows in `dashboard.py`. |
+| `dashboard` | `ceo_actions` | 10 | "Next N CEO action items" rows. |
+| `run_mode` | `live` / `dryrun` | `live` | Hard kill-switch — `dryrun` makes agents log what they'd do without writing anything. |
+
+All Philosophy.md knobs are optional; agents read the default if the
+field is missing. So a minimal Philosophy.md just needs `identity` +
+`run_mode` to work — everything else is tuning over time.
 
 ---
 

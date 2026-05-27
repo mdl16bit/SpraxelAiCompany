@@ -91,23 +91,45 @@ with open(sys.argv[1]) as f:
 PY
 )
 trace "step: game_dir parsed: '$game_dir'"
-target_per_batch=$(python3 - "$SCHEDULE" <<'PY'
+# Read all continuous.* knobs from schedule.yaml in one pass, with defaults.
+# Emits "KEY=VAL" lines we eval'd into shell vars below.
+_continuous_yaml_vars=$(python3 - "$SCHEDULE" <<'PY'
 import sys, re
-with open(sys.argv[1]) as f:
-    text = f.read()
+defaults = {
+    "target_per_batch":       10,
+    "retry_per_item":          1,
+    "dev_concurrency":         1,
+    "max_fail_streak":         3,
+    "fail_backoff_seconds":    1800,
+    "poll_interval_seconds":   60,
+    "idle_threshold":          5,
+    "idle_sleep_seconds":      300,
+}
+try:
+    text = open(sys.argv[1]).read()
+except Exception:
+    text = ""
+# Pull the continuous: block
 m = re.search(r"^continuous:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
-if m:
-    mm = re.search(r"\s*target_per_batch:\s*(\d+)", m.group(1))
-    if mm: print(mm.group(1)); sys.exit()
-# Fallback to legacy overnight.target_items
-m = re.search(r"^overnight:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
-if m:
-    mm = re.search(r"\s*target_items:\s*(\d+)", m.group(1))
-    if mm: print(mm.group(1)); sys.exit()
-print(10)
+block = m.group(1) if m else ""
+# Also accept the legacy `overnight.target_items` as a fallback for target_per_batch.
+if not re.search(r"^\s+target_per_batch:", block, re.M):
+    om = re.search(r"^overnight:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
+    if om:
+        mm = re.search(r"\s*target_items:\s*(\d+)", om.group(1))
+        if mm:
+            defaults["target_per_batch"] = int(mm.group(1))
+for key, default in defaults.items():
+    mm = re.search(rf"^\s+{re.escape(key)}:\s*(\d+)", block, re.M)
+    val = int(mm.group(1)) if mm else default
+    print(f"{key.upper()}={val}")
 PY
 )
-trace "step: target_per_batch=$target_per_batch"
+eval "$_continuous_yaml_vars"
+unset _continuous_yaml_vars
+# Map UPPER_CASE → existing var names + new shell vars used by the main loop.
+target_per_batch=$TARGET_PER_BATCH
+trace "step: target_per_batch=$target_per_batch dev_concurrency=$DEV_CONCURRENCY max_fail_streak=$MAX_FAIL_STREAK fail_backoff=${FAIL_BACKOFF_SECONDS}s poll=${POLL_INTERVAL_SECONDS}s idle=${IDLE_THRESHOLD}*${IDLE_SLEEP_SECONDS}s"
 if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
   trace "step: FATAL — game_dir not resolvable ('$game_dir')"
   echo "continuous: game_dir not resolvable — abort"
@@ -835,19 +857,18 @@ trace "step: entering main loop (startup complete)"
 
 idle_streak=0
 fail_streak=0
-MAX_FAIL_STREAK=3
 
 while true; do
   # Pause check.
   if [ -e "$PAUSED_FLAG" ]; then
-    sleep 60
+    sleep "$POLL_INTERVAL_SECONDS"
     continue
   fi
   # Rate-limit / cascade brake.
   if [ "$fail_streak" -ge "$MAX_FAIL_STREAK" ]; then
-    echo "continuous: $MAX_FAIL_STREAK consecutive failures — backing off 30 min"
+    echo "continuous: $MAX_FAIL_STREAK consecutive failures — backing off $((FAIL_BACKOFF_SECONDS / 60)) min"
     fail_streak=0
-    sleep 1800
+    sleep "$FAIL_BACKOFF_SECONDS"
     continue
   fi
   # CEO signal check.
@@ -857,8 +878,8 @@ while true; do
   # Cap check.
   shipped=$(read_state shipped_since_last_signal)
   if [ "$shipped" -ge "$target_per_batch" ]; then
-    # At cap — wait for CEO. Re-check every 60s.
-    sleep 60
+    # At cap — wait for CEO. Re-check every poll_interval_seconds.
+    sleep "$POLL_INTERVAL_SECONDS"
     continue
   fi
   # Ship one item.
@@ -880,11 +901,11 @@ while true; do
       ;;
     3) # nothing to do (Todo empty of eligible items)
       idle_streak=$((idle_streak + 1))
-      if [ "$idle_streak" -ge 5 ]; then
-        sleep 300   # 5 idle ticks → sleep 5 min before re-checking
+      if [ "$idle_streak" -ge "$IDLE_THRESHOLD" ]; then
+        sleep "$IDLE_SLEEP_SECONDS"
         idle_streak=0
       else
-        sleep 30
+        sleep $((POLL_INTERVAL_SECONDS / 2))
       fi
       ;;
   esac

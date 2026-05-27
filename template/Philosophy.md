@@ -70,6 +70,32 @@ dev:
     - "Game.md updated for new/changed features"
     - "Reviewer pass green"
 
+# Per-agent CEO-tunable thresholds. All optional with defaults shown; the
+# agents read these at runtime and fall back to defaults if absent.
+
+# Janitor (weekly maintenance) thresholds.
+janitor:
+  # Untouched Todo items get [cold] retag after this many days. Higher
+  # = items linger longer in the active queue. Lower = aggressive archive
+  # (less queue noise, but more "wait I wanted that" moments).
+  cold_threshold_days:    30
+  # Delete agent log files older than this many days. Higher = more
+  # disk used; lower = harder to debug yesterday's issue.
+  log_retention_days:     60
+
+# Morning briefer (daily MORNING.md author) preferences.
+morning_briefer:
+  # How many features to surface for play-test in the ▶ Play-test section.
+  # Higher = more thorough, longer routine. Lower = faster mornings.
+  playtest_count:         10
+
+# Dashboard display preferences (read by scripts/dashboard.py).
+dashboard:
+  # How many most-recent shipped commits to show in "Last N shipped".
+  recent_ships:           20
+  # How many items in "Next N CEO action items" (urgency-ordered).
+  ceo_actions:            10
+
 run_mode: "live"   # "dryrun" = log what each agent would do, spend no tokens
 ---
 

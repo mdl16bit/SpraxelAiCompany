@@ -41,7 +41,14 @@ create it with `mkdir -p .factory/local`.
 
 2. **Read overnight commits.** `git log master --since="yesterday 22:00 PT" --pretty=format:"%h %s" | head -20`. Note the count of `feat:` and `fix:` commits.
 
-3. **Pick 10 features to play-test today.** Prefer:
+3. **Pick N features to play-test today** — where N =
+   `Philosophy.md#morning_briefer.playtest_count` (default 10 if missing).
+   Read it via:
+   ```bash
+   N=$(grep -E '^\s*playtest_count:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
+   [ -z "$N" ] && N=10
+   ```
+   Prefer:
    - Items just shipped overnight (newest in `## Shipped since last release`).
    - Items whose Game.md block has a `Debug hook (--demo-feature=<slug>)` field.
    - If overnight shipped fewer than 10, pad with items from previous nights that haven't been tested yet (track this via a `tested:` marker in Game.md, or just pick recent shipped items).

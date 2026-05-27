@@ -28,14 +28,37 @@ agents:
 # since the last CEO interaction, then sleeps. Restarts on CEO checkin (a
 # non-bot git commit, an edit to WORK.md, or `bash scripts/checkin.sh`).
 continuous:
+  # How many items the loop ships before sleeping until next CEO signal.
+  # The cap counter is SHARED across all parallel workers.
   target_per_batch: 10
+
+  # Max attempts per developer item before the wrapper bounces it to [retry].
   retry_per_item:   1
+
   # Number of parallel developer workers. Each runs in its own git
   # worktree under .worktrees/worker-N/. Workers share the cap counter
   # (target_per_batch is the total across all of them, not per-worker).
   # Default 1 (single-worker); bump to 3 to burn through items faster
   # — at the cost of ~3x faster Max-plan weekly-cap consumption.
   dev_concurrency:  3
+
+  # Brake against runaway failures. After N consecutive failures (any
+  # worker), each worker sleeps fail_backoff_seconds before retrying.
+  # Default 3 / 1800 (30 min).
+  max_fail_streak:        3
+  fail_backoff_seconds:   1800
+
+  # Main-loop polling cadence. poll_interval_seconds = how often to
+  # re-check the pause flag and cap counter while sleeping. Default 60s.
+  poll_interval_seconds:  60
+
+  # When the Todo queue runs out of eligible items, workers idle. After
+  # idle_threshold consecutive empty-queue ticks they sleep
+  # idle_sleep_seconds instead of polling every 30s. Defaults: 5 / 300
+  # (so after ~2.5 min of empty queue, drop to one check per 5 min).
+  idle_threshold:         5
+  idle_sleep_seconds:     300
+
   description:      "always-on, paced by CEO checkins"
 
 # Local tests (Godot scenarios + GUT). Already managed by ~/Library/LaunchAgents/com.spraxel.localtests.plist.
