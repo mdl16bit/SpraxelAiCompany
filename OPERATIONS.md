@@ -559,7 +559,8 @@ claude --version
 
 Note: the daemon targets ONE game at a time (the `game_dir` in
 `schedule.yaml`). For a second game running in parallel you'd need a
-second daemon — that's not yet supported. See TODO.md.
+second daemon — that's not yet supported (see "Framework wishlist"
+below for the deferred-feature note).
 
 ## Setup — first time on this Mac (existing game)
 
@@ -1299,6 +1300,67 @@ See "Risks" below for mitigation.
 - No `cost-report.yml` (cost is flat).
 - No `factory-log.yml` (no event ledger; everything is in git log + logs/).
 - No `Concierge` / `Factory Daily Log issue #5` (replaced by MORNING.md).
+
+### Design decisions FAQ — why we don't do those things
+
+These are the "decided once, don't revisit" rationale notes. Each was
+weighed against the offline single-operator constraint and ruled out.
+
+**Why no PR workflow?**
+Decided 2026-05-25: in a one-person studio, PRs add ceremony without
+value. The overnight loop does Developer → tests → Reviewer → merge in
+one shot. If a feature lands broken, `git revert` is cheap and you find
+out in the next play-test. The CEO is the only reviewer that matters,
+and reviewing in MORNING.md (or `git show`) is faster than navigating
+GitHub UI.
+
+**Why no GitHub Issues?**
+Decided 2026-05-25: WORK.md is simpler, faster, fully offline, and
+unifies the queue + ship log in one file. Editing WORK.md in any text
+editor is more pleasant than navigating GitHub UI. Tag taxonomy
+(`[idea]`/`[needs-ceo]`/`[escalated]`/`[retry]`/...) gives us the
+same routing power as Issue labels with zero round-trip latency.
+
+**Why no GitHub Actions?**
+Decided 2026-05-25: marginal Actions cost (free-tier minutes) constrained
+the cadence. All workflows are now local shell scripts driven by launchd.
+Loss: no auto-CI on PRs — but there are no PRs now, and `run_local_tests.sh`
+runs on every developer commit anyway.
+
+**Why no `/schedule` Anthropic routines?**
+Decided 2026-05-25: `/schedule` bills per-token, separate from the Max
+plan. `claude -p` headless on Max is flat-fee under the weekly cap. Same
+agents, no marginal cost.
+
+**Why no Concierge agent?**
+Decided 2026-05-25: renamed to `morning-briefer`, writes MORNING.md
+instead of a GitHub issue body. "Concierge" as a concept presupposed
+GH issues; `morning-briefer` presupposes a local file.
+
+**Why no Conflict-resolver / Auto-merge / Keepalive agents?**
+Decided 2026-05-25: these existed to keep the GitHub-Actions cascade
+running. With no PRs and no event-driven chains, they vanished.
+
+### Framework wishlist (deferred, not committed)
+
+Things that aren't built yet because there's no current need. Each is
+fine to leave for now; revisit when the constraint actually hits.
+
+- **Multi-game bootstrap**: `scripts/new_game.sh` works, but running two
+  games in parallel needs either a daemon per game or `tick.sh` extended
+  to iterate multiple `game_dir` entries in `schedule.yaml`. Defer until
+  you actually start a second game. (See also the cross-reference in
+  the "A day in the system" section above.)
+- **Token-usage backpressure**: if `claude -p` starts returning 429
+  (Max weekly cap hit), the agents all silently fail. Could add a
+  health check in `tick.sh` that greps recent logs for `429` / `rate
+  limit` and auto-touches `.paused` for 24h. Defer until you actually
+  hit the cap.
+- **Push notifications**: no external alert when MORNING.md changes —
+  CEO has to open it. macOS Notification Center via `osascript -e
+  'display notification ...'` at 06:05 PT, or an iOS Shortcut watching
+  `MORNING.md` via iCloud Drive, are both plausible. Defer until the
+  routine feels under-attended.
 
 ### Obsolete commands — DO NOT use
 
