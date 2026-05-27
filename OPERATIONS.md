@@ -234,7 +234,20 @@ python3 $WORKMD drop $WORK "duplicate-bug-title-substring"
 cat ~/GameProjects/infiltrators/.factory/escalations.md
 ```
 
-For each entry, **one** of:
+**What's already happened**: when the wrapper escalates, it REMOVES the item
+from WORK.md `## Todo` entirely (see `workmd.py escalate` — pops the entry
+from the list, then writes the file back). The item title + details + log
+path are copied into `.factory/escalations.md`, which is append-only history.
+
+So for each entry in `escalations.md` you have exactly **two options**:
+
+##### (a) Do nothing → item dies quietly
+It's already gone from `## Todo`. No further action required. The escalations
+entry stays in the file as a record of "we tried this and gave up." Skipping
+an entry is the equivalent of "permanent reject."
+
+##### (b) Re-add to WORK.md `## Todo` → fresh attempt next overnight
+Paste a new line under `## Todo` (the file, not the escalations file). Options:
 
 ```bash
 # RESURRECT with clarifying details — addresses the Developer's blocker
@@ -246,10 +259,22 @@ python3 $WORKMD append $WORK --section todo \
 # RESURRECT as-is — Developer was just having a bad night
 python3 $WORKMD append $WORK --section todo "[feature] p1 <title>"
 
-# LET IT DIE — do nothing. Item stays out of rotation.
+# RESURRECT but park it — you want the idea preserved, not shipped now
+python3 $WORKMD append $WORK --section todo "FUTURE - <title>"
+
+# RESURRECT as human-only — you've realized it's not AI-shippable
+python3 $WORKMD append $WORK --section todo "MANUAL - <title>"
 ```
 
-`escalations.md` is append-only history. Don't edit it — just read and decide.
+Or just open WORK.md in an editor and paste the line under `## Todo`. Same effect.
+
+##### What you DON'T do
+- **Don't edit `escalations.md`** — it's append-only history. The escalation
+  entry stays there forever as the audit trail. Whether the item re-enters
+  rotation is determined entirely by what you do (or don't do) in WORK.md.
+- **Don't `git revert` the escalation commit** — that would re-add the item
+  to `## Todo` but you lose the chance to add clarifications, and the log
+  noise is unhelpful.
 
 #### 6. ▶ Dictation (5 min, optional)
 
