@@ -26,10 +26,15 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
      fewer than 3 player-facing commits, emit `blogger: no player-facing
      work this week — skipped` and exit cleanly (don't pad the post with
      infra trivia).
-   - **Demo Creator assets**: `.factory/demos/<recent-dates>/index.md`.
-     For each feature shipped this week, look for a matching
-     `<slug>.mov` + `<slug>.png` in `.factory/demos/`. Note which ones
-     exist (real paths) and which don't (you'll emit TODO placeholders).
+   - **Demo Creator output**: `.factory/demos/<recent-dates>/recipe.md`
+     (one per day demo-creator ran). Each recipe.md has a `## <slug>`
+     section per feature with what-it-does + commit sha + suggested
+     controls — use this as the source of truth for "what is this
+     feature, what should the post show." Then look for actual asset
+     files: `<slug>.mov` + `<slug>.png` in the same folder. If they
+     exist (auto-capture worked that day), use the real paths in the
+     post's `▸ MEDIA` blocks; if they don't, emit TODO placeholders
+     and let the CEO drop in their own hand-recorded clip.
    - **Release notes** (if PM cut a release this week):
      `.factory/releases/<latest>.md`. Use this as the spine of the post.
    - WORK.md `## Shipped since last release` for the same items.
