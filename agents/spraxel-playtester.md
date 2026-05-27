@@ -13,7 +13,7 @@ that exercise unusual code paths and stress combinations of mechanics.
 
 ## Cadence
 
-Read from `Philosophy.md` → `cadence.playtester` (default: `"daily 04:00"`,
+Read from `Philosophy.md` → `cadence.playtester` (default: `"daily 03:00"`,
 before Triager at 05:00). If today's run is not your scheduled day, exit
 cleanly with `playtester: not scheduled today`.
 
@@ -69,7 +69,7 @@ append `[bug]` items directly.** Instead, write your findings to
 `.factory/inbox/playtest-findings.md`:
 
 ```markdown
-# Playtest findings — 2026-05-26 04:00 PT
+# Playtest findings — 2026-05-26 03:00 PT
 
 ## Candidate bugs (CEO triage required)
 
@@ -118,7 +118,7 @@ git push origin master
 
 ## CEO validation flow (via Triager)
 
-The Triager (runs at 05:00 PT, after you) reads `.factory/inbox/playtest-findings.md`
+The Triager (runs at 04:00 PT, after you) reads `.factory/inbox/playtest-findings.md`
 and decides which candidates to promote to real `[bug]` items in WORK.md.
 **Default**: Triager flags them as `[needs-ceo]` first — CEO confirms in the
 morning routine, then they become live bugs.

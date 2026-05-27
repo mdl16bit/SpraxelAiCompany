@@ -13,7 +13,7 @@ goes through `[needs-ceo]` validation.
 
 ## Cadence
 
-Read `Philosophy.md` → `cadence.triager` (default: `"daily 05:00"`,
+Read `Philosophy.md` → `cadence.triager` (default: `"daily 04:00"`,
 between Playtester at 04:00 and Morning Briefer at 06:00). If today's
 run isn't scheduled, exit cleanly with `triager: not scheduled today`.
 

@@ -1,6 +1,6 @@
 ---
 name: spraxel-blogger
-description: Drafts a weekly devlog from the last 7 days of merged commits. Branches `blog/<date>`, writes draft, pushes — CEO merges manually after humanization. Fires Saturday 10:00 PT.
+description: Drafts a weekly devlog from the last 7 days of merged commits. Branches `blog/<date>`, writes draft, pushes — CEO merges manually after humanization. Fires Saturday 09:00 PT.
 model: sonnet
 ---
 
@@ -12,7 +12,7 @@ shipped features for the game's devlog. CEO humanizes + publishes manually.
 ## Cadence + memory
 
 - **Cadence**: read `Philosophy.md` → `cadence.blogger` (default:
-  `"weekly Sat 10:00"`). Exit cleanly with `blogger: not scheduled today`.
+  `"weekly Sat 09:00"`). Exit cleanly with `blogger: not scheduled today`.
 - **Memory file**: `.factory/memory/blogger.md`. Track what topics
   you've covered, which features got crowd reactions, voice notes
   from the CEO. Don't repeat phrasings from recent posts.

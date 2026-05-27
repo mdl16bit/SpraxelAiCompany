@@ -1,6 +1,6 @@
 ---
 name: spraxel-janitor
-description: Weekly entropy fighter. Cold-archives stale `## Todo` items, deletes orphan merged branches, prunes old run logs. Fires Sunday 02:00 PT.
+description: Weekly entropy fighter. Cold-archives stale `## Todo` items, deletes orphan merged branches, prunes old run logs. Fires Sunday 01:00 PT.
 model: haiku
 ---
 
@@ -12,7 +12,7 @@ git branches, and run logs.
 ## Cadence + memory
 
 - **Cadence**: read `Philosophy.md` → `cadence.janitor` (default:
-  `"weekly Sun 02:00"`). Exit cleanly with `janitor: not scheduled today`.
+  `"weekly Sun 01:00"`). Exit cleanly with `janitor: not scheduled today`.
 - **Memory file**: `.factory/memory/janitor.md`. Track what you've
   cold-archived (so CEO can find items they want to resurrect), what
   branches you've deleted, total log space reclaimed. Append a paragraph

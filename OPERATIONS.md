@@ -65,21 +65,21 @@ Daily crew (all times America/Los_Angeles):
 
 | Time | Who | What |
 |------|-----|------|
-| 04:00 PT | **playtester** | Actively plays the game (beyond scripted tests). Writes bug candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
-| 05:00 PT | **triager** | Reads playtest findings + local-tests-status.json, appends `[needs-ceo] [bug]` items to `## Todo`. CEO validates before they become live bugs. |
-| 06:00 PT | **morning-briefer** | Writes `.factory/local/MORNING.md` (gitignored — CEO-local artifact). 10 features to play-test with launch + amend + reject one-liners, decisions to make, escalations, time-boxed routine. |
-| 06:30 PT | **demo-creator** | Always writes `.factory/demos/<date>/recipe.md` (launch + controls + suggested capture command per recently-shipped feature). Best-effort auto-capture via Godot `--write-movie` + ffmpeg → `.mp4` + `.png`. |
-| 07:00 PT | **pm** | Re-sorts top of `## Todo`. Biweekly Monday: tags `v0.N`, generates release notes, rolls WORK.md sections. |
-| ~07:00 PT | **CEO (you)** | `/spraxel-inbox` → walk MORNING.md sections. ~38 minutes. |
+| 03:00 PT | **playtester** | Actively plays the game (beyond scripted tests). Writes bug candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
+| 04:00 PT | **triager** | Reads playtest findings + local-tests-status.json, appends `[needs-ceo] [bug]` items to `## Todo`. CEO validates before they become live bugs. |
+| 05:00 PT | **morning-briefer** | Writes `.factory/local/MORNING.md` (gitignored — CEO-local artifact). 10 features to play-test with launch + amend + reject one-liners, decisions to make, escalations, time-boxed routine. |
+| 05:30 PT | **demo-creator** | Always writes `.factory/demos/<date>/recipe.md` (launch + controls + suggested capture command per recently-shipped feature). Best-effort auto-capture via Godot `--write-movie` + ffmpeg → `.mp4` + `.png`. |
+| 06:00 PT | **pm** | Re-sorts top of `## Todo`. Biweekly Monday: tags `v0.N`, generates release notes, rolls WORK.md sections. |
+| ~06:00 PT | **CEO (you)** | `/spraxel-inbox` → walk MORNING.md sections. ~38 minutes. |
 
 Weekly:
 
 | Time | Who | What |
 |------|-----|------|
-| Tue + Fri 07:00 PT | **designer** | Drops 4-6 `[idea]`-tagged items + 0-3 `[concern]` items into `## Todo`. Concerns flag game-wide issues (feature bloat, philosophical drift). |
-| Sat 10:00 PT | **blogger** | Drafts `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` from the week's `feat:` commits (player-facing filter — skips test/infra/process). Pushes `blog/<date>` branch; CEO humanizes + merges. |
-| Sun 02:00 PT | **janitor** | Cold-archives 30+ day stale items, prunes merged `feat/*` branches + 60+ day logs, sweeps orphan `feat/cont-*` branches whose WORK.md item is gone. |
-| 1st 08:00 PT | **asset-librarian** | Scans `assets/`, reports orphans + license gaps. |
+| Tue + Fri 06:00 PT | **designer** | Drops 4-6 `[idea]`-tagged items + 0-3 `[concern]` items into `## Todo`. Concerns flag game-wide issues (feature bloat, philosophical drift). |
+| Sat 09:00 PT | **blogger** | Drafts `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` from the week's `feat:` commits (player-facing filter — skips test/infra/process). Pushes `blog/<date>` branch; CEO humanizes + merges. |
+| Sun 01:00 PT | **janitor** | Cold-archives 30+ day stale items, prunes merged `feat/*` branches + 60+ day logs, sweeps orphan `feat/cont-*` branches whose WORK.md item is gone. |
+| 1st 07:00 PT | **asset-librarian** | Scans `assets/`, reports orphans + license gaps. |
 
 Every 30 minutes (separately scheduled — `com.spraxel.localtests.plist`):
 
@@ -91,10 +91,10 @@ Every 30 minutes (separately scheduled — `com.spraxel.localtests.plist`):
 
 You wake up around 7 AM. Here's the optimal schedule:
 
-### 06:00 AM — System has prepared your day
+### 05:00 AM — System has prepared your day
 You're asleep. `morning-briefer` is writing MORNING.md right now.
 
-### 07:00 — 07:38 AM — Morning routine (~38 min)
+### 06:00 — 06:38 AM — Morning routine (~38 min — CEO wakes ~06:15)
 
 **Time-boxed**. If you blow past 45 min, stop and commit what you have.
 
@@ -345,7 +345,7 @@ git push
 
 All four match on title substring (case-insensitive, first match wins). Be specific enough to uniquely match.
 
-### 07:38 AM — 10:00 PM — You go live your life
+### 06:38 AM — 10:00 PM — You go live your life
 
 System is quiet during the day (just `local-tests` every 30 min on master,
 silent unless something breaks). You're free to:
@@ -382,13 +382,13 @@ Most days look like the daily routine above. A few days have additions:
 
 ### Tuesday + Friday — Designer days
 
-After Designer fires at 07:00 PT, MORNING.md's **Decide** section will
+After Designer fires at 05:00 PT, MORNING.md's **Decide** section will
 have 4–6 fresh ranked ideas. Expect the Decide step to take **+5 min**
 on these days as you accept / reject / amend each.
 
 ### Saturday — Blogger day (+10 min)
 
-Blogger fires at 10:00 PT Saturday. It **always pushes a `blog/<YYYY-MM-DD>` branch**
+Blogger fires at 09:00 PT Saturday. It **always pushes a `blog/<YYYY-MM-DD>` branch**
 containing a draft post at `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md`.
 The branch + draft are **not** on `master` — by design, drafts get a review pass
 before they land. Your job is to humanize, then merge + publish.
@@ -469,7 +469,7 @@ routine on Saturdays.
 
 ### Sunday — Janitor + Reflection
 
-Janitor fires at 02:00 PT Sunday. No CEO action required — but the
+Janitor fires at 01:00 PT Sunday. No CEO action required — but the
 MORNING.md "Janitor" line will tell you what got cold-archived. If you
 want to resurrect anything, edit WORK.md to remove the `[cold]` tag.
 
@@ -487,9 +487,70 @@ is for hotfixes — usually you ignore it.
 
 ### 1st of the month — Asset Librarian
 
-Asset Librarian fires at 08:00 PT on the 1st of each month. Adds a
+Asset Librarian fires at 07:00 PT on the 1st of each month. Adds a
 "Asset Librarian" line to MORNING.md with orphan count + license gaps.
 Address the license gaps when they appear (~5 min).
+
+---
+
+## The game-code contract
+
+For Spraxel to drive a Godot game, the game repo must provide these
+files + conventions. `scripts/new_game.sh` scaffolds the common parts;
+the game-specific bits (autoloads, scenario format, debug-boot dispatch)
+are documented below so a CEO knows what to write.
+
+### Files at the game-repo root (auto-scaffolded by new_game.sh)
+
+| Path | Purpose | Spraxel reads it as... |
+|---|---|---|
+| `Philosophy.md` | Per-game config + identity + cadence + budgets | Source of truth for `run_mode`, `dev.godot_binary`, model assignments, agent thresholds |
+| `WORK.md` | Work queue (Shipped / Todo) | Mutated atomically via `workmd.py` from the framework |
+| `Game.md` | Feature inventory; dev appends `### <Feature>` blocks per ship | Read by morning-briefer to surface play-test commands |
+| `.gitignore` | Excludes `.factory/`, `.worktrees/`, Godot cache, etc. | Critical — framework state lives under `.factory/` |
+| `scripts/run_local_tests.sh` | Test runner (GUT + scenarios) — honors `SPRAXEL_GAME_DIR` + `SPRAXEL_WORKER_ID` env vars from wrapper | Invoked by `continuous_dev.sh` for baseline + post-dev tests |
+| `scripts/run_unit_tests.sh` | Fast unit-only runner | Optional manual invocation |
+| `scripts/install_local_tests.sh` | Installs `com.spraxel.localtests` launchd plist | One-shot at game setup |
+
+### Conventions the game's GDScript MUST follow
+
+Spraxel doesn't ship game code — only the framework that exercises it.
+But the framework makes assumptions about your game's structure:
+
+**1. `scripts/systems/debug_boot.gd` autoload — required.**
+- Parses `OS.get_cmdline_user_args()` for `--demo-feature=<slug>`, `--quit-after=N`, `--trace-file=<path>`, `--build-mode=<mode>`.
+- Dispatches to `_demo_<snake_slug>()` handlers in a `match` block.
+- Each `_demo_<slug>` must implement BOTH branches:
+  - `if is_headless:` → load + instantiate `scripts/scenarios/<slug>.gd`
+  - else (windowed): load the relevant mission via `MissionRunner.set_mission(...)`, then pre-stage the scene (spawn props, KO guards, etc.) so the feature is immediately exercisable.
+- **Use autoload globals directly** (e.g. `MissionRunner.set_mission(x)`), NEVER `Engine.get_singleton("MissionRunner")` — autoloads are NOT engine singletons in Godot 4.6, that call returns null.
+- Schedules `_quit_for_headless()` at `quit_after_seconds` AND a `_quit_safety_net()` at 90s if headless OR `--quit-after` was explicit.
+
+**2. `scripts/scenarios/<slug>.gd` — acceptance scenarios.**
+- Class extends `Node2D` (or `Node`); each acceptance scenario gets a file in `scripts/scenarios/`.
+- `_ready()` runs assertions, prints exactly one of:
+  - `SCENARIO <slug> PASS  pass=<N>` (or `SCENARIO <slug>: PASS`)
+  - `SCENARIO <slug> FAIL  pass=<N>  fail=<M>`
+- Must call `get_tree().quit(0)` (PASS) or `get_tree().quit(1)` (FAIL) — the framework's safety net auto-kills at 90s, but a clean exit is expected for normal runs.
+
+**3. `test/unit/test_<slug>.gd` — GUT unit tests.**
+- One file per feature (`test_hide_box.gd`, etc.).
+- `extends GutTest`, methods named `test_<behavior>()`.
+- Run by `gut_cmdln.gd` from `addons/gut/` (the GUT addon must be installed in the game repo).
+
+**4. Autoloads accessible by name.**
+- `MissionRunner` (or the game's equivalent) holds current-mission state and is mutated by the demo handlers + scenarios.
+- `Tracer` (optional, infiltrators-specific) for event tracking via `Tracer.emit("evt", data)`.
+- All autoloads referenced via global identifier, NOT `Engine.get_singleton(...)`.
+
+**5. Conventional Commits format for dev output.**
+- Dev's `COMMIT_SUBJECT:` line uses `feat(scope): ...`, `fix(scope): ...`, etc.
+- Body describes the change in 2-6 paragraphs (per dev spec step 9).
+
+The framework will tell you (via the Reviewer's `[block]` findings + the
+dev-spec deliverables checklist) when a game-code contract violation
+happens. Common ones: missing `--demo-feature=` hook, scenario without
+`get_tree().quit()`, `Engine.get_singleton("X")` in demo handlers.
 
 ---
 
@@ -765,7 +826,7 @@ ls -t ~/SpraxelAiCompany/logs/overnight/ | head -1
 `scripts/health_check.sh` scans today's per-agent logs for errors (unknown
 model, rate limits, session expiry, fatal traces, etc.) and produces a
 markdown block suitable for MORNING.md. The morning-briefer agent runs
-this as **step 1** every day at 06:00 PT — the result appears at the top
+this as **step 1** every day at 05:00 PT — the result appears at the top
 of MORNING.md.
 
 Run it yourself anytime to spot-check the system:
@@ -1081,15 +1142,15 @@ FUTURE - DLC mission pack
 | **continuous_dev.sh** | always on (paced by CEO signal cap) | n/a (shell) | Long-running Developer loop. Ships items until target_per_batch since last CEO signal, then sleeps. Spawned + watched by `tick.sh`. |
 | **developer** | called by continuous loop, per item | sonnet | Implements one WORK.md item end-to-end on a feature branch. **MANDATORY**: GUT test under `test/unit/`, Game.md block with `First encounter` + `Tutorial prompt` for player-facing features, debug-feature hook, scenario file. Reviewer blocks merge if any are missing. Handles `[amend]`, `[reject]`, `[resume]` items differently (read prior code first). |
 | **reviewer** | called by continuous loop, per item | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). Blocks merge on missing test, missing/incomplete Game.md, missing scenario file, missing debug-feature hook. |
-| **playtester** | daily 04:00 PT | sonnet | Actively plays the game to find problems. Beyond test scenarios — input spam, edge cases, mechanic combos. Writes candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
-| **triager** | daily 05:00 PT | haiku | Reads playtest findings + test failures, appends as `[needs-ceo] [bug]` items. CEO validates in MORNING.md before they become live bugs. |
-| **morning-briefer** | daily 06:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, real `[escalated]` items needing CEO judgment (usually 0 — auto-retries are silent and not surfaced). Shows a one-line `[retry]` queue count FYI but no action required. Runs `health_check.sh` first to surface agent failures. |
-| **demo-creator** | daily 06:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
-| **pm** | daily 07:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
-| **designer** | Tue + Fri 07:00 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
-| **blogger** | weekly Sat 10:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
-| **janitor** | weekly Sun 02:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |
-| **asset-librarian** | monthly 1st 08:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
+| **playtester** | daily 03:00 PT | sonnet | Actively plays the game to find problems. Beyond test scenarios — input spam, edge cases, mechanic combos. Writes candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
+| **triager** | daily 03:00 PT | haiku | Reads playtest findings + test failures, appends as `[needs-ceo] [bug]` items. CEO validates in MORNING.md before they become live bugs. |
+| **morning-briefer** | daily 04:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, real `[escalated]` items needing CEO judgment (usually 0 — auto-retries are silent and not surfaced). Shows a one-line `[retry]` queue count FYI but no action required. Runs `health_check.sh` first to surface agent failures. |
+| **demo-creator** | daily 05:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
+| **pm** | daily 05:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
+| **designer** | Tue + Fri 06:00 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
+| **blogger** | weekly Sat 09:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
+| **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |
+| **asset-librarian** | monthly 1st 07:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
 | **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. Flags ⚠️ concerns inline (cliché/complexity/balance/drift) but always appends the item — concerns are advisory, never gatekeep. |
 
 ---
@@ -1221,15 +1282,15 @@ Things to watch for that mean trouble:
 |-------|-------|---------|--------------|-----------|
 | **developer** | sonnet | per item | `continuous_dev.sh` | game branch (code), commits |
 | **reviewer** | haiku | per item | `continuous_dev.sh` after tests pass | `.factory/reviews/<branch>.md` |
-| **triager** | haiku | daily 05:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[bug]` items) |
-| **morning-briefer** | haiku | daily 06:00 PT | `tick.sh` cron | `MORNING.md` |
-| **pm** | haiku | daily 07:00 PT | `tick.sh` cron | WORK.md `## Todo` (re-orders) |
-| **designer** | sonnet | Tue + Fri 07:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[idea]` items) |
-| **blogger** | sonnet | Sat 10:00 PT | `tick.sh` cron | `blog/<date>` branch |
-| **janitor** | haiku | Sun 02:00 PT | `tick.sh` cron | WORK.md (cold-archives), branches (deletes merged), logs (prunes >60 days) |
-| **asset-librarian** | haiku | monthly 1st 08:00 PT | `tick.sh` cron | `.factory/asset-report-<date>.md`, MORNING.md note |
+| **triager** | haiku | daily 03:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[bug]` items) |
+| **morning-briefer** | haiku | daily 04:00 PT | `tick.sh` cron | `MORNING.md` |
+| **pm** | haiku | daily 05:00 PT | `tick.sh` cron | WORK.md `## Todo` (re-orders) |
+| **designer** | sonnet | Tue + Fri 06:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[idea]` items) |
+| **blogger** | sonnet | Sat 09:00 PT | `tick.sh` cron | `blog/<date>` branch |
+| **janitor** | haiku | Sun 01:00 PT | `tick.sh` cron | WORK.md (cold-archives), branches (deletes merged), logs (prunes >60 days) |
+| **asset-librarian** | haiku | monthly 1st 07:00 PT | `tick.sh` cron | `.factory/asset-report-<date>.md`, MORNING.md note |
 | **producer** | sonnet | on-demand (`/spraxel-producer`) | CEO via skill | WORK.md `## Todo` (from `.factory/inbox/raw.md`) |
-| **demo-creator** | sonnet | daily 06:30 PT | `tick.sh` cron | `.factory/demos/<date>/recipe.md` (always) + best-effort `.mp4`+`.png` (when Mac awake + ffmpeg installed) |
+| **demo-creator** | sonnet | daily 05:30 PT | `tick.sh` cron | `.factory/demos/<date>/recipe.md` (always) + best-effort `.mp4`+`.png` (when Mac awake + ffmpeg installed) |
 
 ### Skills (`~/SpraxelAiCompany/skills/`, hardlinked to `~/.claude/skills/`)
 
@@ -1495,7 +1556,7 @@ fine to leave for now; revisit when the constraint actually hits.
   hit the cap.
 - **Push notifications**: no external alert when MORNING.md changes —
   CEO has to open it. macOS Notification Center via `osascript -e
-  'display notification ...'` at 06:05 PT, or an iOS Shortcut watching
+  'display notification ...'` at 05:05 PT, or an iOS Shortcut watching
   `MORNING.md` via iCloud Drive, are both plausible. Defer until the
   routine feels under-attended.
 

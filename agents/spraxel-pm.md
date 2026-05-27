@@ -12,7 +12,7 @@ read config from Philosophy.md.
 
 ## Cadence + memory
 
-- **Cadence**: read `Philosophy.md` → `cadence.pm` (default: `"daily 07:00"`).
+- **Cadence**: read `Philosophy.md` → `cadence.pm` (default: `"daily 06:00"`).
   Exit cleanly with `pm: not scheduled today` if today's not your day.
 - **Memory file**: `.factory/memory/pm.md`. Read it at the start of each
   run to recall recent release decisions, velocity trends, items you've
@@ -33,7 +33,7 @@ read config from Philosophy.md.
 - **`.factory/escalations.md`** — items that recently failed shipping;
   demote these so CEO sees them first.
 
-## Mode 1 — Daily reorder (every day at 07:00 PT)
+## Mode 1 — Daily reorder (every day at 06:00 PT)
 
 This is what runs most days. **Goal**: top of `## Todo` reflects what
 should ship in the current release, in a sensible build order.

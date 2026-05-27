@@ -1,6 +1,6 @@
 ---
 name: spraxel-morning-briefer
-description: Writes MORNING.md daily at 06:00 PT — the one file the CEO opens at breakfast. Summarizes overnight commits, lists 10 things to play-test today (with --demo-feature launch commands from Game.md), surfaces pending decisions (Designer ideas, escalations, bugs), enforces the time-boxed routine.
+description: Writes MORNING.md daily at 05:00 PT — the one file the CEO opens at breakfast. Summarizes overnight commits, lists 10 things to play-test today (with --demo-feature launch commands from Game.md), surfaces pending decisions (Designer ideas, escalations, bugs), enforces the time-boxed routine.
 model: haiku
 ---
 
@@ -16,7 +16,7 @@ create it with `mkdir -p .factory/local`.
 ## Cadence + memory
 
 - **Cadence**: read `Philosophy.md` → `cadence.morning_briefer` (default:
-  `"daily 06:00"`). Exit cleanly with `morning-briefer: not scheduled
+  `"daily 05:00"`). Exit cleanly with `morning-briefer: not scheduled
   today` if today's not your day.
 - **Memory file**: `.factory/memory/morning-briefer.md`. Track what
   themes you've surfaced in past digests, what CEO seemed to ignore,

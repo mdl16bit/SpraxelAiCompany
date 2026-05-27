@@ -9,11 +9,11 @@ identity:
 
 cadence:
   release: "biweekly mondays"
-  pm: "daily 07:00; release sweep on release day"
-  concierge: "daily 06:00"
+  pm: "daily 06:00; release sweep on release day"
+  concierge: "daily 05:00"
   janitor: "sunday 02:00"           # phase 2
   playtester: "on PR open; nightly 02:00"   # phase 2
-  designer: "daily 05:00"           # phase 3
+  designer: "daily 04:00"           # phase 3
   blogger: "saturday 10:00"         # phase 3
   demo_creator: "wed+sat 03:00"     # phase 3
 

@@ -615,7 +615,15 @@ sys.exit(1)
       echo "continuous: ↪ clarified '$next_title'" >> "$item_log"
       echo "continuous: ↪ clarified '$next_title'"
       # Push the dev's clarify-modified WORK.md to origin master via the
-      # serialized merge lock (the dev wrote into the worker's worktree).
+      # serialized merge lock. The dev wrote directly to $WORK_MD_PATH
+      # (= $game_dir/WORK.md) per the $WORK_MD_PATH discipline — so by
+      # the time we get here, game_dir/WORK.md ALREADY has the [needs-ceo]
+      # tag + Q-detail lines. We just need to commit + push it.
+      #
+      # CRITICAL: do NOT `git reset --hard origin/master` here — that
+      # would wipe the dev's uncommitted clarify change. Just fetch +
+      # checkout master (the worker's WORK_DIR has its own master state;
+      # game_dir's WORK.md should already be the dev's clarified version).
       local clarify_lock="$LOCKS_DIR/master-push.lockdir"
       local clarify_wait=0
       while ! mkdir "$clarify_lock" 2>/dev/null; do
@@ -627,14 +635,17 @@ sys.exit(1)
         trap 'rmdir "'"$clarify_lock"'" 2>/dev/null' EXIT
         cd "$game_dir" || exit 1
         git fetch --quiet origin master 2>/dev/null
+        # Checkout master (no reset — preserves the dev's clarify write).
         git checkout --quiet master 2>/dev/null || exit 1
-        git reset --hard origin/master --quiet 2>/dev/null
-        cp "$WORK_DIR/WORK.md" "$game_dir/WORK.md" 2>/dev/null || exit 1
         git add WORK.md 2>/dev/null
-        git diff --cached --quiet && exit 0   # already in sync
-        git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-            commit --quiet -m "needs-ceo: clarifications on '$next_title'" 2>/dev/null || exit 1
-        git push --quiet origin master 2>/dev/null
+        git diff --cached --quiet && exit 0   # nothing to commit
+        if ! git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+                commit --quiet -m "needs-ceo: clarifications on '$next_title'" 2>/dev/null \
+           || ! git push --quiet origin master 2>/dev/null; then
+          # Push race lost; reset for cleanliness, next iter will re-detect [needs-ceo].
+          git reset --hard origin/master --quiet 2>/dev/null
+          exit 1
+        fi
       )
       # Lock release via subshell EXIT trap; no outside-safety rmdir (would race).
       # Worker cleanup
@@ -665,11 +676,12 @@ sys.exit(1)
         # No cache for this master SHA — run the suite, capture, write cache.
         git stash push --quiet -m "baseline-test-stash" 2>/dev/null
         git checkout --detach origin/master --quiet 2>/dev/null
-        bash "$game_dir/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1 || true
+        SPRAXEL_GAME_DIR="$game_dir" SPRAXEL_WORKER_ID="$WORKER_ID" \
+        bash "$WORK_DIR/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1 || true
         baseline_failures=$(python3 -c "
 import json
 try:
-    d = json.load(open('$game_dir/.factory/local-tests-status.json'))
+    d = json.load(open('$game_dir/.factory/local-tests-status-w$WORKER_ID.json'))
     print('\\n'.join(d.get('failures', [])))
 except Exception:
     pass
@@ -685,14 +697,20 @@ except Exception:
       fi
     fi
 
-    # Run tests on Developer's branch.
-    bash "$game_dir/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1
+    # Run tests on Developer's branch IN THE WORKER'S WORKTREE — not in
+    # game_dir. Critical fix from 2026-05-27 audit: previously this invoked
+    # `bash $game_dir/scripts/run_local_tests.sh`, whose REPO_DIR resolved
+    # to game_dir → tests ran against game_dir's tree (usually master), NOT
+    # the worker's feat branch. Result: broken changes could pass the test
+    # gate because tests never actually exercised the dev's code.
+    SPRAXEL_GAME_DIR="$game_dir" SPRAXEL_WORKER_ID="$WORKER_ID" \
+      bash "$WORK_DIR/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1
     rc=$?
     if [ $rc -ne 0 ]; then
       current_failures=$(python3 -c "
 import json
 try:
-    d = json.load(open('$game_dir/.factory/local-tests-status.json'))
+    d = json.load(open('$game_dir/.factory/local-tests-status-w$WORKER_ID.json'))
     print('\\n'.join(d.get('failures', [])))
 except Exception:
     pass

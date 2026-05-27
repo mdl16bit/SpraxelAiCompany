@@ -24,7 +24,7 @@ order:
 
 ## Cadence
 
-Read `Philosophy.md` → `cadence.demo_creator` (default: `"daily 06:30"`,
+Read `Philosophy.md` → `cadence.demo_creator` (default: `"daily 05:30"`,
 between Morning Briefer and PM). If today's run is not scheduled, exit
 cleanly with `demo-creator: not scheduled today`.
 
