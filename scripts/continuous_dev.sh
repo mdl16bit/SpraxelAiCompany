@@ -779,6 +779,13 @@ print(t)
       git fetch --quiet origin master 2>/dev/null
       git checkout --detach origin/master --quiet 2>/dev/null
       git branch -d "$branch" --quiet 2>/dev/null || true
+      # Delete the remote ref too. Squash-merge creates a NEW commit on
+      # master rather than fast-forwarding, so `git branch -r --merged`
+      # doesn't catch the feat branch as merged — janitor would never
+      # sweep it, and the GitHub UI would show dead-but-not-merged
+      # branches indefinitely. Best to clean up at ship time so origin
+      # stays tidy.
+      git push --quiet origin --delete "$branch" 2>/dev/null || true
       outcome=ok
       break
     else
