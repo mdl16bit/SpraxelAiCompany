@@ -340,13 +340,15 @@ ship_one_item() {
     echo "continuous: worker $WORKER_ID — claim returned malformed json"
     return 3
   fi
-  # All workmd.py operations below (retry, ship, etc.) match by title
-  # substring and tolerate the [wip:N] prefix, but for slug + logs we
-  # want the un-wipped form.
-  local unwipped_title
-  unwipped_title=$(echo "$next_title" | sed -E 's/^\[wip:[0-9]+\]\s*//')
+  # Strip the [wip:N] claim tag from $next_title immediately. The actual
+  # WORK.md item still carries [wip:N] (so other workers see it as
+  # claimed); ship()/retry()/unclaim() strip it on their own when they
+  # mutate the item. Everywhere downstream — commit subjects, log lines,
+  # branch names, find_item substring matches — should use the clean
+  # form. [wip:N] is an internal locking detail, never user-facing.
+  next_title=$(echo "$next_title" | sed -E 's/^\[wip:[0-9]+\]\s*//')
 
-  slug=$(echo "$unwipped_title" | python3 "$SLUGIFY")
+  slug=$(echo "$next_title" | python3 "$SLUGIFY")
   item_log="$LOG_DIR/w${WORKER_ID}-${slug}.log"
 
   # ── Resume / Retry path ───────────────────────────────────────────────────
