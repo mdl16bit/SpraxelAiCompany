@@ -64,6 +64,13 @@ Sun 02:00      janitor       — cold-archives stale Todo items, prunes
                     but always appends as CEO requested — advisory only)
 /spraxel-report   — immediate status snapshot: now / last 24 h / last
                     week / next 20 scheduled events
+
+─ Always-on dashboard (optional, no tokens) ────────────────────
+python3 ~/SpraxelAiCompany/scripts/dashboard.py
+  — leave running in a corner terminal. Auto-refreshes every 5 s.
+    Compact glanceable view: status, wrapper PID + uptime, cap
+    counter, current item, today's ships/escalations, next 3 fires,
+    last log line. Stdlib-only Python — no Claude calls.
 ```
 
 ## Layout
