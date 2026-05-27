@@ -397,13 +397,16 @@ def render(now: datetime, game_dir: Path | None) -> str:
     tick_line = f"{GREEN}✓ loaded{RESET}" if tick_loaded else f"{RED}✗ NOT LOADED{RESET}"
     lines.append(f"  Tick daemon    {tick_line}")
 
-    # Wrappers (one per parallel-dev worker)
+    # Wrappers (one per parallel-dev worker). The "uptime" is the wrapper
+    # process lifetime — NOT how long each worker has been on its current
+    # item. The per-worker phase elapsed in "Current items" is more useful
+    # for spotting stuck dev sessions.
     wrapper_pids = pgrep("continuous_dev.sh")
     if wrapper_pids:
         n = len(wrapper_pids)
         ets = sorted([process_etime(p) or 0 for p in wrapper_pids], reverse=True)
         max_age = fmt_etime(ets[0])
-        wrapper_line = f"{GREEN}{n} worker(s){RESET} {DIM}oldest up {max_age}{RESET}"
+        wrapper_line = f"{GREEN}{n} worker(s){RESET} {DIM}wrapper proc up {max_age}{RESET}"
     else:
         wrapper_line = f"{GRAY}not running{RESET}" if PAUSED.exists() else f"{RED}⚠ not running{RESET}"
     lines.append(f"  Wrappers       {wrapper_line}")

@@ -342,11 +342,62 @@ ship_one_item() {
   # Atomically claim the next eligible item — tags it [wip:$WORKER_ID] so
   # other parallel workers don't grab the same one. Returns full JSON
   # (the title here INCLUDES the [wip:N] prefix workmd.py added).
+  #
+  # CRITICAL: must run UNDER the master-push lock + commit+push the [wip:N]
+  # tag immediately. Otherwise the claim sits uncommitted on disk and a
+  # CONCURRENT merge subshell's `git reset --hard origin/master` wipes the
+  # tag (2026-05-27 incident — two workers claimed the same item because
+  # one's claim got wiped by another's reset).
   local next_json next_title slug branch item_log
-  next_json=$(python3 "$WORKMD" claim "$game_dir/WORK.md" --worker-id "$WORKER_ID" 2>/dev/null)
-  if [ -z "$next_json" ] || [ "$next_json" = "claim: no eligible items" ]; then
+  local claim_lock="$LOCKS_DIR/master-push.lockdir"
+  local claim_wait=0
+  while ! mkdir "$claim_lock" 2>/dev/null; do
+    sleep 0.3
+    claim_wait=$((claim_wait + 1))
+    if [ $claim_wait -gt 200 ]; then
+      echo "continuous: worker $WORKER_ID — claim-lock held >60s, aborting" >&2
+      return 3
+    fi
+  done
+  # Subshell with EXIT trap releases the lock no matter what.
+  next_json=$(
+    trap 'rmdir "'"$claim_lock"'" 2>/dev/null' EXIT
+    cd "$game_dir" || exit 1
+    git fetch --quiet origin master 2>/dev/null
+    git checkout --quiet master 2>/dev/null || exit 1
+    git reset --hard origin/master --quiet 2>/dev/null
+    # Now in sync with origin/master. Claim atomically + commit immediately.
+    json=$(python3 "$WORKMD" claim "$game_dir/WORK.md" --worker-id "$WORKER_ID" 2>/dev/null)
+    if [ -z "$json" ]; then
+      exit 3  # no eligible items
+    fi
+    # Commit + push the [wip:N] tag so other workers see it persisted.
+    # Git noise to /dev/null so $json (printed below) is the only stdout.
+    git add WORK.md 2>/dev/null
+    if ! git diff --cached --quiet; then
+      if ! git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+              commit --quiet -m "chore(claim): w$WORKER_ID" 2>/dev/null >/dev/null \
+         || ! git push --quiet origin master 2>/dev/null >/dev/null; then
+        # Push race lost. Revert the local write (workmd.py applied [wip:N]
+        # to a stale state). Re-loop will retry.
+        git reset --hard origin/master --quiet 2>/dev/null >/dev/null
+        exit 4
+      fi
+    fi
+    printf '%s' "$json"
+  )
+  local claim_rc=$?
+  # The subshell removes the lockdir via its trap, but in case of weird exit
+  # paths (e.g., kill during the subshell), best-effort cleanup. Race-safe
+  # because the trap inside also tries rmdir.
+  rmdir "$claim_lock" 2>/dev/null || true
+  if [ "$claim_rc" -eq 3 ] || [ -z "$next_json" ]; then
     echo "continuous: worker $WORKER_ID — no eligible items in WORK.md ## Todo"
-    return 3   # nothing to do
+    return 3
+  fi
+  if [ "$claim_rc" -eq 4 ]; then
+    echo "continuous: worker $WORKER_ID — claim lost push race, will retry next iter"
+    return 3
   fi
   next_title=$(echo "$next_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['title'])" 2>/dev/null)
   if [ -z "$next_title" ]; then
