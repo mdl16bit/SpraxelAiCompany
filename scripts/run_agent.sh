@@ -79,7 +79,16 @@ ts=$(date +%Y-%m-%d-%H%M)
 log="$LOGS_DIR/$agent/$ts.log"
 
 # --- Per-agent lock (mkdir is atomic on macOS — flock not available by default) ---
-lock_dir="$LOCKS_DIR/$agent.lockdir"
+# When the wrapper passes SPRAXEL_WORK_DIR (parallel-worker mode), use a
+# worker-suffixed lockdir so N workers can each have their own developer +
+# reviewer agent running in parallel. Otherwise (standalone / crew agent
+# invocation), one-at-a-time is the right semantics.
+if [ -n "${SPRAXEL_WORK_DIR:-}" ]; then
+  worker_suffix=$(basename "$SPRAXEL_WORK_DIR")   # e.g. "worker-1"
+  lock_dir="$LOCKS_DIR/$agent-$worker_suffix.lockdir"
+else
+  lock_dir="$LOCKS_DIR/$agent.lockdir"
+fi
 if ! mkdir "$lock_dir" 2>/dev/null; then
   echo "run_agent: $agent already running (lock: $lock_dir)" >&2
   exit 2

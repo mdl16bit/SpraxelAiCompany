@@ -109,12 +109,15 @@ try:
     text = open(sys.argv[1]).read()
 except Exception:
     text = ""
-# Pull the continuous: block
-m = re.search(r"^continuous:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
+# Pull the continuous: block — up to the next top-level (non-indented) key.
+# Allow blank lines + comment lines inside the block (previous regex
+# stopped at the first blank line, silently dropping every knob defined
+# after that — including dev_concurrency).
+m = re.search(r"^continuous:\s*\n((?:(?:[ \t]+.*)?\n)*?)(?=^\S|\Z)", text, re.M)
 block = m.group(1) if m else ""
 # Also accept the legacy `overnight.target_items` as a fallback for target_per_batch.
 if not re.search(r"^\s+target_per_batch:", block, re.M):
-    om = re.search(r"^overnight:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
+    om = re.search(r"^overnight:\s*\n((?:(?:[ \t]+.*)?\n)*?)(?=^\S|\Z)", text, re.M)
     if om:
         mm = re.search(r"\s*target_items:\s*(\d+)", om.group(1))
         if mm:
@@ -369,8 +372,10 @@ ship_one_item() {
     saved_branch=$(echo "$next_json" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-if d:
-    for det in d[0].get('details', []):
+# claim returns a single item dict; defend against legacy list shape too.
+it = d[0] if isinstance(d, list) and d else d
+if it:
+    for det in it.get('details', []):
         det = det.strip()
         if det.lower().startswith('branch:'):
             print(det.split(':', 1)[1].strip())
@@ -448,8 +453,9 @@ if d:
     item_brief=$(echo "$next_json" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-if not d: sys.exit()
-it = d[0]
+# claim returns a single dict; defend against legacy list shape too.
+it = d[0] if isinstance(d, list) and d else d
+if not it: sys.exit()
 print('## Today\\'s item')
 print()
 print(it['title'])

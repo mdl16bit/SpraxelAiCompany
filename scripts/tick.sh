@@ -80,9 +80,11 @@ dev_concurrency=$(python3 - "$SCHEDULE" <<'PY'
 import sys, re
 with open(sys.argv[1]) as f:
     text = f.read()
-m = re.search(r"^continuous:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
+# Allow blank + comment lines inside the continuous: block (previous
+# regex stopped at the first blank line, defaulting silently to 1).
+m = re.search(r"^continuous:\s*\n((?:(?:[ \t]+.*)?\n)*?)(?=^\S|\Z)", text, re.M)
 if m:
-    mm = re.search(r"\s*dev_concurrency:\s*(\d+)", m.group(1))
+    mm = re.search(r"^\s+dev_concurrency:\s*(\d+)", m.group(1), re.M)
     if mm:
         print(mm.group(1)); sys.exit()
 print(1)
