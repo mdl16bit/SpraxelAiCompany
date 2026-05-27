@@ -164,9 +164,29 @@ elif [ $gut_exit -ne 0 ]; then
   failures+=("GUT: ${failed:-non-zero exit} (rc=$gut_exit)")
 fi
 
-# 3. Acceptance scenarios
-echo "[local-tests] running acceptance scenarios..." | tee -a "$LOG"
+# 3. Acceptance scenarios — but SKIP if the diff vs master only touches
+# docs/non-code files. Each scenario takes ~10s, suite is ~10 min total;
+# a "fix typo in WORK.md" item shouldn't pay that cost. Baseline runs
+# (HEAD == master, empty diff) always run the full suite.
+DOCS_ONLY=false
+if git rev-parse master >/dev/null 2>&1; then
+  head_sha=$(git rev-parse HEAD 2>/dev/null)
+  master_sha=$(git rev-parse master 2>/dev/null)
+  if [ -n "$head_sha" ] && [ -n "$master_sha" ] && [ "$head_sha" != "$master_sha" ]; then
+    changed=$(git diff --name-only master...HEAD 2>/dev/null)
+    if [ -n "$changed" ] && ! echo "$changed" | grep -qvE '\.md$|\.txt$|^WORK\.md$|^Philosophy\.md$|^Game\.md$'; then
+      DOCS_ONLY=true
+    fi
+  fi
+fi
+if [ "$DOCS_ONLY" = "true" ]; then
+  echo "[local-tests] DOCS-ONLY diff vs master — skipping acceptance scenarios" | tee -a "$LOG"
+  echo "$changed" | sed 's/^/  /' >> "$LOG"
+else
+  echo "[local-tests] running acceptance scenarios..." | tee -a "$LOG"
+fi
 shopt -s nullglob
+if [ "$DOCS_ONLY" != "true" ]; then
 for scenario in scripts/scenarios/*.gd; do
   base=$(basename "$scenario" .gd)
   [ "$base" = "_base" ] && continue
@@ -190,6 +210,7 @@ for scenario in scripts/scenarios/*.gd; do
     failures+=("scenario $slug: silent skip or timeout (no PASS)")
   fi
 done
+fi   # end if DOCS_ONLY != true
 
 # 4. Write status JSON.  Build it in Python directly (no bash → Python
 #    interpolation, which caused 'pass: false' parse errors previously).
