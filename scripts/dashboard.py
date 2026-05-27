@@ -240,6 +240,47 @@ def ships_today(game_dir: Path | None) -> int:
         return 0
 
 
+def last_n_ships(game_dir: Path | None, n: int = 20) -> list[tuple[str, str, str]]:
+    """Return the last n shipped feat commits as (sha, age, subject).
+
+    Reads from git log master, filtered to `feat:` commits authored by the
+    continuous-bot. Age is a short relative string ("3h", "yesterday",
+    "2d"). Subject is the part after `feat[(scope)]:` so the dashboard
+    can show what landed rather than echoing the prefix.
+    """
+    if not game_dir: return []
+    # %h short sha, %cr relative date, %s subject
+    out = sh(
+        f"git log master --pretty=format:'%h|%cr|%s' --grep='^feat:' "
+        f"--author='continuous-bot' -n {n}",
+        cwd=game_dir,
+    )
+    if not out:
+        return []
+    rows: list[tuple[str, str, str]] = []
+    for line in out.splitlines():
+        parts = line.split("|", 2)
+        if len(parts) != 3:
+            continue
+        sha, age, subject = parts
+        # Strip the conventional-commits prefix for display
+        m = re.match(r"^feat(?:\([^)]+\))?:\s*(.*)$", subject)
+        subject = m.group(1) if m else subject
+        # Shorten common age strings ("3 hours ago" → "3h", "yesterday" → "1d",
+        # "2 days ago" → "2d", "3 weeks ago" → "3w")
+        age = re.sub(r"\s+ago$", "", age).strip()
+        age = age.replace("yesterday", "1 day")
+        m2 = re.match(r"^(\d+)\s+(second|minute|hour|day|week|month|year)s?$", age)
+        if m2:
+            n_units, unit = m2.group(1), m2.group(2)
+            short = {"second":"s","minute":"m","hour":"h","day":"d","week":"w","month":"mo","year":"y"}[unit]
+            age = f"{n_units}{short}"
+        elif age == "just now":
+            age = "now"
+        rows.append((sha, age, subject))
+    return rows
+
+
 def render(now: datetime, game_dir: Path | None) -> str:
     lines = []
     title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
@@ -339,9 +380,9 @@ def render(now: datetime, game_dir: Path | None) -> str:
             lines.append(f"    {DIM}{day:5s} {ts:%H:%M PT}{RESET}  {name}")
     lines.append("")
 
-    # Next 5 CEO action items (things blocking on you)
-    lines.append(f"  {BOLD}▸ Next 5 CEO action items{RESET}")
-    actions = pending_ceo_actions(game_dir, 5)
+    # Next 10 CEO action items (things blocking on you)
+    lines.append(f"  {BOLD}▸ Next 10 CEO action items{RESET}")
+    actions = pending_ceo_actions(game_dir, 10)
     if not actions:
         lines.append(f"    {DIM}(none — queue is clear){RESET}")
     else:
@@ -361,6 +402,19 @@ def render(now: datetime, game_dir: Path | None) -> str:
             clean = re.sub(r"^\[(bug|feature|game-feature|chore)\]\s*", "", clean)
             clean = clean[:54] + ("…" if len(clean) > 54 else "")
             lines.append(f"    {tag} {clean}")
+    lines.append("")
+
+    # Last 20 things shipped
+    lines.append(f"  {BOLD}▸ Last 20 shipped{RESET}")
+    ships = last_n_ships(game_dir, 20)
+    if not ships:
+        lines.append(f"    {DIM}(no ships found in git log){RESET}")
+    else:
+        for sha, age, subject in ships:
+            # Pad age to 4 chars right-aligned so columns align; truncate subject
+            age_col = f"{age:>4s}"
+            subj = subject[:54] + ("…" if len(subject) > 54 else "")
+            lines.append(f"    {DIM}{sha} {age_col}{RESET}  {subj}")
     lines.append("")
 
     # Most recent log line
