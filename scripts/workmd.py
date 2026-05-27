@@ -698,20 +698,46 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
 
     Preserves file order.
     """
+def _is_skipped(it: WorkItem) -> bool:
+    return (it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo
+            or it.is_future or it.is_escalated or it.is_concern or it.is_wip)
+
+
+def _is_resumable(it: WorkItem) -> bool:
+    """[retry] / [resume] items have a saved branch + failure feedback
+    in details; the next dev gets a head start. Prefer these over fresh
+    items so we don't leave near-done work languishing at the bottom
+    of the queue."""
+    return it.is_retry or it.is_resume
+
+
+def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> list[WorkItem]:
+    """Return the first N eligible Todo items.
+
+    Eligible = not [idea]/[cold]/[manual]/[needs-ceo]/[future]/[escalated]/
+    [concern]/[wip:*], not in skip_attempted.
+
+    Ordering: **[retry] and [resume] items come first** (in file order
+    among themselves), then everything else (in file order). Rationale:
+    [retry]/[resume] items have ~90% of the work already done on a
+    saved branch — the next dev just addresses failure feedback. Always
+    prefer those over fresh items so near-done work doesn't languish
+    while N+1 fresh items pile up on top of it.
+    """
     wm = parse(path)
     skip = {s.strip().lower() for s in (skip_attempted or [])}
-    out: list[WorkItem] = []
+    resumable: list[WorkItem] = []
+    fresh: list[WorkItem] = []
     for it in wm.todo:
-        if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo \
-                or it.is_future or it.is_escalated or it.is_concern \
-                or it.is_wip:
+        if _is_skipped(it):
             continue
         if it.title.strip().lower() in skip:
             continue
-        out.append(it)
-        if len(out) >= n:
-            break
-    return out
+        if _is_resumable(it):
+            resumable.append(it)
+        else:
+            fresh.append(it)
+    return (resumable + fresh)[:n]
 
 
 def claim(path: Path, worker_id: int) -> WorkItem | None:
@@ -722,19 +748,29 @@ def claim(path: Path, worker_id: int) -> WorkItem | None:
     and the [wip:N] tag makes the item invisible to other workers'
     top_n / claim calls until released.
 
+    Selection order matches top_n(): [retry]/[resume] items first (saved
+    branch ready), then fresh items. With 3 workers in parallel, this
+    drains the retry queue before fresh work, which is what the CEO wants.
+
     Returns the claimed WorkItem (with the new [wip:N] tag in its title),
     or None if no eligible items exist.
     """
     with FileLock(path):
         wm = parse(path)
         chosen_idx = -1
+        # Two-pass: first scan for [retry]/[resume], then any eligible.
         for i, it in enumerate(wm.todo):
-            if it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo \
-                    or it.is_future or it.is_escalated or it.is_concern \
-                    or it.is_wip:
+            if _is_skipped(it):
                 continue
-            chosen_idx = i
-            break
+            if _is_resumable(it):
+                chosen_idx = i
+                break
+        if chosen_idx < 0:
+            for i, it in enumerate(wm.todo):
+                if _is_skipped(it):
+                    continue
+                chosen_idx = i
+                break
         if chosen_idx < 0:
             return None
         item = wm.todo[chosen_idx]
