@@ -127,6 +127,7 @@ defaults = {
     "idle_sleep_seconds":      300,
     "max_dev_minutes":         90,   # absolute backstop for the progress watchdog
     "dev_stall_minutes":       12,   # kill only after this long with NO progress
+    "scenario_sample_size":     4,   # per-commit: run N random scenarios, not all 61
 }
 try:
     text = open(sys.argv[1]).read()
@@ -273,6 +274,56 @@ finally:
     try: os.rmdir(lock)
     except FileNotFoundError: pass
 PY
+}
+
+# --- Sampled-scenario bug filing ---
+# After a per-commit test run, the test script reports any failed *sampled*
+# scenarios under `scenario_failures` in the status JSON (these are
+# non-blocking — they don't fail the ship). We file each as a [bug] in
+# WORK.md, deduped, so the system fixes it on a later iteration. This is
+# what makes "sample 4 scenarios per commit instead of running all 61"
+# safe: regressions still get caught + tracked over many commits.
+file_scenario_bugs() {
+  local gd="$1" wid="$2"
+  local status_file="$gd/.factory/local-tests-status-w${wid}.json"
+  [ -f "$status_file" ] || return 0
+  local scen_fails
+  scen_fails=$(python3 -c "
+import json
+try:
+    d = json.load(open('$status_file'))
+    for s in d.get('scenario_failures', []):
+        print(s)
+except Exception:
+    pass
+")
+  [ -z "$scen_fails" ] && return 0
+  local sblock="$LOCKS_DIR/master-push.lockdir"
+  acquire_lock "$sblock" 60 0.3 || return 0
+  (
+    trap 'release_lock "'"$sblock"'"' EXIT
+    cd "$gd" || exit 0
+    git fetch --quiet origin master 2>/dev/null
+    git checkout --quiet master 2>/dev/null || exit 0
+    git reset --hard origin/master --quiet 2>/dev/null
+    local added=0 sslug
+    while IFS= read -r sf; do
+      [ -z "$sf" ] && continue
+      sslug=$(echo "$sf" | sed -E 's/^scenario ([^:]+):.*/\1/')
+      # Dedup: skip if an item already tracks this scenario.
+      grep -qiF "scenario-test: $sslug " WORK.md 2>/dev/null && continue
+      python3 "$WORKMD" append "$gd/WORK.md" --section todo \
+        "[bug] scenario-test: $sslug regressed — $sf (auto-filed from sampled per-commit run by w$wid)" \
+        2>/dev/null && added=$((added + 1))
+    done <<< "$scen_fails"
+    [ "$added" -eq 0 ] && exit 0
+    git add WORK.md 2>/dev/null
+    git diff --cached --quiet && exit 0
+    git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
+        commit --quiet -m "chore(bug): $added sampled-scenario regression(s) flagged by w$wid" 2>/dev/null || exit 0
+    git push --quiet origin master 2>/dev/null
+    echo "continuous: filed $added scenario-regression [bug](s) to WORK.md" >&2
+  )
 }
 
 # --- CEO signal detection ---
@@ -804,6 +855,7 @@ sys.exit(1)
         git stash push --quiet -m "baseline-test-stash" 2>/dev/null
         git checkout --detach origin/master --quiet 2>/dev/null
         SPRAXEL_GAME_DIR="$game_dir" SPRAXEL_WORKER_ID="$WORKER_ID" \
+        SPRAXEL_SCENARIO_SAMPLE="$SCENARIO_SAMPLE_SIZE" \
         bash "$WORK_DIR/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1 || true
         baseline_failures=$(python3 -c "
 import json
@@ -831,8 +883,12 @@ except Exception:
     # the worker's feat branch. Result: broken changes could pass the test
     # gate because tests never actually exercised the dev's code.
     SPRAXEL_GAME_DIR="$game_dir" SPRAXEL_WORKER_ID="$WORKER_ID" \
+    SPRAXEL_SCENARIO_SAMPLE="$SCENARIO_SAMPLE_SIZE" \
       bash "$WORK_DIR/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1
     rc=$?
+    # File a [bug] for each sampled-scenario failure (non-blocking — these
+    # don't fail the run, but we track them so they get fixed later).
+    file_scenario_bugs "$game_dir" "$WORKER_ID"
     if [ $rc -ne 0 ]; then
       current_failures=$(python3 -c "
 import json

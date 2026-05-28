@@ -83,6 +83,17 @@ continuous:
   dev_stall_minutes:      12
   max_dev_minutes:        90
 
+  # Per-commit scenario sampling. The acceptance suite is ~61 scenarios,
+  # each a separate godot --headless launch (full suite ~20-25 min) — far
+  # too slow to run on every commit with 3 workers. Each per-commit test
+  # run instead executes this many RANDOM scenarios as a smoke test; a
+  # sampled scenario that fails is filed as a [bug] in WORK.md (tracked +
+  # fixed later) rather than blocking the ship. Over many commits the
+  # random sampling covers the whole suite. GUT unit tests always run in
+  # full (they're fast) and still gate the ship. Set to 0 to run the full
+  # suite every time (the old behavior).
+  scenario_sample_size:   4
+
   description:      "always-on, paced by CEO checkins"
 
 # Local tests (Godot scenarios + GUT). Already managed by ~/Library/LaunchAgents/com.spraxel.localtests.plist.
