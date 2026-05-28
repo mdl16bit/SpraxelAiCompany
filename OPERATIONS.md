@@ -89,10 +89,35 @@ Every 30 minutes (separately scheduled — `com.spraxel.localtests.plist`):
 
 ## CEO daily routine (the part that matters)
 
-You wake up around 7 AM. Here's the optimal schedule:
+**The one thing to remember: any time you sit down at the machine, run
+`/spraxel-inbox`.** It tells you exactly what the system is waiting on you
+for — blocking items first, then your top-10 `MANUAL` tasks, then the
+checklist for the current time of day. You never have to remember what to
+do; the skill computes it.
 
-### 05:00 AM — System has prepared your day
-You're asleep. `morning-briefer` is writing MORNING.md right now.
+You visit the machine up to **three times a day**. The times are *guidance*
+(the system never blocks on a clock) and are **configurable** in
+`schedule.yaml` → `ceo_routine` — edit them to match your life:
+
+| Visit | Default time | One-line purpose | Typical length |
+|-------|--------------|------------------|----------------|
+| **Morning** | ~06:15 | Full triage: play-test overnight ships, decide ideas, triage bugs, clear escalations | ~30-40 min |
+| **Afternoon** *(optional)* | ~13:00 | Quick unblock: clear `[needs-ceo]`/`[escalated]` so the loop never stalls; dump ideas | ~5 min |
+| **Evening** | ~22:00 | Top up: drain dictation, ensure WORK.md has 10+ eligible items for overnight | ~5 min |
+
+Each visit below is a literal checklist — exact files to open, exact
+commands to run. Substitute `<game>` with the repo in
+`schedule.yaml` → `game_dir` (currently `infiltrators`).
+
+---
+
+# ☀️ MORNING (~06:15, full triage)
+
+### 05:00 AM — System has prepared your day (you're asleep)
+By the time you wake, the overnight crew has run: `playtester` (03:00) →
+`triager` (04:00) → `morning_briefer` (05:00, writes MORNING.md) →
+`demo_creator` (05:30) → `pm` (06:00, reorders Todo). Tue/Fri also get
+`designer` (04:30). You wake to a prepared digest.
 
 ### 06:00 — 06:38 AM — Morning routine (~38 min — CEO wakes ~06:15)
 
@@ -345,34 +370,72 @@ git push
 
 All four match on title substring (case-insensitive, first match wins). Be specific enough to uniquely match.
 
-### 06:38 AM — 10:00 PM — You go live your life
+During the day the system is quiet (just `local-tests` every 30 min on
+master, silent unless something breaks). Live your life — work on art,
+music, design, level layout; manually edit WORK.md (CEO can do anything);
+drop ideas into `.factory/inbox/raw.md` whenever they hit you.
 
-System is quiet during the day (just `local-tests` every 30 min on master,
-silent unless something breaks). You're free to:
+---
 
-- Work on art, music, design, level layout.
-- Manually edit WORK.md (CEO can do anything).
-- Run individual agents on demand: `bash ~/SpraxelAiCompany/scripts/run_agent.sh <name>`.
-- Drop ideas into `.factory/inbox/raw.md` whenever they hit you.
+# 🌤️ AFTERNOON (~13:00, optional ~5-min unblock)
 
-### 10:00 PM — Optional: top up the queue
-
-Before bed, if you want a productive overnight:
+**Purpose: make sure the loop isn't stalled waiting on you.** The only
+thing that *blocks* the overnight pipeline is an item that needs your
+judgment. Run the inbox; if it says "nothing blocking", you're done.
 
 ```bash
-# Sanity check WORK.md has enough items at the top
-python3 ~/SpraxelAiCompany/scripts/workmd.py top ~/GameProjects/<game>/WORK.md -n 12
-
-# Drain any dictation you've accumulated today
-# (in Claude Code) /spraxel-producer
+# In Claude Code — shows blocks + top-10 MANUAL, nothing else if all clear:
+/spraxel-inbox
 ```
 
-### 11:00 PM — Continuous loop keeps shipping
+If it lists blocking items, clear them (full how-to in the Morning
+"Escalations" step above):
 
-You're asleep. **3 parallel `continuous_dev.sh` workers** (each in its own
-worktree) ship items concurrently until the shared 10-item cap, then all
-three sleep. Adjust the worker count in `schedule.yaml#continuous.dev_concurrency`
-(1 = serial, 3 = default, more = burns through the Max-plan cap faster).
+```bash
+WORK=~/GameProjects/<game>/WORK.md
+WORKMD=~/SpraxelAiCompany/scripts/workmd.py
+
+# [needs-ceo] — Developer asked a question. Edit the item's detail lines
+#   with your answer, then drop the tag so it re-enters rotation:
+python3 $WORKMD promote $WORK "<title-substring>"      # removes a leading tag
+
+# [escalated] — your call. Resume after editing details with guidance:
+python3 $WORKMD resume $WORK "<title-substring>"
+```
+
+Dump any new ideas while you're here (no need to process now):
+
+```bash
+echo "guards should investigate the LAST noise, not the first" \
+  >> ~/GameProjects/<game>/.factory/inbox/raw.md
+```
+
+---
+
+# 🌙 EVENING (~22:00, ~5-min top-up)
+
+**Purpose: give the overnight batch fuel.** The 3 workers ship until the
+10-item cap, then sleep. If the eligible queue is thin, they'll drain it
+and idle. Two commands:
+
+```bash
+# 1. Drain everything you dictated today into clean WORK.md items:
+#    (in Claude Code)
+/spraxel-producer
+
+# 2. Confirm there are 10+ eligible items queued for overnight:
+python3 ~/SpraxelAiCompany/scripts/workmd.py top ~/GameProjects/<game>/WORK.md -n 12
+```
+
+If `top` shows fewer than ~10 eligible items (i.e., most of the top is
+`MANUAL`/`[idea]`/`[needs-ceo]`), add a few via dictation + `/spraxel-producer`,
+or promote some `[idea]`s. That's the whole evening visit.
+
+Then you're asleep. **3 parallel `continuous_dev.sh` workers** (each in
+its own worktree) ship items concurrently until the shared 10-item cap,
+then all three sleep until your next checkin. Adjust the worker count in
+`schedule.yaml` → `continuous.dev_concurrency` (1 = serial, 3 = default,
+more = burns the Max-plan weekly cap faster).
 
 ---
 
@@ -490,6 +553,84 @@ is for hotfixes — usually you ignore it.
 Asset Librarian fires at 07:00 PT on the 1st of each month. Adds a
 "Asset Librarian" line to MORNING.md with orphan count + license gaps.
 Address the license gaps when they appear (~5 min).
+
+---
+
+## Setting up & changing schedules
+
+There are **three independent schedules**. All live in plain text you can
+edit; the daemon picks up changes within 60 s (the `tick.sh` launchd job
+re-reads the files every tick — no restart needed).
+
+### 1. Crew-agent cadences — *when the bots fire*
+
+`schedule.yaml` → `agents:` holds one cron line per agent:
+
+```yaml
+agents:
+  playtester: { cron: "0 3 * * *",   description: "03:00 PT daily" }
+  designer:   { cron: "30 4 * * 2,5", description: "Tue+Fri 04:30 PT" }
+```
+
+Cron format is `minute hour day-of-month month day-of-week`, evaluated in
+`America/Los_Angeles` (see `scripts/cron_match.py`). Examples:
+`0 6 * * *` = 06:00 daily; `30 4 * * 2,5` = 04:30 Tue+Fri; `0 1 * * 0` =
+01:00 Sun; `0 7 1 * *` = 07:00 on the 1st.
+
+**Defense in depth:** each agent also reads its cadence from the game's
+`Philosophy.md` → `cadence.<agent>` and exits cleanly if today isn't its
+day. Keep the two in sync — `schedule.yaml` controls *firing*,
+`Philosophy.md` is the agent's own *sanity check*. To move an agent, edit
+both.
+
+**To add a new scheduled agent:** (a) drop its spec at
+`agents/spraxel-<name>.md`, (b) add a `cron:` line under `agents:` in
+`schedule.yaml`, (c) add a matching `cadence.<name>` in `Philosophy.md`.
+Next tick runs it. Confirm with `tail -f logs/tick/$(date +%F).log`.
+
+### 2. The continuous (overnight) loop — *how hard it ships*
+
+`schedule.yaml` → `continuous:` — the knobs you'll actually touch:
+
+| Knob | Default | Meaning |
+|------|---------|---------|
+| `dev_concurrency` | 3 | parallel workers (1 = serial, more = faster but burns the Max cap) |
+| `target_per_batch` | 10 | ships per batch before all workers sleep (resets on your checkin) |
+| `dev_stall_minutes` | 12 | kill a dev only after this long with **no** progress |
+| `max_dev_minutes` | 90 | absolute cap even on a progressing dev |
+| `scenario_sample_size` | 4 | random acceptance scenarios per commit (0 = full suite) |
+
+Full table with rationale: see **Configuration reference** below.
+
+### 3. Your own routine — *when YOU show up*
+
+`schedule.yaml` → `ceo_routine:` (morning / afternoon / evening times +
+purposes). These drive what `/spraxel-inbox` shows by time of day. They're
+guidance only — the system never blocks on the clock. Edit them to match
+your life:
+
+```yaml
+ceo_routine:
+  morning:   { around: "06:15", purpose: "Full triage …" }
+  afternoon: { around: "13:00", purpose: "Quick unblock …" }
+  evening:   { around: "22:00", purpose: "Top up …" }
+```
+
+### Pausing / resuming everything
+
+```bash
+touch ~/SpraxelAiCompany/.paused     # tick.sh no-ops; all firing stops
+rm    ~/SpraxelAiCompany/.paused     # resume
+bash ~/SpraxelAiCompany/scripts/install_daemon.sh status   # is the daemon loaded?
+```
+
+### A note on `/schedule` (the Claude Code reminder)
+
+Claude Code itself sometimes offers `/schedule` — that's a *different*
+thing: it schedules a one-off future Claude session (e.g., "remind me to
+flip this flag in 3 days"). It is **not** how you schedule Spraxel agents
+— those go in `schedule.yaml` as above. Use `/schedule` only for personal
+follow-ups tied to a concrete future date.
 
 ---
 

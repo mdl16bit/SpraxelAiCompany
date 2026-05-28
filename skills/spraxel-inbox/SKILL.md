@@ -1,112 +1,144 @@
 ---
 name: spraxel-inbox
-description: CEO morning routine — open MORNING.md (written at 06:00 PT by the Morning Briefer), walk the time-boxed sections (play-test → decide → bug triage → escalations → dictation). Use when the user types /spraxel-inbox or /inbox or says "check my inbox", "morning digest", "what needs my attention".
+description: CEO check-in for any time of day. Computes exactly what the system is BLOCKING/waiting on the CEO for, lists the top-10 MANUAL tasks, then shows the checklist for the current time slot (morning full-triage / afternoon unblock / evening top-up). Use when the user types /spraxel-inbox or /inbox or says "check my inbox", "what needs me", "morning digest", "what do I do".
 ---
 
-# Spraxel — Morning routine
+# Spraxel — CEO check-in
 
-This skill walks the CEO through `MORNING.md` at the active game repo. It's
-**read-mostly** — you'll edit WORK.md inline when promoting Designer ideas
-or making quick triage decisions, but most of the work is play-testing the
-features that shipped overnight and deciding what's next.
+The CEO can run this **any time they sit down at the machine**. Your job is
+to tell them, in priority order: (1) what is *blocking* the pipeline and
+needs their decision, (2) their top-10 `MANUAL` tasks, then (3) the
+checklist for the current time of day. The CEO should never have to
+remember what to do — you compute it.
 
-## What to do
+## Step 0 — Signal the loop + gather state
 
-0. **Signal the continuous loop** that the CEO is interacting:
-   ```bash
-   bash ~/SpraxelAiCompany/scripts/checkin.sh
-   ```
-   This resets the ship-counter to 0, so the loop starts shipping the next
-   batch of 10 as soon as the CEO finishes the routine.
+Run this first. It resets the ship-counter (so the overnight batch refills
+after the CEO interacts) and prints everything you need to build the board:
 
-1. **Open** `~/GameProjects/<game>/.factory/local/MORNING.md` (the
-   active `<game>` is whatever `schedule.yaml`'s `game_dir:` points at).
-   If it doesn't exist, the Morning Briefer hasn't run yet — check
-   `~/SpraxelAiCompany/logs/morning-briefer/<latest>.log`.
+```bash
+bash ~/SpraxelAiCompany/scripts/checkin.sh
 
-2. **Walk the sections in order**:
+SC=~/SpraxelAiCompany/schedule.yaml
+GAME=$(python3 -c "import re,os;m=re.search(r'game_dir:\s*(\S+)',open(os.path.expanduser('$SC')).read());print(os.path.expanduser(m.group(1)))")
+WORK="$GAME/WORK.md"
+NOW_H=$(date +%H); DOW=$(date +%u)   # DOW: 1=Mon … 6=Sat 7=Sun
 
-   - **Overnight result**: glance at the commit range. If any feature looks
-     surprising, `git show <sha>` to see the diff.
+echo "=== game: $GAME | $(date '+%a %H:%M %Z') ==="
 
-   - **▶ Play-test (20 min)**: for each of the 10 features, run the
-     listed `godot --demo-feature=<slug>` command. Verify the
-     "Look for" line. Mark mentally as ✓ or ✗ — fixes for ✗ become
-     items the CEO can dictate at the end.
+echo ""; echo "### 🔴 BLOCKING (system is waiting on YOU) ###"
+echo "-- [needs-ceo] (Developer asked a question) --"
+grep -nE '^\[needs-ceo\]' "$WORK" || echo "  (none)"
+echo "-- [escalated] (needs your judgment) --"
+grep -nE '^\[escalated\]' "$WORK" || echo "  (none)"
+[ -f "$GAME/.factory/escalations.md" ] && { echo "-- escalations.md snapshot --"; sed -n '1,40p' "$GAME/.factory/escalations.md"; }
+if [ "$DOW" = "6" ]; then
+  echo "-- Saturday: blog draft awaiting humanization? --"
+  git -C "$GAME" ls-remote --heads origin "blog/$(date +%F)" 2>/dev/null | grep -q . \
+    && echo "  YES — branch blog/$(date +%F) exists (see OPERATIONS → Saturday)" || echo "  (no blog branch yet)"
+fi
 
-   - **▶ Decide (5 min)**: open WORK.md. For each Designer idea
-     (lines tagged `[idea]`): **delete the line** to reject, or **remove
-     just the `[idea]` tag** to promote. PM's reorder summary is
-     informational — usually no action needed.
+echo ""; echo "### 📋 TOP-10 MANUAL TASKS (your hand-work backlog) ###"
+grep -nE '^MANUAL' "$WORK" | head -10 || echo "  (none)"
+echo "  (total MANUAL: $(grep -cE '^MANUAL' "$WORK"))"
 
-   - **▶ Bugs (5 min)**: look at Triager's new `[bug]` items. Bump priority
-     of anything urgent (`p1` → `p0` by editing the line). Delete duplicates
-     of bugs you've already fixed.
+echo ""; echo "### 💡 Designer ideas to decide ###"
+grep -nE '^\[idea\]' "$WORK" | head -8 || echo "  (none)"
 
-   - **▶ Escalations (3 min)**: read `.factory/escalations.md`. For each
-     entry: either resurrect the item (paste back into WORK.md ## Todo
-     with clarifying details that address the Developer's blocker) or
-     leave it dead (don't do anything — the item stays out of rotation).
+echo ""; echo "### 🐛 New bugs to triage ###"
+grep -nE '^\[bug\]' "$WORK" | head -8 || echo "  (none)"
 
-3. **▶ Dictation (5 min, optional)**: if you have new ideas from
-   play-testing, drop them as bare prose into
-   `~/GameProjects/<game>/.factory/inbox/raw.md` and run `/spraxel-producer`
-   to convert them to clean WORK.md items.
+echo ""; echo "### 🚢 Overnight ships (since 22:00 yesterday) ###"
+git -C "$GAME" log master --grep='^feat:' --author='continuous-bot' \
+    --since='yesterday 22:00' --pretty='  %h %s' 2>/dev/null | head -12 || echo "  (none)"
 
-4. **▶ Humanize blog draft (Saturday only, +10 min)**: on Saturday
-   mornings, the Blogger has pushed a `blog/<YYYY-MM-DD>` branch with a
-   draft at `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md`. The branch
-   + draft live OFF master until you merge. Full workflow is in
-   OPERATIONS.md → "Saturday — Blogger day"; quick version:
+echo ""; echo "### queue depth (eligible items for the next batch) ###"
+python3 ~/SpraxelAiCompany/scripts/workmd.py top "$WORK" -n 12 2>/dev/null \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('  ',len(d if isinstance(d,list) else [d]),'eligible at top')" 2>/dev/null || true
 
-   ```bash
-   cd ~/GameProjects/<game>
-   git fetch origin
-   # Peek without switching:
-   git show blog/$(date +%Y-%m-%d):blog/content/posts/draft-$(date +%Y-%m-%d)-*.md
+echo ""; echo "### MORNING.md (full digest) ###"
+ls "$GAME/.factory/local/MORNING.md" 2>/dev/null && echo "  → cat it in the morning slot" || echo "  (not written yet — morning_briefer runs 05:00)"
+```
 
-   # Or edit on the branch:
-   git checkout blog/$(date +%Y-%m-%d)
-   $EDITOR blog/content/posts/draft-$(date +%Y-%m-%d)-*.md
-   # — Replace `▸ MEDIA` placeholders with real images/clips
-   # — Voice pass, tighten phrasing
-   # — Flip `draft: true` to `draft: false`
-   git commit -am "blog: humanize $(date +%Y-%m-%d)"
+## Step 1 — Present the board
 
-   git checkout master
-   git merge --no-ff blog/$(date +%Y-%m-%d) -m "blog: $(date +%Y-%m-%d)"
-   git push origin master
-   # publish to your blog target (Hugo, ghost, substack, etc.)
-   ```
+Summarize the gathered state to the CEO in this order, concise:
 
-   If no `blog/<date>` branch exists, Blogger didn't run or had no
-   shipped commits to write about. Check
-   `~/SpraxelAiCompany/logs/blogger/<latest>.log`.
+1. **🔴 Blocking** — if `[needs-ceo]`, `[escalated]`, or (Sat) a blog branch
+   exist, list them and tell the CEO each one needs a decision. **If
+   nothing is blocking, say so explicitly: "Nothing blocking — the loop is
+   running free."** This is the single most important line.
+2. **📋 Top-10 MANUAL** — the CEO's hand-work backlog (art, music, design,
+   story calls the bots can't do). Always show these so the CEO can pick
+   one to work on.
+3. Then move to the **time-of-day checklist** below.
+
+## Step 2 — Run the checklist for the current time slot
+
+Pick the slot from the current hour (times are configurable in
+`schedule.yaml` → `ceo_routine`; default boundaries below):
+
+### ☀️ Morning (roughly 05:00–11:00) — full triage (~30-40 min)
+
+1. **Overnight result** — `cat "$GAME/.factory/local/MORNING.md"`; glance
+   at the ship list. `git show <sha>` anything surprising.
+2. **Play-test** — for each shipped feature, run its launch line from
+   MORNING.md (`godot --demo-feature=<slug>`) and check the "Verify" line.
+   Per feature: works → do nothing; needs polish →
+   `bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "feedback"`;
+   wrong → `bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "why"`.
+3. **Decide ideas** — for each `[idea]`: accept = `python3 $WORKMD promote $WORK "<substr>"`;
+   reject = `python3 $WORKMD drop $WORK "<substr>"`; defer = leave it.
+4. **Triage bugs** — `python3 $WORKMD bump $WORK "<substr>" p0` to raise;
+   `drop` duplicates; leave the rest.
+5. **Clear blocks** — for each `[needs-ceo]`/`[escalated]`: edit the item's
+   detail lines in WORK.md with your answer, then
+   `python3 $WORKMD resume $WORK "<substr>"` (or `promote` for `[needs-ceo]`).
+6. **Dictate** fixes from play-testing into `.factory/inbox/raw.md`, then
+   run `/spraxel-producer`.
+7. Commit: `git -C "$GAME" commit -am "ceo: morning triage $(date +%F)" && git -C "$GAME" push`.
+
+### 🌤️ Afternoon (roughly 11:00–18:00) — quick unblock (~5 min)
+
+Only goal: make sure nothing is blocking the loop. If Step-1 said "nothing
+blocking", **you're done** — optionally dump ideas to
+`.factory/inbox/raw.md`. If there were blocks, clear them as in Morning
+step 5.
+
+### 🌙 Evening (roughly 18:00–05:00) — top up (~5 min)
+
+1. Drain dictation: `/spraxel-producer`.
+2. Confirm fuel for overnight:
+   `python3 $WORKMD top "$WORK" -n 12`. If fewer than ~10 eligible (top is
+   mostly `MANUAL`/`[idea]`), add items via dictation or `promote` some
+   `[idea]`s.
+
+## The action verbs (all match a title substring, case-insensitive)
+
+| Verb | Command | Use |
+|---|---|---|
+| promote | `python3 $WORKMD promote $WORK "<substr>"` | accept `[idea]`, resurrect `[cold]`, drop a leading tag |
+| drop | `python3 $WORKMD drop $WORK "<substr>"` | reject idea / delete duplicate bug |
+| bump | `python3 $WORKMD bump $WORK "<substr>" p0` | change priority |
+| resume | `python3 $WORKMD resume $WORK "<substr>"` | un-block an `[escalated]` item after editing its details |
+| amend | `bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "feedback"` | keep a shipped feature but refine it |
+| reject | `bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "why"` | revert a shipped feature + re-queue |
+
+Define once at the top of your session:
+`WORKMD=~/SpraxelAiCompany/scripts/workmd.py` and `WORK="$GAME/WORK.md"`.
+
+## Hard rules
+
+- **Never delete an item from WORK.md** unless it's truly finished/shipped.
+  Reject/defer via tags, not deletion. (CEO *may* hand-edit, but it's never
+  automated.)
+- **Don't hand-edit `.factory/escalations.md`** — it's regenerated each
+  tick from WORK.md `[escalated]` items. Put guidance in the WORK.md item's
+  detail lines, then `resume`.
+- **Don't manually move items between WORK.md sections** — the loop +
+  Janitor handle that.
 
 ## Time box
 
-The whole routine is ~38 min. **If you're over 45 min, stop**. The
-overnight loop runs every night — there's no need to perfect anything in
-one sitting. Half-done is fine; the rest will be in tomorrow's digest.
-
-## What NOT to do
-
-- **Don't edit `.factory/escalations.md`** — it's append-only history.
-- **Don't manually move items between WORK.md sections** — the overnight
-  loop and Janitor handle that. Editing the file structurally is fine
-  (CEO can do anything), but appending/deleting in `## Todo` is the
-  normal workflow.
-- **Don't touch GitHub Issues** — there aren't any in this workflow.
-
-## Quick commands
-
-| What | Command |
-|---|---|
-| Open MORNING.md | `cat ~/GameProjects/<game>/.factory/local/MORNING.md` |
-| Launch a feature | `cd ~/GameProjects/<game> && godot --demo-feature=<slug>` |
-| See last overnight log | `ls -t ~/SpraxelAiCompany/logs/overnight/ \| head -1` |
-| See last morning-briefer log | `ls -t ~/SpraxelAiCompany/logs/morning-briefer/ \| head -1` |
-| Drain dictation now | `/spraxel-producer` (interactive in Claude Code) |
-| Pause the system | `touch ~/SpraxelAiCompany/.paused` |
-| Resume | `rm ~/SpraxelAiCompany/.paused` |
-| Daemon status | `bash ~/SpraxelAiCompany/scripts/install_daemon.sh status` |
+Morning ≤ 45 min, afternoon/evening ≤ 5 min. Half-done is fine — the loop
+runs every night; the rest surfaces in tomorrow's digest.
