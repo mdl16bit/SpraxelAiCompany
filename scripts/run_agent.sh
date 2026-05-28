@@ -247,13 +247,38 @@ fi
 # without it, every agent's claude session would touch ceo-checkin.ts and the
 # continuous loop would interpret that as a fresh CEO signal after every ship.
 cd "$WORK_DIR"
-echo "run_agent: $agent ($model_id) → $log" >&2
-# Export WORK_MD_PATH so the dev can use $WORK_MD_PATH in shell snippets.
-if SPRAXEL_AGENT_RUN=1 WORK_MD_PATH="$WORK_MD_PATH" claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1; then
-  echo "run_agent: $agent ok" >&2
-  exit 0
-else
+
+# Retry policy. Crew agents (briefer, pm, triager, designer, …) are
+# idempotent + short, and their #1 failure mode is a claude session that
+# dies with EMPTY output under concurrency — the 2026-05-28 incident where
+# morning_briefer emitted 0 bytes at 05:00 (3 dev claudes + playtester +
+# triager all live) and MORNING.md silently went stale for the day, with no
+# retry. So crew agents retry a few times with a backoff, AND we treat empty
+# output as failure (claude produced nothing = it didn't do the job).
+# developer/reviewer are NOT retried here — the continuous wrapper owns their
+# retry + stall-detection; double-retrying would fight it.
+case "$agent" in
+  developer|reviewer) max_attempts=1 ;;
+  *)                  max_attempts=3 ;;
+esac
+
+attempt=1
+while :; do
+  echo "run_agent: $agent ($model_id) attempt $attempt/$max_attempts → $log" >&2
+  SPRAXEL_AGENT_RUN=1 WORK_MD_PATH="$WORK_MD_PATH" \
+    claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1
   rc=$?
-  echo "run_agent: $agent FAILED (rc=$rc) — see $log" >&2
-  exit 1
-fi
+  if [ "$rc" -eq 0 ] && [ -s "$log" ]; then
+    echo "run_agent: $agent ok (attempt $attempt)" >&2
+    exit 0
+  fi
+  reason="rc=$rc"
+  [ -s "$log" ] || reason="$reason, EMPTY output (claude produced nothing)"
+  echo "run_agent: $agent attempt $attempt FAILED ($reason) — see $log" >&2
+  if [ "$attempt" -ge "$max_attempts" ]; then
+    echo "run_agent: $agent gave up after $attempt attempt(s)" >&2
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 30   # let transient concurrency / rate pressure ease before retrying
+done
