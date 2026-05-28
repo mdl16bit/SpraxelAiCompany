@@ -98,7 +98,15 @@ fi
 ## deeper (run_local_tests.sh kills its godot via the run_bounded killer
 ## subshell + EXIT trap; run_agent.sh kills its claude session via
 ## SIGTERM handler).
-trap 'for _c in $(pgrep -P $$ 2>/dev/null); do kill_tree "$_c" KILL; done; sleep 0.2; release_lock "$LOCK"' EXIT INT TERM
+trap 'for _c in $(pgrep -P $$ 2>/dev/null); do kill_tree "$_c" KILL; done; sleep 0.2; release_lock "$LOCK"' EXIT
+# INT/TERM must EXIT (not just run cleanup): a bare signal trap that doesn't
+# exit returns control to the interrupted `wait`/`sleep` and the loop keeps
+# running — but the EXIT-trap above already released $LOCK, so the worker
+# soldiers on WITHOUT its lockdir. tick.sh then sees the lockdir absent and
+# spawns a DUPLICATE worker (observed 2026-05-28: a TERM'd worker survived
+# lockless, tick respawned over it). `exit` here triggers the EXIT trap once,
+# cleanly. 143 = 128+SIGTERM.
+trap 'exit 143' INT TERM
 trace "step: lock acquired for worker $WORKER_ID"
 
 # Resolve game_dir + target.

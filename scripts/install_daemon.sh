@@ -49,6 +49,15 @@ write_plist() {
   <integer>$INTERVAL</integer>
   <key>RunAtLoad</key>
   <true/>
+  <!-- CRITICAL: tick.sh exits every 60s after spawning the long-lived
+       continuous_dev workers as nohup'd background children. Without this,
+       launchd kills tick.sh's entire process group on exit — taking the
+       just-spawned workers with it (they die in <1s, before acquiring a
+       lock or writing a trace). The workers only survived when tick ran
+       from an interactive shell. This was the root cause of the recurring
+       "launchd ticks but nothing ships" failure (diagnosed 2026-05-28). -->
+  <key>AbandonProcessGroup</key>
+  <true/>
   <key>StandardOutPath</key>
   <string>/tmp/spraxel-tick.out.log</string>
   <key>StandardErrorPath</key>
