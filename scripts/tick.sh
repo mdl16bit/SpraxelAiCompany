@@ -63,11 +63,18 @@ dispatched=()
 errors=()
 
 # Crew agents (PM, Triager, Designer, etc.) — cron-fired.
+# Capture run_agent's stdout+stderr to a per-agent dispatch log instead of
+# /dev/null. Without this, a failed run (worktree error, lock held, claude
+# died producing 0 bytes) was completely invisible — the 2026-05-28 incident
+# where morning_briefer's claude emitted nothing and MORNING.md silently went
+# stale for a day, with no trace of why.
 while IFS='|' read -r name cron; do
   [ -z "$name" ] && continue
   if "$CRON_MATCH" "$cron" >/dev/null 2>&1; then
     if [ -x "$RUN_AGENT" ]; then
-      nohup bash "$RUN_AGENT" "$name" >/dev/null 2>&1 &
+      dlog="$REPO_DIR/logs/$name"
+      mkdir -p "$dlog"
+      nohup bash "$RUN_AGENT" "$name" >>"$dlog/dispatch-$(date +%Y-%m-%d).log" 2>&1 &
       dispatched+=("$name")
     else
       errors+=("run_agent.sh not executable")
