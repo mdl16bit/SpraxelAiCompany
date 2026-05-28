@@ -451,6 +451,27 @@ ship_one_item() {
   slug=$(echo "$next_title" | python3 "$SLUGIFY")
   item_log="$LOG_DIR/w${WORKER_ID}-${slug}.log"
 
+  # Deterministic branch name — a pure function of the item, NOT the clock
+  # or the worker id. This is what makes retries reuse the same branch:
+  # the name is recomputed identically every attempt, so even if the
+  # WORK.md `branch:` detail is lost (a CEO edit, a git reset, workmd
+  # dropping it), the fresh-start path lands on the exact same branch that
+  # the prior attempt pushed — and reuses it instead of minting a new one.
+  #
+  # Old scheme `feat/cont-<date>-<time>-wN-<slug>` changed every attempt,
+  # so a lost detail orphaned the old branch and created a duplicate. That
+  # produced the 18-branch pileup (same item, multiple branches).
+  #
+  # slug is already tag-stripped + truncated to 50 chars; append a short
+  # hash of the full tag-stripped title so two long titles that truncate
+  # to the same slug still get distinct branches. Two workers never share
+  # an item (the [wip:N] claim lock), so per-item names never collide
+  # across workers — the worker id is not needed in the name.
+  local _title_core _title_hash
+  _title_core=$(printf '%s' "$next_title" | sed -E 's/^[[:space:]]*(\[[a-z-]+\][[:space:]]*)+//I')
+  _title_hash=$(printf '%s' "$_title_core" | shasum 2>/dev/null | cut -c1-6)
+  local det_branch="feat/cont-${slug}-${_title_hash}"
+
   # ── Resume / Retry path ───────────────────────────────────────────────────
   # If the item is tagged [resume] OR [retry], the dev's prior attempt left
   # a saved branch on origin. Extract the branch name from the item's details
@@ -491,13 +512,13 @@ if it:
     # Fetch the saved branch from origin and check it out locally.
     if ! git fetch --quiet origin "$branch" 2>/dev/null; then
       echo "continuous: resume FAILED — branch '$branch' missing on origin. Falling back to fresh start." >&2
-      branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
+      branch="$det_branch"
       git checkout --quiet -B "$branch" origin/master
       is_resume="false"
     else
       if ! git checkout --quiet -B "$branch" "origin/$branch" 2>/dev/null; then
         echo "continuous: resume FAILED — could not checkout origin/$branch. Falling back." >&2
-        branch="feat/cont-$(date +%Y%m%d-%H%M)-$slug"
+        branch="$det_branch"
         git checkout --quiet -B "$branch" origin/master
         is_resume="false"
       else
@@ -534,11 +555,29 @@ if it:
       fi
     fi
   else
-    # Include worker id in branch name so 3 workers picking different
-    # items at the same minute don't collide on naming if slugs match.
-    branch="feat/cont-$(date +%Y%m%d-%H%M)-w${WORKER_ID}-$slug"
-    echo "continuous: worker $WORKER_ID → '$next_title' on $branch"
-    git checkout --quiet -B "$branch" origin/master
+    # Fresh / detail-less path. Use the deterministic per-item branch name
+    # and REUSE it if a prior attempt already pushed it to origin (this is
+    # the duplicate-branch fix: a [retry] whose `branch:` detail was lost
+    # still lands here and recovers the prior work instead of orphaning it).
+    branch="$det_branch"
+    if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+      echo "continuous: ↻ worker $WORKER_ID reusing existing branch $branch for '$next_title'"
+      git fetch --quiet origin "$branch" 2>/dev/null
+      if git checkout --quiet -B "$branch" "origin/$branch" 2>/dev/null \
+         && git rebase --quiet origin/master 2>/dev/null; then
+        :  # reused + rebased cleanly
+      else
+        # Existing branch unusable (checkout/rebase conflict) — abort the
+        # rebase and start this branch fresh from master. Same branch name,
+        # so still no duplicate; the prior conflicting work is discarded.
+        git rebase --abort 2>/dev/null || true
+        echo "continuous: branch $branch unusable (rebase conflict) — resetting to master" >&2
+        git checkout --quiet -B "$branch" origin/master
+      fi
+    else
+      echo "continuous: worker $WORKER_ID → '$next_title' on $branch (fresh)"
+      git checkout --quiet -B "$branch" origin/master
+    fi
   fi
 
   local outcome=fail
