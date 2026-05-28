@@ -135,7 +135,14 @@ if [ -x "$CONTINUOUS" ]; then
   mkdir -p "$REPO_DIR/logs/continuous"
   for id in $(seq 1 "$dev_concurrency"); do
     lock="$LOCKS_DIR/continuous-w$id.lockdir"
-    if [ ! -d "$lock" ] && ! pgrep -f "continuous_dev.sh.*--worker-id $id\b" >/dev/null 2>&1; then
+    # ps + grep -E instead of pgrep — macOS pgrep is BRE and does NOT
+    # support \b for word-boundary, so a naive `pgrep --worker-id 1`
+    # would ALSO match a `--worker-id 11` process. Using ps + grep -E
+    # with `($| )` anchors gives correct end-of-arg matching across
+    # platforms. The leading `[c]` is the classic ps-grep trick to
+    # exclude grep's own process (its argv contains the literal
+    # `[c]ontinuous_dev`, which doesn't match `c` character class).
+    if [ ! -d "$lock" ] && ! ps -eo command | grep -E "[c]ontinuous_dev\.sh.*--worker-id $id($| )" >/dev/null 2>&1; then
       logf="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)-w$id.log"
       nohup bash "$CONTINUOUS" --worker-id "$id" >>"$logf" 2>&1 &
       dispatched+=("continuous_dev w$id spawned")
