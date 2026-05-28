@@ -122,27 +122,24 @@ done
 
 # Spawn missing workers (1..dev_concurrency).
 #
-# Belt-and-suspenders: a wrapper takes its `continuous-wN.lockdir` only
-# AFTER the script setup + trace-file write (lines 57-76 of
-# continuous_dev.sh). If two ticks fire inside that ~milliseconds-wide
-# window, both see the lockdir absent and both spawn. The mkdir at
-# wrapper line 76 is atomic so only one wins the lock, but the loser
-# only exits at line 78 — meanwhile both wrappers were briefly alive.
-# pgrep'ing for an existing wrapper closes this race: if any process
-# is already running with --worker-id N, skip even if the lockdir
-# hasn't been claimed yet.
+# Lockdir check is sufficient on its own: continuous_dev.sh's `mkdir
+# "$LOCK"` at line 76 is atomic, so even if two ticks race within the
+# wrapper's startup window, only one process can hold the lock —
+# the other exits 0 cleanly without ever entering the main loop.
+#
+# DO NOT add `pgrep -f continuous_dev.sh --worker-id N` here as a
+# belt-and-suspenders check. The wrapper's dev-watchdog subshell
+# (`( sleep $timeout; pkill ... ) &` inside ship_one_item) inherits
+# the parent's $0 and appears in `ps` with the identical command
+# line as the real wrapper. A pgrep check would (a) wrongly count
+# 2x the wrappers, and (b) if the real wrapper SIGKILLed and only
+# the orphan watchdog remained, the pgrep would prevent legitimate
+# respawn. Trust the lockdir — that's what it's for.
 if [ -x "$CONTINUOUS" ]; then
   mkdir -p "$REPO_DIR/logs/continuous"
   for id in $(seq 1 "$dev_concurrency"); do
     lock="$LOCKS_DIR/continuous-w$id.lockdir"
-    # ps + grep -E instead of pgrep — macOS pgrep is BRE and does NOT
-    # support \b for word-boundary, so a naive `pgrep --worker-id 1`
-    # would ALSO match a `--worker-id 11` process. Using ps + grep -E
-    # with `($| )` anchors gives correct end-of-arg matching across
-    # platforms. The leading `[c]` is the classic ps-grep trick to
-    # exclude grep's own process (its argv contains the literal
-    # `[c]ontinuous_dev`, which doesn't match `c` character class).
-    if [ ! -d "$lock" ] && ! ps -eo command | grep -E "[c]ontinuous_dev\.sh.*--worker-id $id($| )" >/dev/null 2>&1; then
+    if [ ! -d "$lock" ]; then
       logf="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)-w$id.log"
       nohup bash "$CONTINUOUS" --worker-id "$id" >>"$logf" 2>&1 &
       dispatched+=("continuous_dev w$id spawned")

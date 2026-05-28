@@ -98,6 +98,34 @@ def pgrep(pattern: str) -> list[int]:
     return [int(x) for x in out.splitlines() if x.strip().isdigit()]
 
 
+def real_wrappers() -> dict[int, int]:
+    """Return {worker_id: wrapper_pid} for live, real wrapper processes.
+
+    Disambiguates the real wrapper from its dev-watchdog subshell
+    (`( sleep $timeout; pkill ... ) &` inside ship_one_item). The
+    subshell inherits the parent's $0 and so appears in `ps` with the
+    identical command line as the wrapper — a naive
+    `pgrep continuous_dev.sh` returns BOTH and doubles the wrapper
+    count. The watchdog is always spawned AFTER the wrapper's main
+    loop reaches ship_one_item, so the wrapper has the lower PID for
+    that worker-id; keep min PID per worker-id.
+    """
+    out = sh("ps -eo pid,command 2>/dev/null")
+    result: dict[int, int] = {}
+    for line in out.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) < 2: continue
+        pid_str, cmd = parts
+        if not pid_str.isdigit(): continue
+        if "continuous_dev.sh" not in cmd: continue
+        m = re.search(r"--worker-id (\d+)(?:$|\s)", cmd)
+        if not m: continue
+        wid, pid = int(m.group(1)), int(pid_str)
+        if wid not in result or pid < result[wid]:
+            result[wid] = pid
+    return result
+
+
 def worker_phase(worker_id: int) -> tuple[str, int | None]:
     """Return (phase_label, seconds_in_phase) for a parallel-dev worker.
 
@@ -111,10 +139,9 @@ def worker_phase(worker_id: int) -> tuple[str, int | None]:
       - idle   : sleeping in the main loop between iterations
     Returns ("(not running)", None) if the wrapper isn't alive at all.
     """
-    pids = pgrep(f"continuous_dev.sh.*--worker-id {worker_id}")
-    if not pids:
+    wrapper_pid = real_wrappers().get(worker_id)
+    if wrapper_pid is None:
         return ("(not running)", None)
-    wrapper_pid = pids[0]
     out = sh(f"pgrep -P {wrapper_pid} 2>/dev/null")
     children = [int(c) for c in out.splitlines() if c.strip().isdigit()] if out else []
     for cpid in children:
@@ -433,7 +460,8 @@ def render(now: datetime, game_dir: Path | None) -> str:
     # process lifetime — NOT how long each worker has been on its current
     # item. The per-worker phase elapsed in "Current items" is more useful
     # for spotting stuck dev sessions.
-    wrapper_pids = pgrep("continuous_dev.sh")
+    wrappers = real_wrappers()
+    wrapper_pids = list(wrappers.values())
     if wrapper_pids:
         n = len(wrapper_pids)
         ets = sorted([process_etime(p) or 0 for p in wrapper_pids], reverse=True)
