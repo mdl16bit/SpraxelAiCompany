@@ -170,7 +170,19 @@ Each MORNING.md feature block looks like this:
 Spend 1–2 min per feature verifying the "Verify" lines. Three outcomes per feature:
 
 ##### ✓ Accept — it works
-Do nothing. The feature stays on master and rotates out of the play-test list tomorrow.
+Nothing is required — the feature stays on master and rotates off the
+play-test list at tomorrow's 05:00 briefer run. But if you want it to clear
+**now** (so the dashboard + `/spraxel-inbox` stop nagging you about it as you
+work down the list), mark it tested:
+
+```bash
+bash ~/SpraxelAiCompany/scripts/playtested.sh cutscene-engine   # by slug or any title substring
+bash ~/SpraxelAiCompany/scripts/playtested.sh all               # mark the whole list done at once
+```
+
+This only touches your CEO-local tracker (`.factory/local/playtested.json`,
+gitignored, auto-resets each day) — it does **not** change the game or
+WORK.md. See "Clearing the play-test list" below.
 
 ##### ✏️ Amend — keep it, but with feedback
 The feature is fundamentally right but needs tweaks (timing, polish, edge cases).
@@ -220,6 +232,30 @@ and re-run.
 | Right idea, partially broken | `amend.sh <slug> "what to fix"` |
 | Wrong approach entirely | `reject.sh <slug> "why"` |
 | Bug from a NON-shipped state | regular `[bug]` item via dictation |
+| Verified good, want it off the list now | `playtested.sh <slug>` (or `all`) |
+
+##### Clearing the play-test list
+
+The dashboard and `/spraxel-inbox` show the *unverified* features as pending
+CEO action items. They're pulled from today's MORNING.md ▶ Play-test section.
+As you confirm each one works, mark it tested so it drops off:
+
+```bash
+bash ~/SpraxelAiCompany/scripts/playtested.sh <substr>   # mark feature(s) matching title/slug
+bash ~/SpraxelAiCompany/scripts/playtested.sh all        # mark every one tested
+bash ~/SpraxelAiCompany/scripts/playtested.sh --list     # see tested ✓ vs pending ·
+bash ~/SpraxelAiCompany/scripts/playtested.sh --reset    # undo today's marks, start over
+```
+
+- The tracker is `<game>/.factory/local/playtested.json` — **CEO-local,
+  gitignored, keyed by today's date.** It auto-resets each day: yesterday's
+  checkmarks never carry over, so each fresh overnight batch shows up clean.
+- Marking is purely cosmetic (clears your action list). It does **not** touch
+  the game, master, or WORK.md. `amend`/`reject` are the only verbs that
+  change anything. Marking a feature tested is the explicit "✓ Accept" action.
+- `amend` and `reject` do **not** auto-mark — if you amend a feature you're
+  still "acting" on it, so it stays on the list until you've re-verified the
+  refinement (or just `--reset` and re-run the list tomorrow).
 
 #### 3. ▶ Decide — Designer ideas (5 min)
 
@@ -1379,6 +1415,7 @@ field is missing. So a minimal Philosophy.md just needs `identity` +
 | **`checkin.sh`** | Explicit CEO signal — touches `.cache/ceo-checkin.ts`. `continuous_dev.sh` polls this and resets the counter on detection. | CEO manually when read-only interaction wasn't enough |
 | **`amend.sh <slug-or-sha> "feedback"`** | CEO keeps a shipped feature but queues a refinement pass. Appends `[amend] Refine: <title>` to WORK.md `## Todo` with sha + feedback. Master untouched — Developer iterates on existing code next overnight. | CEO during play-test |
 | **`reject.sh <slug-or-sha> "reason"`** | CEO undoes a shipped feature. `git revert` the `feat:` + paired `work: shipped` commits on master, appends `[reject] Re-implement: <title>` to WORK.md `## Todo` with sha + reason. Developer re-implements next overnight, knowing the old approach was wrong. | CEO during play-test |
+| **`playtested.sh <substr>\|all\|--list\|--reset`** | The "✓ Accept" action. Marks play-test feature(s) verified for TODAY so they drop off the dashboard + `/spraxel-inbox` action list. Writes only `.factory/local/playtested.json` (CEO-local, gitignored, auto-resets daily) — does not touch the game, master, or WORK.md. | CEO during play-test |
 | **`interrupt.sh`** | Pause-and-stash protocol: sets `.paused`, kills the whole continuous_dev/run_agent/claude tree, clears stale locks, `git stash` in the game repo, checks out master. Pairs with `resume.sh`. | CEO when interrupting mid-run |
 | **`resume.sh`** | Restores pre-interrupt state: pops stash, checks out original branch, removes `.paused`. Flags: `--drop` (discard stash), `--no-resume` (keep paused). | CEO after a manual change |
 | **`yaml_to_workmd.py`** | One-shot migration: WORK.yaml → WORK.md. Used during the offline migration; safe to keep around. | migration only |

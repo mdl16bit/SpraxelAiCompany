@@ -111,14 +111,16 @@ create it with `mkdir -p .factory/local`.
       Verify:   <line 1>
                 <line 2 if needed>
       Launch:   <one of the three options above — REQUIRED>
+      ✓ Done:    bash ~/SpraxelAiCompany/scripts/playtested.sh <slug>
       ✏️ Amend:  bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "<feedback>"
       ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
    ```
 
-   At the top of the play-test section, include a three-line reminder —
+   At the top of the play-test section, include a four-line reminder —
    **lead with Accept so the CEO knows the default is zero work**:
-   `✓ Accept (default): do NOTHING. The feature stays on master and drops`
-   `   off tomorrow's play-test list automatically. Most features = accept.`
+   `✓ Accept (default): it works → mark it done so it clears the dashboard:`
+   `   bash ~/SpraxelAiCompany/scripts/playtested.sh <slug>  (or 'all').`
+   `   Marks are CEO-local + auto-reset daily; untested items roll to tomorrow.`
    `✏️ Amend keeps the feature, queues a refinement pass with your feedback.`
    `❌ Reject reverts the feature on master, re-queues for re-implementation.`
 
@@ -253,8 +255,9 @@ Commits: <first-sha> .. <last-sha> (`git log master --since=yesterday`).
 ## ▶ Play-test today (20 min)
 Every feature below has a runnable Launch line — copy/paste it from the game repo.
 Run from `~/GameProjects/infiltrators` (or wherever your game repo is).
-✓ Accept (default): do NOTHING — the feature stays on master and drops off
-   tomorrow's list automatically. Most features just get accepted.
+✓ Accept (default): it works → mark it done so it clears the dashboard:
+   bash ~/SpraxelAiCompany/scripts/playtested.sh <slug>  (or 'all' for the lot).
+   Marks are CEO-local + auto-reset daily; anything you don't mark rolls to tomorrow.
 ✏️ Amend keeps the feature, queues a refinement pass with your feedback.
 ❌ Reject reverts the feature on master, re-queues for re-implementation.
 
@@ -264,6 +267,7 @@ Run from `~/GameProjects/infiltrators` (or wherever your game repo is).
    Verify:   <line 1>
              <line 2 if needed>
    Launch:   <godot --demo-feature=<slug>>  OR  <"open game → Mission Select → ...">  OR  <⚠️ NO TEST PATH — see commit>
+   ✓ Done:    bash ~/SpraxelAiCompany/scripts/playtested.sh <slug>
    ✏️ Amend:  bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "<feedback>"
    ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
 ... (10 total)

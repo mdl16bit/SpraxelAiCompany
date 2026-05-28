@@ -222,14 +222,39 @@ def next_n_fires(now: datetime, n: int = 10) -> list[tuple[datetime, str]]:
     return events[:n]
 
 
-def _morning_playtest(game_dir: Path | None, limit: int = 6) -> list[tuple[str, str]]:
-    """Play-test to-dos for the CEO — the overnight features worth verifying.
+PLAYTESTED_FILE = ".factory/local/playtested.json"   # CEO-local, gitignored, per-day
 
-    Primary source: TODAY's MORNING.md ▶ Play-test section (the briefer's
-    compiled list, with slugs + verify notes). If MORNING.md is missing or
-    stale (not dated today — e.g. the briefer didn't run), fall back to the
-    actual overnight clean `feat:` ships from git so the list is never wrong.
-    """
+
+def _playtest_key(text: str) -> str:
+    """Stable key for a play-test item — the leading [slug] if present, else a
+    slug of the first few words. Used to match what the CEO marked done."""
+    m = re.match(r"^\s*\[([A-Za-z0-9][A-Za-z0-9 _-]*)\]", text)
+    if m:
+        return m.group(1).strip().lower().replace(" ", "-")
+    base = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return "-".join(base.split("-")[:6])
+
+
+def _playtested_keys(game_dir: Path | None) -> set[str]:
+    """Keys the CEO marked play-tested TODAY (auto-resets each day)."""
+    if not game_dir:
+        return set()
+    p = game_dir / PLAYTESTED_FILE
+    if not p.exists():
+        return set()
+    try:
+        d = json.loads(p.read_text())
+    except Exception:
+        return set()
+    if d.get("date") != datetime.now(TZ).strftime("%Y-%m-%d"):
+        return set()   # stale day → treat as none done
+    return set(d.get("slugs", []))
+
+
+def playtest_texts(game_dir: Path | None, limit: int = 20) -> list[str]:
+    """The raw play-test feature lines (no done-filtering). Source: TODAY's
+    MORNING.md ▶ Play-test section; falls back to recent git `feat:` ships if
+    MORNING.md isn't today's. Shared by the dashboard + playtested.sh."""
     if not game_dir:
         return []
     items: list[str] = []
@@ -241,7 +266,7 @@ def _morning_playtest(game_dir: Path | None, limit: int = 6) -> list[tuple[str, 
             text = ""
         today = datetime.now(TZ).strftime("%Y-%m-%d")
         first_line = text.splitlines()[0] if text else ""
-        if today in first_line:   # only trust MORNING.md if it's today's
+        if today in first_line:
             sec = re.search(r"^##\s*▶?\s*Play-test.*?\n(.*?)(?=^##\s|\Z)",
                             text, re.S | re.M)
             if sec:
@@ -249,12 +274,25 @@ def _morning_playtest(game_dir: Path | None, limit: int = 6) -> list[tuple[str, 
                     t = re.sub(r"\s*—\s*`[0-9a-f]+`\s*$", "", m.group(1).strip())
                     items.append(t)
     if not items:
-        # Fallback: overnight clean feat ships straight from git.
         out = sh("git log master --grep='^feat:' --author='continuous-bot' "
                  "--since='yesterday 21:00' --pretty='%s'", cwd=game_dir)
         for ln in (out.splitlines() if out else []):
             items.append(re.sub(r"^feat(\([^)]*\))?:\s*", "", ln))
-    return [("playtest", t) for t in items[:limit]]
+    return items[:limit]
+
+
+def _morning_playtest(game_dir: Path | None, limit: int = 6) -> list[tuple[str, str]]:
+    """Play-test to-dos still pending — the overnight features worth verifying,
+    MINUS any the CEO marked done today (via scripts/playtested.sh)."""
+    tested = _playtested_keys(game_dir)
+    out: list[tuple[str, str]] = []
+    for t in playtest_texts(game_dir, limit=20):
+        if _playtest_key(t) in tested:
+            continue
+        out.append(("playtest", t))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def pending_ceo_actions(game_dir: Path | None, n: int = 10) -> list[tuple[str, str]]:
