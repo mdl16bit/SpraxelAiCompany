@@ -222,57 +222,96 @@ def next_n_fires(now: datetime, n: int = 10) -> list[tuple[datetime, str]]:
     return events[:n]
 
 
-def pending_ceo_actions(game_dir: Path | None, n: int = 5) -> list[tuple[str, str]]:
-    """Return up to n (priority_tag, item_title) pairs of things waiting on
-    the CEO, ordered by urgency:
-      1. [needs-ceo]  — dev asked questions
-      2. [escalated]  — design/PM concern or manually-flagged item (RARE;
-                        test/reviewer/merge failures go to [retry], not here)
-      3. [concern]    — designer flagged game-wide issue
-      4. [idea]       — designer suggestion needs triage
-      5. dictation    — raw notes in .factory/inbox/raw.md not yet drained
+def _morning_playtest(game_dir: Path | None, limit: int = 6) -> list[tuple[str, str]]:
+    """Play-test to-dos for the CEO — the overnight features worth verifying.
 
-    [retry] items are NOT CEO actions — they auto-retry on the next dev
-    run and resolve themselves without human intervention.
+    Primary source: TODAY's MORNING.md ▶ Play-test section (the briefer's
+    compiled list, with slugs + verify notes). If MORNING.md is missing or
+    stale (not dated today — e.g. the briefer didn't run), fall back to the
+    actual overnight clean `feat:` ships from git so the list is never wrong.
     """
-    if not game_dir: return []
-    work_md = game_dir / "WORK.md"
-    if not work_md.exists(): return []
+    if not game_dir:
+        return []
+    items: list[str] = []
+    mpath = game_dir / ".factory" / "local" / "MORNING.md"
+    if mpath.exists():
+        try:
+            text = mpath.read_text(errors="replace")
+        except Exception:
+            text = ""
+        today = datetime.now(TZ).strftime("%Y-%m-%d")
+        first_line = text.splitlines()[0] if text else ""
+        if today in first_line:   # only trust MORNING.md if it's today's
+            sec = re.search(r"^##\s*▶?\s*Play-test.*?\n(.*?)(?=^##\s|\Z)",
+                            text, re.S | re.M)
+            if sec:
+                for m in re.finditer(r"^\s*\d+\.\s+(.*)$", sec.group(1), re.M):
+                    t = re.sub(r"\s*—\s*`[0-9a-f]+`\s*$", "", m.group(1).strip())
+                    items.append(t)
+    if not items:
+        # Fallback: overnight clean feat ships straight from git.
+        out = sh("git log master --grep='^feat:' --author='continuous-bot' "
+                 "--since='yesterday 21:00' --pretty='%s'", cwd=game_dir)
+        for ln in (out.splitlines() if out else []):
+            items.append(re.sub(r"^feat(\([^)]*\))?:\s*", "", ln))
+    return [("playtest", t) for t in items[:limit]]
 
-    # Use workmd.py's parser via subprocess (avoids import-path gymnastics).
+
+def pending_ceo_actions(game_dir: Path | None, n: int = 10) -> list[tuple[str, str]]:
+    """Return up to n (label, text) CEO to-dos — the dashboard mirror of the
+    morning routine — ordered by urgency:
+      1. [needs-ceo] — dev asked questions (live WORK.md)
+      2. [escalated] — design/PM call manually flagged (live WORK.md; RARE)
+      3. play-test   — overnight features to verify (MORNING.md / git)
+      4. [bug]       — bugs to triage (live WORK.md)
+      5. [idea]      — designer suggestions to decide (live WORK.md)
+      6. MANUAL      — your highest hand-work items (top of the queue)
+      7. dictation   — raw notes not yet drained
+
+    Live WORK.md is the source for everything that lives there (so it's never
+    stale); MORNING.md only supplies the play-test list, its unique value.
+    [retry] items are NOT CEO actions — they auto-retry without you.
+    """
+    if not game_dir:
+        return []
+    work_md = game_dir / "WORK.md"
+    if not work_md.exists():
+        return []
     sys.path.insert(0, str(Path(__file__).parent))
     try:
         from workmd import parse
-    except Exception:
-        return []
-    try:
         wm = parse(work_md)
     except Exception:
         return []
 
-    out = []
-    # Pass 1: needs-ceo
+    out: list[tuple[str, str]] = []
+    # 1. needs-ceo (blocking)
     for it in wm.todo:
         if it.is_needs_ceo:
             out.append(("needs-ceo", it.title))
-        if len(out) >= n: return out
-    # Pass 2: escalated
+    # 2. escalated (blocking)
     for it in wm.todo:
         if it.is_escalated and not it.is_needs_ceo:
             out.append(("escalated", it.title))
-        if len(out) >= n: return out
-    # Pass 3: concern
+    # 3. play-test (overnight ships to verify)
+    out += _morning_playtest(game_dir, limit=5)
+    # 4. bugs to triage (workmd has no is_bug; match the [bug] tag)
+    bug_added = 0
     for it in wm.todo:
-        if it.is_concern and not it.is_needs_ceo and not it.is_escalated:
-            out.append(("concern", it.title))
-        if len(out) >= n: return out
-    # Pass 4: idea
+        if it.title.lstrip().lower().startswith("[bug]") and bug_added < 3:
+            out.append(("bug", it.title))
+            bug_added += 1
+    # 5. ideas to decide
     for it in wm.todo:
         if it.is_idea and not it.is_concern and not it.is_needs_ceo and not it.is_escalated:
             out.append(("idea", it.title))
-        if len(out) >= n: return out
-
-    # Pass 5: dictation backlog
+    # 6. highest MANUAL hand-work (first few in queue order = highest-placed)
+    manual_added = 0
+    for it in wm.todo:
+        if it.is_manual and manual_added < 5:
+            out.append(("manual", it.title))
+            manual_added += 1
+    # 7. dictation backlog
     raw = game_dir / ".factory" / "inbox" / "raw.md"
     if raw.exists() and raw.stat().st_size > 0:
         out.append(("dictation", f"raw.md has {raw.stat().st_size} bytes — run /spraxel-producer"))
@@ -566,11 +605,11 @@ def render(now: datetime, game_dir: Path | None) -> str:
     lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir)}{RESET} {DIM}(today, CEO-bound){RESET}")
     lines.append("")
 
-    # Next 10 scheduled fires
-    lines.append(f"  {BOLD}▸ Next 10 fires{RESET}")
+    # Next 10 scheduled runs
+    lines.append(f"  {BOLD}▸ Next 10 runs{RESET}")
     fires = next_n_fires(now, 10)
     if not fires:
-        lines.append(f"    {DIM}(no upcoming fires found){RESET}")
+        lines.append(f"    {DIM}(no upcoming runs found){RESET}")
     else:
         for ts, name in fires:
             if ts.date() == now.date():
@@ -588,20 +627,24 @@ def render(now: datetime, game_dir: Path | None) -> str:
     if not actions:
         lines.append(f"    {DIM}(none — queue is clear){RESET}")
     else:
-        # Color by urgency category.
+        # Color by category.
         color_map = {
             "needs-ceo": RED,
             "escalated": YELLOW,
             "concern":   MAGENTA,
+            "playtest":  GREEN,
+            "bug":       RED,
             "idea":      BLUE,
+            "manual":    CYAN,
             "dictation": CYAN,
         }
         for kind, title in actions:
             tag_color = color_map.get(kind, RESET)
             tag = f"{tag_color}[{kind}]{RESET}"
-            # Strip the tag from the title for display (it's already in the prefix)
-            clean = re.sub(r"^\[(needs-ceo|escalated|concern|idea)\]\s*", "", title)
-            clean = re.sub(r"^\[(bug|feature|game-feature|chore)\]\s*", "", clean)
+            # Strip any leading workflow tag + MANUAL prefix + pN from the
+            # display text (the category prefix already conveys it).
+            clean = re.sub(r"^\s*(\[[^\]]+\]|p[0-3]|MANUAL\s*-\s*)\s*", "", title, flags=re.I)
+            clean = re.sub(r"^\s*(\[[^\]]+\]|p[0-3])\s*", "", clean, flags=re.I)
             clean = clean[:54] + ("…" if len(clean) > 54 else "")
             lines.append(f"    {tag} {clean}")
     lines.append("")
@@ -628,6 +671,27 @@ def render(now: datetime, game_dir: Path | None) -> str:
     return "\n".join(lines)
 
 
+def _sleep_or_quit(interval: float) -> bool:
+    """Sleep up to `interval` seconds, but return True early if the user
+    presses 'q' (or Q). Requires the terminal in cbreak mode (set in main).
+    Falls back to a plain sleep when stdin isn't a tty (piped/redirected)."""
+    if not sys.stdin.isatty():
+        time.sleep(interval)
+        return False
+    import select
+    deadline = time.time() + interval
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            return False
+        r, _, _ = select.select([sys.stdin], [], [], remaining)
+        if r:
+            ch = sys.stdin.read(1)
+            if ch in ("q", "Q"):
+                return True
+            # any other key: ignore, keep waiting out the interval
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Spraxel always-on dashboard")
     p.add_argument("--interval", type=int, default=5,
@@ -635,15 +699,32 @@ def main() -> int:
     args = p.parse_args()
 
     game_dir = resolve_game_dir()
+
+    # Put the terminal in cbreak mode so a single 'q' keypress is readable
+    # without Enter (mirrors Ctrl+C as a quit). Restored on exit.
+    old_tty = None
+    if sys.stdin.isatty():
+        try:
+            import termios, tty
+            old_tty = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
+        except Exception:
+            old_tty = None
     try:
         while True:
             now = datetime.now(TZ)
             sys.stdout.write(CLEAR_SCREEN)
             sys.stdout.write(render(now, game_dir))
-            sys.stdout.write(f"\n{DIM}  refresh every {args.interval}s · Ctrl+C to exit{RESET}\n")
+            sys.stdout.write(f"\n{DIM}  refresh every {args.interval}s · press q or Ctrl+C to exit{RESET}\n")
             sys.stdout.flush()
-            time.sleep(args.interval)
+            if _sleep_or_quit(args.interval):
+                break
     except KeyboardInterrupt:
+        pass
+    finally:
+        if old_tty is not None:
+            import termios
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_tty)
         sys.stdout.write("\n")
     return 0
 
