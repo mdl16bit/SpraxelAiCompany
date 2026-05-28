@@ -89,7 +89,14 @@ if [ -n "${SPRAXEL_WORK_DIR:-}" ]; then
 else
   lock_dir="$LOCKS_DIR/$agent.lockdir"
 fi
-if ! mkdir "$lock_dir" 2>/dev/null; then
+# PID-aware acquire (lockutils.sh): self-heals orphan locks left by a
+# SIGKILL'd prior invocation. If the lockdir's holder.pid points to a
+# dead process, we sweep and reacquire within the next poll cycle.
+# Timeout 1s — if a LIVE process holds the lock, this exits rc=2
+# (caller treats as "agent already running" — caller is the wrapper's
+# ship_one_item, which will retry on the next iteration).
+. "$REPO_DIR/scripts/lockutils.sh"
+if ! acquire_lock "$lock_dir" 1 0.2; then
   echo "run_agent: $agent already running (lock: $lock_dir)" >&2
   exit 2
 fi
@@ -157,7 +164,7 @@ cleanup() {
     # Best-effort: also remove any stale parent dir if empty.
     rmdir "$REPO_DIR/.worktrees" 2>/dev/null || true
   fi
-  rmdir "$lock_dir" 2>/dev/null || true
+  release_lock "$lock_dir"
 }
 trap cleanup EXIT INT TERM
 

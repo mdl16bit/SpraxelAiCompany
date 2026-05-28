@@ -41,6 +41,10 @@ SLUGIFY="$REPO_DIR/scripts/slugify.py"
 PAUSED_FLAG="$REPO_DIR/.paused"
 LOCKS_DIR="$REPO_DIR/.locks"
 CACHE_DIR="$REPO_DIR/.cache"
+# PID-aware lockdir helpers: acquire_lock writes the holder PID into
+# the lockdir so tick.sh can sweep orphan locks (SIGKILL'd holders)
+# without ripping live locks out from under active git operations.
+. "$REPO_DIR/scripts/lockutils.sh"
 # Cap counter is SHARED across all parallel-dev workers — one batch of N
 # ships drains the counter for everyone. last_signal_* / last_ts likewise.
 STATE_FILE="$CACHE_DIR/continuous-state.json"
@@ -73,24 +77,28 @@ trace "step: starting"
 # Each worker has its own lockdir so 3 workers can coexist. tick.sh sweeps
 # stale lockdirs for workers whose pid is no longer running.
 LOCK="$LOCKS_DIR/continuous-w$WORKER_ID.lockdir"
-if ! mkdir "$LOCK" 2>/dev/null; then
-  trace "step: exit 0 (lockdir already held — another instance of worker $WORKER_ID running)"
-  exit 0   # another instance of THIS worker is running
+# Try to acquire. If the existing lockdir is held by a dead PID (prior
+# wrapper SIGKILLed), acquire_lock will sweep and reacquire within one
+# poll cycle. If held by a LIVE process, this returns 1 (timeout=1s) and
+# we exit cleanly — another instance is genuinely running.
+if ! acquire_lock "$LOCK" 1 0.2; then
+  trace "step: exit 0 (lockdir held by live worker $WORKER_ID instance)"
+  exit 0
 fi
 ## Cleanup on wrapper exit: kill ALL direct children (run_local_tests.sh,
 ## run_agent.sh, any sleep in the main loop), then release the lockdir.
 ## Without the child-kill, a wrapper that dies (SIGKILL, crash, normal exit)
 ## leaves its run_local_tests.sh + their godot grandchildren reparented to
-## launchd — orphan zombies eating resources + holding the test lockdir
-## (2026-05-27 incident — orphan run_local_tests.sh from a prior wrapper
-## generation held the test lock for 30 min, blocking all 3 workers).
+## launchd — orphan zombies eating resources. The test lockdir holds its
+## own holder.pid; the next test waiter sweeps it via lock_holder_alive,
+## so orphan godot trees aren't catastrophic anymore — but still wasteful.
 ##
 ## pkill -P $$ targets only direct children (the same process group as
 ## this script). Each child's own EXIT trap then propagates the kill
 ## deeper (run_local_tests.sh kills its godot via the run_bounded killer
 ## subshell + EXIT trap; run_agent.sh kills its claude session via
 ## SIGTERM handler).
-trap 'pkill -P $$ 2>/dev/null; sleep 0.2; rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
+trap 'pkill -P $$ 2>/dev/null; sleep 0.2; release_lock "$LOCK"' EXIT INT TERM
 trace "step: lock acquired for worker $WORKER_ID"
 
 # Resolve game_dir + target.
@@ -192,16 +200,11 @@ trace "step: worktree ready at $WORK_DIR"
 # release-wip, commit + push, release lock.
 (
   startup_release_lock="$LOCKS_DIR/master-push.lockdir"
-  startup_wait=0
-  while ! mkdir "$startup_release_lock" 2>/dev/null; do
-    sleep 0.3
-    startup_wait=$((startup_wait + 1))
-    if [ "$startup_wait" -gt 200 ]; then
-      echo "continuous: worker $WORKER_ID — couldn't acquire merge lock for startup release-wip" >> "$TRACE_FILE"
-      exit 0
-    fi
-  done
-  trap 'rmdir "'"$startup_release_lock"'" 2>/dev/null' EXIT
+  if ! acquire_lock "$startup_release_lock" 60 0.3; then
+    echo "continuous: worker $WORKER_ID — couldn't acquire merge lock for startup release-wip" >> "$TRACE_FILE"
+    exit 0
+  fi
+  trap 'release_lock "'"$startup_release_lock"'"' EXIT
   cd "$game_dir" || exit 0
   git fetch --quiet origin master 2>/dev/null
   git checkout --quiet master 2>/dev/null || exit 0
@@ -387,18 +390,13 @@ ship_one_item() {
   # one's claim got wiped by another's reset).
   local next_json next_title slug branch item_log
   local claim_lock="$LOCKS_DIR/master-push.lockdir"
-  local claim_wait=0
-  while ! mkdir "$claim_lock" 2>/dev/null; do
-    sleep 0.3
-    claim_wait=$((claim_wait + 1))
-    if [ $claim_wait -gt 200 ]; then
-      echo "continuous: worker $WORKER_ID — claim-lock held >60s, aborting" >&2
-      return 3
-    fi
-  done
+  if ! acquire_lock "$claim_lock" 60 0.3; then
+    echo "continuous: worker $WORKER_ID — claim-lock held >60s, aborting" >&2
+    return 3
+  fi
   # Subshell with EXIT trap releases the lock no matter what.
   next_json=$(
-    trap 'rmdir "'"$claim_lock"'" 2>/dev/null' EXIT
+    trap 'release_lock "'"$claim_lock"'"' EXIT
     cd "$game_dir" || exit 1
     git fetch --quiet origin master 2>/dev/null
     git checkout --quiet master 2>/dev/null || exit 1
@@ -513,14 +511,9 @@ if it:
           stripped_title=$(echo "$next_title" | sed -E 's/^\[(resume|retry)\] //')
           # Push the [retry] retag + conflict-note via the merge lock.
           local rclock="$LOCKS_DIR/master-push.lockdir"
-          local rcwait=0
-          while ! mkdir "$rclock" 2>/dev/null; do
-            sleep 0.3
-            rcwait=$((rcwait + 1))
-            if [ $rcwait -gt 200 ]; then break; fi
-          done
+          acquire_lock "$rclock" 60 0.3 || true   # best-effort; fall through even on timeout
           (
-            trap 'rmdir "'"$rclock"'" 2>/dev/null' EXIT
+            trap 'release_lock "'"$rclock"'"' EXIT
             cd "$game_dir" || exit 1
             git fetch --quiet origin master 2>/dev/null
             git checkout --quiet master 2>/dev/null || exit 1
@@ -689,14 +682,9 @@ sys.exit(1)
       # checkout master (the worker's WORK_DIR has its own master state;
       # game_dir's WORK.md should already be the dev's clarified version).
       local clarify_lock="$LOCKS_DIR/master-push.lockdir"
-      local clarify_wait=0
-      while ! mkdir "$clarify_lock" 2>/dev/null; do
-        sleep 0.3
-        clarify_wait=$((clarify_wait + 1))
-        if [ $clarify_wait -gt 200 ]; then break; fi
-      done
+      acquire_lock "$clarify_lock" 60 0.3 || true   # best-effort; fall through on timeout
       (
-        trap 'rmdir "'"$clarify_lock"'" 2>/dev/null' EXIT
+        trap 'release_lock "'"$clarify_lock"'"' EXIT
         cd "$game_dir" || exit 1
         git fetch --quiet origin master 2>/dev/null
         # Checkout master (no reset — preserves the dev's clarify write).
@@ -953,19 +941,14 @@ print(t)
     # worktree ever checks out master (workers use detached HEAD between
     # items — see clean_slate).
     local merge_lock="$LOCKS_DIR/master-push.lockdir"
-    local waited=0
-    while ! mkdir "$merge_lock" 2>/dev/null; do
-      sleep 0.3
-      waited=$((waited + 1))
-      if [ $waited -gt 200 ]; then
-        echo "continuous: merge lock held >60s — aborting" >> "$item_log"
-        outcome=fail
-        break 2
-      fi
-    done
+    if ! acquire_lock "$merge_lock" 60 0.3; then
+      echo "continuous: merge lock held >60s — aborting" >> "$item_log"
+      outcome=fail
+      break
+    fi
     # Subshell so cd doesn't leak; trap to release lock no matter what.
     (
-      trap 'rmdir "$merge_lock" 2>/dev/null' EXIT
+      trap 'release_lock "'"$merge_lock"'"' EXIT
       cd "$game_dir" || exit 1
       git fetch --quiet origin master 2>/dev/null
       git checkout --quiet master 2>/dev/null || exit 1
@@ -1126,14 +1109,9 @@ print(t[:55] + ('...' if len(t) > 55 else ''))
     # serialized merge lock. workmd.py runs INSIDE the lock so any
     # concurrent ship by another worker doesn't get wiped by our reset.
     local retry_lock="$LOCKS_DIR/master-push.lockdir"
-    local retry_wait=0
-    while ! mkdir "$retry_lock" 2>/dev/null; do
-      sleep 0.3
-      retry_wait=$((retry_wait + 1))
-      if [ $retry_wait -gt 200 ]; then break; fi
-    done
+    acquire_lock "$retry_lock" 60 0.3 || true   # best-effort; fall through on timeout
     (
-      trap 'rmdir "'"$retry_lock"'" 2>/dev/null' EXIT
+      trap 'release_lock "'"$retry_lock"'"' EXIT
       cd "$game_dir" || exit 1
       git fetch --quiet origin master 2>/dev/null
       git checkout --quiet master 2>/dev/null || exit 1

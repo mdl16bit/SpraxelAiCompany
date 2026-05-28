@@ -108,14 +108,31 @@ fi
 # Without this, a SIGKILLed agent leaves its lockdir behind and every
 # subsequent run_agent invocation exits rc=2 — silently wedging the
 # continuous loop in a backoff sleep that never recovers.
+#
+# Check via the lockdir's holder.pid file (written by acquire_lock in
+# lockutils.sh), not by pgrep'ing process names. The pgrep approach
+# was broken for:
+#   - `master-push.lockdir`  — not an agent lockdir, never matched any
+#                              `run_agent.sh master-push` process, so
+#                              tick swept it every minute, including
+#                              mid-merge (causing git races).
+#   - `developer-worker-N.lockdir` — the dev process cmdline is
+#                              `run_agent.sh developer`, NOT
+#                              `run_agent.sh developer-worker-N`, so
+#                              pgrep never matched even when the dev
+#                              was alive. Lockdir got swept 22 times
+#                              in a single day while devs were running.
+# PID-based check has neither failure mode.
+. "$REPO_DIR/scripts/lockutils.sh"
 for lock in "$LOCKS_DIR"/*.lockdir; do
   [ -d "$lock" ] || continue
   agent_name=$(basename "$lock" .lockdir)
-  # The continuous lockdirs are handled above; skip.
   case "$agent_name" in
     continuous|continuous-w*) continue ;;
   esac
-  if ! pgrep -f "run_agent.sh $agent_name" >/dev/null 2>&1; then
+  if ! lock_holder_alive "$lock"; then
+    # holder.pid missing OR names a dead PID — orphan.
+    rm -f "$lock/holder.pid" 2>/dev/null
     rmdir "$lock" 2>/dev/null && errors+=("cleared stale $agent_name.lockdir")
   fi
 done
