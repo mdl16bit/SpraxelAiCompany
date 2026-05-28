@@ -122,13 +122,22 @@ create it with `mkdir -p .factory/local`.
    `✏️ Amend keeps the feature, queues a refinement pass with your feedback.`
    `❌ Reject reverts the feature on master, re-queues for re-implementation.`
 
-5. **Decide section** — surface things needing CEO judgment:
-   - Designer ideas with `[idea]` tag in WORK.md `## Todo` (CEO promotes or rejects).
-   - PM reorder summary (one line, from PM's commit yesterday).
+5. **Decide section** — Designer ideas (`[idea]` tag) the CEO accepts or
+   rejects. ALWAYS spell out the actions, even when there are zero ideas
+   (then say there's nothing to do). "Decide" = for each idea, choose:
+   - ✅ ACCEPT (promote to the build queue):
+     `python3 ~/SpraxelAiCompany/scripts/workmd.py promote ~/GameProjects/<game>/WORK.md "<substr>"`
+   - ❌ REJECT (delete it): `python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<substr>"`
+   - ⏸ DEFER: do nothing — it stays tagged `[idea]` and reappears tomorrow.
+   If there are zero `[idea]` items, write exactly:
+   `✓ Nothing to decide — no designer ideas pending. Skip this section.`
+   Then add the PM reorder summary (one line, from PM's commit) as FYI.
 
 6. **Bugs section** — new `[bug]` items (Triager + Playtester batched them
-   into `## Todo` overnight). For EACH bug give enough that the CEO decides
-   WITHOUT opening WORK.md:
+   into `## Todo` overnight). Open the section by defining the verb in one
+   line: `"Triage" = for each bug, do ONE of: Accept / Reject / Prioritize
+   (below). The default is Accept = do nothing.` For EACH bug give enough
+   that the CEO decides WITHOUT opening WORK.md:
    - title + a one-line description (from the item's detail lines / the
      playtest finding) — what actually happens.
    - a **false-positive check**: the Playtester sometimes files INTENDED
@@ -145,6 +154,8 @@ create it with `mkdir -p .factory/local`.
      `python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<substr>"`
    - ⬆ **Prioritize** (fix sooner): bump it
      `python3 ~/SpraxelAiCompany/scripts/workmd.py bump ~/GameProjects/<game>/WORK.md "<substr>" p0`
+   If there are zero new `[bug]` items, write exactly:
+   `✓ No new bugs to triage. Skip this section.`
 
 7. **Questions for CEO section** — scan WORK.md `## Todo` for items tagged
    `[needs-ceo]`. The Developer added these because it didn't understand
@@ -171,12 +182,18 @@ create it with `mkdir -p .factory/local`.
 
    ```
    - <title> — why: <reason from item details>
-       Branch: <branch-name> @ <sha> (if present)
-       → DO IT (give guidance, retry from the saved branch): edit this
-         item's detail lines in WORK.md with your decision, then:
+       Branch: <branch-name> @ <sha>   ← ALWAYS include if the item has a
+                                          branch: detail. The CEO may want
+                                          to inspect/fix it by hand.
+       → DEFER (fine to do nothing): the next dev run keeps re-attempting it;
+         it reappears here until it lands or you intervene.
+       → DO IT VIA THE LOOP (give guidance, retry from the saved branch):
+         edit this item's detail lines in WORK.md with your decision, then:
             python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<title-substring>"
+       → DO IT YOURSELF (hands-on): check out the branch and work on it:
+            cd ~/GameProjects/<game> && git fetch origin <branch-name> && git checkout <branch-name>
+         (when done: commit + `git push origin <branch-name>:master`, or open it however you like)
        → DROP IT (decide not to do it): delete the item's line from WORK.md.
-       → DEFER (decide later): do nothing — it reappears here next morning.
    ```
 
    **Sanity guard:** an `[escalated]` item should NEVER have a reason like
@@ -191,21 +208,24 @@ create it with `mkdir -p .factory/local`.
    handled all transient failures (tests/reviewer/merge) on its own.`
    and move on.
 
-8a. **Retry queue (FYI, no action needed)** — count items in WORK.md
-    tagged `[retry]`. These are items the wrapper bounced back into the
-    queue because the prior dev attempt failed at tests / reviewer /
-    merge — the next dev run will pick them up automatically. The CEO
-    does NOT need to do anything with these; they're just a barometer
-    of how often dev runs are landing things first try.
+8a. **Retry queue (auto-handled — doing nothing IS the right move)** —
+    items in WORK.md tagged `[retry]`. The wrapper bounced these back after
+    a tests/reviewer/merge failure; the next dev run re-attempts them
+    automatically. **Be explicit that the CEO action is: do nothing.**
+    NEVER list these under Escalations — they don't need judgment.
 
-    Format (single line):
+    State it plainly, then list each with its branch (so the CEO CAN poke
+    at one if curious), but reiterate no action is required:
     ```
-    Retry queue: <N> item(s) (next dev run picks them up; no CEO action)
+    Retry queue (no action needed — these auto-retry tonight):
+      - <title> — <N> attempts; branch: <branch-name> @ <sha>
+        (optional: inspect with `git fetch origin <branch> && git checkout <branch>`)
+      ...
+    Doing nothing is correct — the loop keeps trying until they land.
     ```
 
-    If `N >= 5`, mention it as a concern: `Retry queue is stacking up —
-    consider whether items are too vague or the codebase has a fragile
-    test/reviewer pattern.`
+    If `N >= 5`, add: `⚠️ Retry queue is stacking up (<N>) — items may be
+    too vague or there's a fragile test/reviewer pattern worth a look.`
 
 9. **Time box** — fixed template, total ~38 min (see template below).
 
@@ -249,18 +269,22 @@ Run from `~/GameProjects/infiltrators` (or wherever your game repo is).
 ... (10 total)
 
 ## ▶ Decide (5 min)
-Designer dropped <N> ideas in WORK.md ## Todo (tagged [idea]) — remove
-the [idea] tag to promote, delete the line to reject:
+"Decide" = accept or reject each Designer idea. For each one below:
+  ✅ Accept: python3 ~/SpraxelAiCompany/scripts/workmd.py promote ~/GameProjects/<game>/WORK.md "<substr>"
+  ❌ Reject: python3 ~/SpraxelAiCompany/scripts/workmd.py drop    ~/GameProjects/<game>/WORK.md "<substr>"
+  ⏸ Defer:  do nothing — it stays an [idea] and shows up again tomorrow.
   - <idea 1>
   - <idea 2>
   ...
+<!-- If zero ideas, replace the whole list with this one line: -->
+✓ Nothing to decide — no designer ideas pending. Skip this section.
 
-PM reorder summary: <one line from PM's last commit>
+PM reorder summary (FYI, no action): <one line from PM's last commit>
 
 ## ▶ Bugs to triage (5 min)
-<N> new [bug] items overnight (Triager + Playtester). Each is ALREADY in the
-queue and the loop will fix it — these actions are optional:
-  ✓ Accept (default): do nothing — it stays queued and gets fixed.
+"Triage" = for each bug, do ONE of these (you do NOT route bugs through the
+Producer — they're already in the queue):
+  ✓ Accept (default): do NOTHING — it stays queued and the loop fixes it.
   ❌ Reject (false positive / dup / intended): python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<substr>"
   ⬆ Prioritize:       python3 ~/SpraxelAiCompany/scripts/workmd.py bump ~/GameProjects/<game>/WORK.md "<substr>" p0
 
@@ -268,6 +292,8 @@ queue and the loop will fix it — these actions are optional:
       <one-line description of what happens>
       <⚠️ likely intended — matches feature "<X>" (<sha>); consider Reject>  (only when applicable)
   - ...
+<!-- If zero new bugs, replace the list with this one line: -->
+✓ No new bugs to triage. Skip this section.
 
 ## ❓ Developer asked you these (3 min)
 <N> items the Developer didn't understand. Answer by editing the item in
@@ -280,22 +306,29 @@ WORK.md (replace the questions with concrete details), then remove the
   ...
 
 ## ▶ Escalations (1-3 min)
-**Only `[escalated]` items in WORK.md** — these need real CEO judgment
-(design/PM concerns, items the dev truly can't action). Most days this
-section is "none" because auto-retries handle dev-fixable failures
-silently. Test/reviewer/merge failures are NEVER escalated.
+**Only `[escalated]` items** — real CEO judgment calls. Test/reviewer/merge
+failures are NEVER here (those auto-retry — see Retry queue below).
 
   - <title> — why: <reason from item details>
-      Branch: <branch-name> @ <sha> (if present)
-      → DO IT:   edit this item's details in WORK.md with your guidance, then
-                 python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<substr>"
+      Branch: <branch-name> @ <sha>
+      → DEFER (fine to do nothing): the loop keeps re-attempting it.
+      → DO IT VIA THE LOOP: edit the item's details in WORK.md with your
+        guidance, then
+        python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<substr>"
+      → DO IT YOURSELF: cd ~/GameProjects/<game> && git fetch origin <branch-name> && git checkout <branch-name>
       → DROP IT: delete the item's line from WORK.md
-      → DEFER:   do nothing — it reappears here tomorrow
   ...
 
 (When empty:) ✓ No escalations — nothing needs your judgment.
 
-Retry queue: <N> item(s) (next dev run picks them up; no CEO action)
+## ▶ Retry queue (no action needed — doing nothing is correct)
+These failed a tests/reviewer/merge attempt and AUTO-retry on the next dev
+run. You don't need to touch them; the branch is listed only so you CAN
+poke at one if you want.
+  - <title> — <N> attempts; branch: <branch-name> @ <sha>
+      (optional, hands-on: git fetch origin <branch> && git checkout <branch>)
+  ...
+(When empty:) ✓ Retry queue empty.
 
 ## ▶ Time box
 - 20 min play-test
