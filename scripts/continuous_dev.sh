@@ -643,15 +643,18 @@ d = json.load(sys.stdin)
 # claim returns a single dict; defend against legacy list shape too.
 it = d[0] if isinstance(d, list) and d else d
 if not it: sys.exit()
-# Strip leading STATE tags ([wip:N], [retry], [resume], [escalated],
-# [needs-ceo]) — they're internal workflow state, never user-facing. The
-# dev otherwise echoes them into COMMIT_SUBJECT, leaking into shipped
-# subjects like 'feat: [retry] Planning...' (2026-05-27). The retry/resume
-# CONTEXT is conveyed separately via the RETRY MODE brief section, so the
-# title itself should be clean. Content tags the CEO authored ([bug],
-# [idea], [feature]) are also stripped from the subject for the same
-# reason — the conv-commit type already classifies the change.
-title = re.sub(r'^\s*(\[(wip:\d+|retry|resume|escalated|needs-ceo|bug|idea|feature|game-feature|chore)\]\s*)+', '', it['title'], flags=re.I)
+# Strip ALL leading tags — any [..] bracket tag plus pN priority markers,
+# in any order/repetition — so none of them reach the dev brief (and thus
+# the COMMIT_SUBJECT the dev echoes back). These are internal workflow
+# state, never user-facing; the retry/resume CONTEXT is conveyed via the
+# RETRY MODE brief section, and the conv-commit type classifies the change.
+# Generic (not a fixed tag list) so a future tag can't slip through.
+title = it['title']
+while True:
+    _t = re.sub(r'^\s*(\[[^\]]+\]|p[0-3])\s*', '', title, flags=re.I)
+    if _t == title:
+        break
+    title = _t
 print('## Today\\'s item')
 print()
 print(title)
@@ -1001,11 +1004,24 @@ PY
     commit_subject=$(grep -E '^COMMIT_SUBJECT:[[:space:]]*' "$item_log" 2>/dev/null \
                      | tail -1 \
                      | sed -E 's/^COMMIT_SUBJECT:[[:space:]]*//')
-    # Defensive: strip any STATE/content tag the dev echoed through from
-    # the brief, anywhere in the subject. Catches `[wip:3] Foo`,
-    # `feat: [retry] Foo`, `[bug] Foo`, etc. These are internal workflow
-    # tags; they must never reach origin/master in a shipped subject.
-    commit_subject=$(echo "$commit_subject" | sed -E 's/[[:space:]]*\[(wip:[0-9]+|retry|resume|escalated|needs-ceo|bug|idea|feature|game-feature|chore)\][[:space:]]*/ /gI; s/^[[:space:]]+//; s/[[:space:]]+$//')
+    # Defensive: strip ANY tag the dev echoed through from the brief —
+    # generic, not a fixed list. Preserves an optional leading conv-commit
+    # prefix (feat:/fix(scope):/etc.) and removes all [..] bracket tags +
+    # pN priority markers from the title portion. Catches `[retry] Foo`,
+    # `feat: [bug] Foo`, `feat: [wip:3] [retry] p1 Foo`, etc. No workflow
+    # tag must ever reach a shipped subject.
+    commit_subject=$(printf '%s' "$commit_subject" | python3 -c "
+import sys, re
+s = sys.stdin.read().strip()
+m = re.match(r'^((?:feat|fix|refactor|perf|docs|chore|test|style|build|ci)(?:\([^)]*\))?:\s*)?(.*)\$', s, re.S)
+prefix, rest = (m.group(1) or ''), m.group(2)
+while True:
+    nr = re.sub(r'^\s*(\[[^\]]+\]|p[0-3])\s*', '', rest, flags=re.I)
+    if nr == rest:
+        break
+    rest = nr
+print((prefix + rest).strip())
+")
     if [ -z "$commit_subject" ]; then
       commit_subject=$(python3 -c "
 import sys
