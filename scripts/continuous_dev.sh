@@ -1008,24 +1008,6 @@ PY
     commit_subject=$(grep -E '^COMMIT_SUBJECT:[[:space:]]*' "$item_log" 2>/dev/null \
                      | tail -1 \
                      | sed -E 's/^COMMIT_SUBJECT:[[:space:]]*//')
-    # Defensive: strip ANY tag the dev echoed through from the brief —
-    # generic, not a fixed list. Preserves an optional leading conv-commit
-    # prefix (feat:/fix(scope):/etc.) and removes all [..] bracket tags +
-    # pN priority markers from the title portion. Catches `[retry] Foo`,
-    # `feat: [bug] Foo`, `feat: [wip:3] [retry] p1 Foo`, etc. No workflow
-    # tag must ever reach a shipped subject.
-    commit_subject=$(printf '%s' "$commit_subject" | python3 -c "
-import sys, re
-s = sys.stdin.read().strip()
-m = re.match(r'^((?:feat|fix|refactor|perf|docs|chore|test|style|build|ci)(?:\([^)]*\))?:\s*)?(.*)\$', s, re.S)
-prefix, rest = (m.group(1) or ''), m.group(2)
-while True:
-    nr = re.sub(r'^\s*(\[[^\]]+\]|p[0-3])\s*', '', rest, flags=re.I)
-    if nr == rest:
-        break
-    rest = nr
-print((prefix + rest).strip())
-")
     if [ -z "$commit_subject" ]; then
       commit_subject=$(python3 -c "
 import sys
@@ -1046,6 +1028,27 @@ print('feat: ' + t[:100])
       feat\(*|fix\(*|refactor\(*|perf\(*|docs\(*|chore\(*|test\(*) ;;
       *) commit_subject="feat: $commit_subject" ;;
     esac
+
+    # FINAL tag scrub — runs on the fully-assembled subject, so it covers
+    # EVERY path that can set it: the dev's COMMIT_SUBJECT, the $next_title
+    # fallback (when the dev omits COMMIT_SUBJECT — that fallback uses the
+    # raw title which is stripped of [wip:N] only, so [retry]/[bug]/etc.
+    # survived → the 2026-05-28 leak), and the feat: prepend above. Generic:
+    # preserves the conv-commit prefix, removes any [..] tag + pN marker
+    # from the title portion. This is the single chokepoint — no tag reaches
+    # a shipped subject regardless of how the subject was built.
+    commit_subject=$(printf '%s' "$commit_subject" | python3 -c "
+import sys, re
+s = sys.stdin.read().strip()
+m = re.match(r'^((?:feat|fix|refactor|perf|docs|chore|test|style|build|ci)(?:\([^)]*\))?:\s*)?(.*)\$', s, re.S)
+prefix, rest = (m.group(1) or ''), m.group(2)
+while True:
+    nr = re.sub(r'^\s*(\[[^\]]+\]|p[0-3])\s*', '', rest, flags=re.I)
+    if nr == rest:
+        break
+    rest = nr
+print((prefix + rest).strip())
+")
 
     # Extract COMMIT_BODY block between markers (if any).
     commit_body=$(python3 - "$item_log" <<'PY'
