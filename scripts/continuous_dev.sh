@@ -554,14 +554,19 @@ if it:
 
     local item_brief
     item_brief=$(echo "$next_json" | python3 -c "
-import sys, json
+import sys, json, re
 d = json.load(sys.stdin)
 # claim returns a single dict; defend against legacy list shape too.
 it = d[0] if isinstance(d, list) and d else d
 if not it: sys.exit()
+# Strip [wip:N] — it is an internal locking detail, never user-facing.
+# Without this, the dev sees [wip:N] in the brief title and tends to
+# echo it back in COMMIT_SUBJECT, which leaks into shipped subjects
+# like 'feat: [wip:3] Permadeth?...' (2026-05-27 incident).
+title = re.sub(r'^\[wip:\d+\]\s*', '', it['title'])
 print('## Today\\'s item')
 print()
-print(it['title'])
+print(title)
 for det in it.get('details', []):
     print(f'  {det}')
 ")
@@ -873,6 +878,12 @@ PY
     commit_subject=$(grep -E '^COMMIT_SUBJECT:[[:space:]]*' "$item_log" 2>/dev/null \
                      | tail -1 \
                      | sed -E 's/^COMMIT_SUBJECT:[[:space:]]*//')
+    # Defensive: strip [wip:N] from anywhere in the subject if the dev
+    # echoed it through from the brief. Catches both `[wip:3] Foo` (bare)
+    # and `feat: [wip:3] Foo` (where dev already added a conv-commit
+    # prefix). [wip:N] is an internal locking tag; it must never reach
+    # origin/master in any shipped subject.
+    commit_subject=$(echo "$commit_subject" | sed -E 's/[[:space:]]*\[wip:[0-9]+\][[:space:]]*/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//')
     if [ -z "$commit_subject" ]; then
       commit_subject=$(python3 -c "
 import sys

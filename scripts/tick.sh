@@ -121,11 +121,21 @@ for lock in "$LOCKS_DIR"/*.lockdir; do
 done
 
 # Spawn missing workers (1..dev_concurrency).
+#
+# Belt-and-suspenders: a wrapper takes its `continuous-wN.lockdir` only
+# AFTER the script setup + trace-file write (lines 57-76 of
+# continuous_dev.sh). If two ticks fire inside that ~milliseconds-wide
+# window, both see the lockdir absent and both spawn. The mkdir at
+# wrapper line 76 is atomic so only one wins the lock, but the loser
+# only exits at line 78 — meanwhile both wrappers were briefly alive.
+# pgrep'ing for an existing wrapper closes this race: if any process
+# is already running with --worker-id N, skip even if the lockdir
+# hasn't been claimed yet.
 if [ -x "$CONTINUOUS" ]; then
   mkdir -p "$REPO_DIR/logs/continuous"
   for id in $(seq 1 "$dev_concurrency"); do
     lock="$LOCKS_DIR/continuous-w$id.lockdir"
-    if [ ! -d "$lock" ]; then
+    if [ ! -d "$lock" ] && ! pgrep -f "continuous_dev.sh.*--worker-id $id\b" >/dev/null 2>&1; then
       logf="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)-w$id.log"
       nohup bash "$CONTINUOUS" --worker-id "$id" >>"$logf" 2>&1 &
       dispatched+=("continuous_dev w$id spawned")
