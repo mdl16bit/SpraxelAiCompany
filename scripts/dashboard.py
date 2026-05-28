@@ -102,27 +102,37 @@ def real_wrappers() -> dict[int, int]:
     """Return {worker_id: wrapper_pid} for live, real wrapper processes.
 
     Disambiguates the real wrapper from its dev-watchdog subshell
-    (`( sleep $timeout; pkill ... ) &` inside ship_one_item). The
-    subshell inherits the parent's $0 and so appears in `ps` with the
-    identical command line as the wrapper — a naive
-    `pgrep continuous_dev.sh` returns BOTH and doubles the wrapper
-    count. The watchdog is always spawned AFTER the wrapper's main
-    loop reaches ship_one_item, so the wrapper has the lower PID for
-    that worker-id; keep min PID per worker-id.
+    (`( sleep …; kill_tree ) &` inside ship_one_item). The subshell
+    inherits the parent's $0 so it appears in `ps` with the IDENTICAL
+    command line as the wrapper.
+
+    The real wrapper is the one launchd spawned: ppid == 1. The watchdog
+    subshell's ppid is the wrapper. We pick by ppid, NOT by min-PID — the
+    old min-PID heuristic broke under PID wraparound: a watchdog spawned
+    late (after the PID counter wrapped past ~99999) gets a LOWER pid than
+    its long-lived wrapper, so min-PID picked the watchdog → its only
+    child is `sleep` → the dashboard reported the worker as "idle" while it
+    was actually mid-dev (2026-05-27 incident).
     """
-    out = sh("ps -eo pid,command 2>/dev/null")
-    result: dict[int, int] = {}
+    out = sh("ps -eo pid,ppid,command 2>/dev/null")
+    cands: dict[int, list[tuple[int, int]]] = {}   # wid -> [(pid, ppid)]
     for line in out.splitlines():
-        parts = line.strip().split(None, 1)
-        if len(parts) < 2: continue
-        pid_str, cmd = parts
-        if not pid_str.isdigit(): continue
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3: continue
+        pid_str, ppid_str, cmd = parts
+        if not pid_str.isdigit() or not ppid_str.isdigit(): continue
         if "continuous_dev.sh" not in cmd: continue
         m = re.search(r"--worker-id (\d+)(?:$|\s)", cmd)
         if not m: continue
-        wid, pid = int(m.group(1)), int(pid_str)
-        if wid not in result or pid < result[wid]:
-            result[wid] = pid
+        cands.setdefault(int(m.group(1)), []).append((int(pid_str), int(ppid_str)))
+    result: dict[int, int] = {}
+    for wid, lst in cands.items():
+        sibling_pids = {p for p, _ in lst}
+        # Prefer launchd-spawned (ppid==1); else the one whose parent is NOT
+        # a sibling subshell (i.e., the true root); last resort: min pid.
+        roots = [p for p, pp in lst if pp == 1] \
+             or [p for p, pp in lst if pp not in sibling_pids]
+        result[wid] = min(roots) if roots else min(sibling_pids)
     return result
 
 

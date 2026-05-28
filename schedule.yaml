@@ -92,13 +92,16 @@ continuous:
   # mid-work), zero ships in 5 hours. A clock can't tell a busy dev from
   # a hung one; a progress check can.
   #
-  # dev_stall_minutes: kill after this long with zero progress (genuine
-  #   hang — dead API socket, internal deadlock). 12 is generous enough
-  #   to cover a long planning/read phase where claude reasons before
-  #   writing, yet catches a truly wedged session.
-  # max_dev_minutes: absolute backstop even for a dev that keeps
-  #   "progressing" (e.g. an edit-loop that never converges). 90 min.
-  dev_stall_minutes:      12
+  # dev_stall_minutes: kill after this long with NO worktree file writes
+  #   (the honest progress signal — see continuous_dev.sh; claude CPU is
+  #   NOT used, it's network-bound and a hung session fakes a CPU tick).
+  #   15 covers a read-heavy planning phase where claude reasons a while
+  #   before writing, yet catches a truly wedged session (2026-05-27: a
+  #   claude ran 72 min with 0 file edits while the old CPU check kept
+  #   resetting the timer).
+  # max_dev_minutes: absolute backstop even for a dev that keeps writing
+  #   files forever (e.g. an edit-loop that never converges). 90 min.
+  dev_stall_minutes:      15
   max_dev_minutes:        90
 
   # Per-commit scenario sampling. The acceptance suite is ~61 scenarios,

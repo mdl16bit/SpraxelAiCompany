@@ -126,7 +126,7 @@ defaults = {
     "idle_threshold":          5,
     "idle_sleep_seconds":      300,
     "max_dev_minutes":         90,   # absolute backstop for the progress watchdog
-    "dev_stall_minutes":       12,   # kill only after this long with NO progress
+    "dev_stall_minutes":       15,   # kill only after this long with NO file writes
     "scenario_sample_size":     4,   # per-commit: run N random scenarios, not all 61
 }
 try:
@@ -726,23 +726,27 @@ folds everything into one squash-merge to master at the end."
         sleep 60
         kill -0 "$dev_pid" 2>/dev/null || break
         now=$(date +%s)
-        # Progress fingerprint:
-        #  - newest file mtime in the worktree (excl .git/.godot) — captures
-        #    source edits AND test-log output the dev produces while working
-        #  - claude's cumulative CPU time — advances whenever claude is
-        #    actively processing, even between file writes (covers the
-        #    read-heavy / planning phase where it reasons before editing)
+        # Progress signal: newest file mtime in the worktree (excl .git +
+        # .godot). This captures the dev's REAL output — source edits
+        # (Edit/Write) AND test-log files (.factory/local-test-logs) a test
+        # run writes. A working dev touches a file within the stall window;
+        # a hung/degraded claude touches nothing.
+        #
+        # We deliberately do NOT use claude's CPU time as a progress signal:
+        # claude -p is network-bound (the reasoning is server-side), so a
+        # genuinely-hung session still ticks a hair of local CPU on keepalive
+        # — enough to fool a "CPU advanced" check. 2026-05-27 incident: w1's
+        # claude ran 72 min with 0 file edits in 15 min while the CPU-based
+        # check kept resetting the stall timer; it would have wasted the
+        # whole 90-min cap. File mtime is the honest signal.
         newest=$(find "$WORK_DIR" -type f \
                    -not -path '*/.git/*' -not -path '*/.godot/*' \
                    -exec stat -f '%m' {} + 2>/dev/null | sort -rn | head -1)
-        claude_pid=$(pgrep -P "$dev_pid" 2>/dev/null | head -1)
-        cput=$(ps -o time= -p "$claude_pid" 2>/dev/null | tr -d ' ')
-        fp="${newest}|${cput}"
-        if [ "$fp" != "$last_fp" ]; then
-          last_fp="$fp"; last_progress=$now
+        if [ "${newest:-0}" != "${last_fp:-0}" ]; then
+          last_fp="${newest:-0}"; last_progress=$now
         fi
         if [ $((now - last_progress)) -ge "$stall_secs" ]; then
-          echo "continuous: dev STALLED — no file/CPU progress for ${DEV_STALL_MINUTES}m — killing tree (PID $dev_pid)" >> "$item_log"
+          echo "continuous: dev STALLED — no file writes for ${DEV_STALL_MINUTES}m — killing tree (PID $dev_pid)" >> "$item_log"
           kill_tree "$dev_pid" KILL
           break
         fi
