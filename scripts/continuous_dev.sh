@@ -98,7 +98,7 @@ fi
 ## deeper (run_local_tests.sh kills its godot via the run_bounded killer
 ## subshell + EXIT trap; run_agent.sh kills its claude session via
 ## SIGTERM handler).
-trap 'pkill -P $$ 2>/dev/null; sleep 0.2; release_lock "$LOCK"' EXIT INT TERM
+trap 'for _c in $(pgrep -P $$ 2>/dev/null); do kill_tree "$_c" KILL; done; sleep 0.2; release_lock "$LOCK"' EXIT INT TERM
 trace "step: lock acquired for worker $WORKER_ID"
 
 # Resolve game_dir + target.
@@ -613,11 +613,14 @@ folds everything into one squash-merge to master at the end."
     (
       sleep "$dev_timeout_secs"
       if kill -0 "$dev_pid" 2>/dev/null; then
-        echo "continuous: dev session exceeded ${MAX_DEV_MINUTES}m — killing PID $dev_pid" >> "$item_log"
-        # Kill the dev process tree (run_agent.sh + claude child). pkill
-        # -P targets direct children; loop twice for grandchildren too.
-        pkill -KILL -P "$dev_pid" 2>/dev/null
-        kill -KILL "$dev_pid" 2>/dev/null
+        echo "continuous: dev session exceeded ${MAX_DEV_MINUTES}m — killing PID $dev_pid + entire tree" >> "$item_log"
+        # Kill the WHOLE dev tree, not just direct children. The tree is
+        # run_agent.sh → claude → zsh -c → run_local_tests.sh → godot.
+        # Killing only the direct child (claude) orphaned the test script
+        # + godot, which kept holding the shared test lock and piled up
+        # (2026-05-27 incident: 6+ orphan run_local_tests.sh, one stuck
+        # ALIVE holding the lock 18 min). kill_tree reaches every level.
+        kill_tree "$dev_pid" KILL
       fi
     ) &
     dev_watchdog_pid=$!

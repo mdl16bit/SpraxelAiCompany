@@ -111,3 +111,23 @@ lock_holder_alive() {
   fi
   return 1
 }
+
+# Recursively kill a process and ALL its descendants, leaves first.
+#
+# The dev-watchdog and wrapper-cleanup paths used `pkill -KILL -P $pid`,
+# which only reaches DIRECT children. The dev process tree is deep:
+#   run_agent.sh → claude → zsh -c (tool shell) → run_local_tests.sh → godot
+# Killing only run_agent's direct child (claude) orphaned the zsh / test
+# script / godot — they kept running, held the test lock, and piled up
+# (observed: 6+ orphan run_local_tests.sh after a few hours, one stuck
+# holding the lock for 18 min while ALIVE — invisible to the dead-PID
+# self-heal). kill_tree walks the whole tree so nothing survives.
+kill_tree() {
+  local pid="$1"
+  local sig="${2:-KILL}"
+  local child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do
+    kill_tree "$child" "$sig"
+  done
+  kill -"$sig" "$pid" 2>/dev/null
+}
