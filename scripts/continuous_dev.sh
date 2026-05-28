@@ -392,10 +392,20 @@ clean_slate() {
   # `git checkout master`, because the main checkout (or another worker)
   # may hold master. Detached HEAD avoids the worktree-branch-conflict.
   git fetch --quiet origin master 2>/dev/null
-  if ! git checkout --detach origin/master --quiet 2>/dev/null; then
-    return 1
+  # --force: don't let local worktree junk block the switch. Some files
+  # (e.g. addons/gut/*.ttf) show as perpetually-modified via a filter/eol
+  # quirk, which made a plain `checkout --detach` refuse ("would overwrite
+  # local changes") and clean_slate fail → 3x → 30-min backoff (2026-05-28
+  # incident, w2 after a mid-op kill). --force discards them.
+  if ! git checkout --detach --force origin/master --quiet 2>/dev/null; then
+    # Last-ditch: hard-reset to the fetched ref, then retry the detach.
+    git reset --hard FETCH_HEAD --quiet 2>/dev/null
+    git checkout --detach --force origin/master --quiet 2>/dev/null || return 1
   fi
   git reset --hard origin/master --quiet 2>/dev/null
+  # Remove leftover untracked files from a wrecked iteration (respects
+  # .gitignore — won't touch .godot/.factory/local caches).
+  git clean -fdq 2>/dev/null
   # Delete any stale local feat/cont-* branches in this worktree (left over
   # from successful ships — the squash-commit lives on origin/master now).
   for b in $(git branch --list 'feat/cont-*' --format='%(refname:short)' 2>/dev/null); do
