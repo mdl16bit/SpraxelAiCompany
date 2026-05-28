@@ -125,7 +125,8 @@ defaults = {
     "poll_interval_seconds":   60,
     "idle_threshold":          5,
     "idle_sleep_seconds":      300,
-    "max_dev_minutes":         30,
+    "max_dev_minutes":         90,   # absolute backstop for the progress watchdog
+    "dev_stall_minutes":       12,   # kill only after this long with NO progress
 }
 try:
     text = open(sys.argv[1]).read()
@@ -601,33 +602,65 @@ folds everything into one squash-merge to master at the end."
     fi
     echo "$item_brief" > "$item_log.brief"
 
-    # Fire developer with a HARD time limit (max_dev_minutes). A stuck
-    # claude session (idle API, internal loop, etc.) would otherwise block
-    # this worker forever — 2026-05-27 incident: w2's claude sat idle 29
-    # min before I killed it manually. The watchdog subshell SIGKILLs the
-    # dev's process group after $MAX_DEV_MINUTES; the wrapper sees the
-    # non-zero exit and treats it as a normal dev failure (→ retry).
+    # Fire developer under a PROGRESS-AWARE watchdog (not a blind timeout).
+    #
+    # The old design SIGKILLed the dev after a fixed MAX_DEV_MINUTES. With
+    # dev_concurrency=3 that guillotined productive devs mid-work: a dev
+    # steadily editing files + running tests at the 30-min mark got killed
+    # right at the finish line (2026-05-27: 11 kills/afternoon, all 0-byte
+    # logs = killed mid-work, zero ships). A blind clock can't tell a busy
+    # dev from a hung one.
+    #
+    # Instead we POLL the dev once a minute and only kill it if it shows
+    # NO progress for DEV_STALL_MINUTES. "Progress" = either the worktree
+    # got new file writes (edits / test output) OR claude burned CPU since
+    # the last check. A dev that keeps working is never killed, however
+    # long it takes. MAX_DEV_MINUTES remains as a generous absolute
+    # backstop against a dev that "progresses" forever (e.g. edit-loop).
     SPRAXEL_ITEM_BRIEF="$item_log.brief" bash "$RUN_AGENT" developer >> "$item_log" 2>&1 &
     dev_pid=$!
-    dev_timeout_secs=$((MAX_DEV_MINUTES * 60))
     (
-      sleep "$dev_timeout_secs"
-      if kill -0 "$dev_pid" 2>/dev/null; then
-        echo "continuous: dev session exceeded ${MAX_DEV_MINUTES}m — killing PID $dev_pid + entire tree" >> "$item_log"
-        # Kill the WHOLE dev tree, not just direct children. The tree is
-        # run_agent.sh → claude → zsh -c → run_local_tests.sh → godot.
-        # Killing only the direct child (claude) orphaned the test script
-        # + godot, which kept holding the shared test lock and piled up
-        # (2026-05-27 incident: 6+ orphan run_local_tests.sh, one stuck
-        # ALIVE holding the lock 18 min). kill_tree reaches every level.
-        kill_tree "$dev_pid" KILL
-      fi
+      stall_secs=$((DEV_STALL_MINUTES * 60))
+      abs_secs=$((MAX_DEV_MINUTES * 60))
+      started=$(date +%s)
+      last_progress=$started
+      last_fp=""
+      while kill -0 "$dev_pid" 2>/dev/null; do
+        sleep 60
+        kill -0 "$dev_pid" 2>/dev/null || break
+        now=$(date +%s)
+        # Progress fingerprint:
+        #  - newest file mtime in the worktree (excl .git/.godot) — captures
+        #    source edits AND test-log output the dev produces while working
+        #  - claude's cumulative CPU time — advances whenever claude is
+        #    actively processing, even between file writes (covers the
+        #    read-heavy / planning phase where it reasons before editing)
+        newest=$(find "$WORK_DIR" -type f \
+                   -not -path '*/.git/*' -not -path '*/.godot/*' \
+                   -exec stat -f '%m' {} + 2>/dev/null | sort -rn | head -1)
+        claude_pid=$(pgrep -P "$dev_pid" 2>/dev/null | head -1)
+        cput=$(ps -o time= -p "$claude_pid" 2>/dev/null | tr -d ' ')
+        fp="${newest}|${cput}"
+        if [ "$fp" != "$last_fp" ]; then
+          last_fp="$fp"; last_progress=$now
+        fi
+        if [ $((now - last_progress)) -ge "$stall_secs" ]; then
+          echo "continuous: dev STALLED — no file/CPU progress for ${DEV_STALL_MINUTES}m — killing tree (PID $dev_pid)" >> "$item_log"
+          kill_tree "$dev_pid" KILL
+          break
+        fi
+        if [ $((now - started)) -ge "$abs_secs" ]; then
+          echo "continuous: dev hit absolute cap ${MAX_DEV_MINUTES}m (still making progress, but capping) — killing tree (PID $dev_pid)" >> "$item_log"
+          kill_tree "$dev_pid" KILL
+          break
+        fi
+      done
     ) &
     dev_watchdog_pid=$!
     wait "$dev_pid" 2>/dev/null
     dev_rc=$?
-    # Cancel watchdog if dev finished within the budget.
-    kill -TERM "$dev_watchdog_pid" 2>/dev/null
+    # Cancel watchdog (and its sleep) once dev is done.
+    kill_tree "$dev_watchdog_pid" KILL 2>/dev/null
     wait "$dev_watchdog_pid" 2>/dev/null
     if [ "$dev_rc" -eq 2 ]; then
       # rc=2 = developer.lockdir held (orphan or concurrent fire). NOT a real

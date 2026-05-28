@@ -59,23 +59,29 @@ continuous:
   idle_threshold:         5
   idle_sleep_seconds:     300
 
-  # Hard upper bound on a single developer agent invocation. If claude
-  # hangs (idle API response, internal loop, etc.) the wrapper kills its
-  # whole process tree (kill_tree) after this many minutes and counts the
-  # attempt as a failure.
+  # Developer watchdog — PROGRESS-AWARE, not a blind timeout.
   #
-  # Bumped 30 → 45 (2026-05-27): with dev_concurrency=3, three Sonnet
-  # sessions run in parallel AND their test runs (godot --headless) now
-  # run concurrently (per-worker test locks). Shared CPU during tests +
-  # API latency under concurrency pushed legitimate dev sessions just
-  # past the old 30-min bound — they were getting guillotined right at
-  # the finish line (observed: 11 watchdog kills in one afternoon, all
-  # 0-byte logs = killed mid-work, zero ships in 5 hours). The bigger
-  # [retry] items ("Planning — co-skills", "PRODUCTION VALUE PASS") are
-  # legitimately 30-40 min of work. 45 gives headroom; a genuinely hung
-  # session still dies (just 15 min later). If devs routinely need >45,
-  # the items are too big — break them down rather than bumping further.
-  max_dev_minutes:        45
+  # The wrapper polls each dev once a minute. It only kills the dev (whole
+  # process tree, via kill_tree) if the dev shows NO progress for
+  # dev_stall_minutes. "Progress" = new file writes in the worktree
+  # (edits / test output) OR claude burning CPU since the last check. A
+  # dev that keeps working is never killed, no matter how long it takes.
+  #
+  # WHY (2026-05-27): the old blind 30-min timeout guillotined productive
+  # devs mid-work — with dev_concurrency=3, sessions legitimately run
+  # 30-40 min (shared CPU during now-parallel tests + API latency + big
+  # [retry] items). 11 kills in one afternoon, all 0-byte logs (killed
+  # mid-work), zero ships in 5 hours. A clock can't tell a busy dev from
+  # a hung one; a progress check can.
+  #
+  # dev_stall_minutes: kill after this long with zero progress (genuine
+  #   hang — dead API socket, internal deadlock). 12 is generous enough
+  #   to cover a long planning/read phase where claude reasons before
+  #   writing, yet catches a truly wedged session.
+  # max_dev_minutes: absolute backstop even for a dev that keeps
+  #   "progressing" (e.g. an edit-loop that never converges). 90 min.
+  dev_stall_minutes:      12
+  max_dev_minutes:        90
 
   description:      "always-on, paced by CEO checkins"
 
