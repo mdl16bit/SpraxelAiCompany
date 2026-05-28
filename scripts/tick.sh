@@ -22,6 +22,11 @@ CRON_MATCH="$REPO_DIR/scripts/cron_match.py"
 RUN_AGENT="$REPO_DIR/scripts/run_agent.sh"
 CONTINUOUS="$REPO_DIR/scripts/continuous_dev.sh"
 LOCKS_DIR="$REPO_DIR/.locks"
+# PID-aware lock helpers (lock_holder_alive / release_lock). Sourced up
+# front so BOTH the continuous-wN sweep and the agent-lockdir sweep can use
+# them — all lockdirs now contain a holder.pid file, which a plain `rmdir`
+# can't remove (non-empty dir). release_lock removes holder.pid first.
+. "$REPO_DIR/scripts/lockutils.sh"
 
 mkdir -p "$TICK_LOGS"
 ymd=$(date +%Y-%m-%d)
@@ -91,11 +96,17 @@ print(1)
 PY
 )
 
-# Sweep stale per-worker continuous lockdirs (process died without releasing).
+# Sweep stale per-worker continuous lockdirs (wrapper died without releasing,
+# e.g. SIGKILL — its EXIT trap never ran). Check the holder.pid (written by
+# acquire_lock); if it names a dead process, release_lock removes holder.pid
+# THEN rmdirs. A plain `rmdir` here used to fail silently because the lockdir
+# is non-empty (holds holder.pid) — the dir persisted, the spawn loop saw it
+# and skipped, and the worker never came back (2026-05-27: a SIGKILLed w1
+# could not respawn).
 for id in $(seq 1 "$dev_concurrency"); do
   lock="$LOCKS_DIR/continuous-w$id.lockdir"
-  if [ -d "$lock" ] && ! pgrep -f "continuous_dev.sh.*--worker-id $id" >/dev/null 2>&1; then
-    rmdir "$lock" 2>/dev/null
+  if [ -d "$lock" ] && ! lock_holder_alive "$lock"; then
+    release_lock "$lock"
     errors+=("cleared stale continuous-w$id.lockdir")
   fi
 done
@@ -122,8 +133,7 @@ fi
 #                              pgrep never matched even when the dev
 #                              was alive. Lockdir got swept 22 times
 #                              in a single day while devs were running.
-# PID-based check has neither failure mode.
-. "$REPO_DIR/scripts/lockutils.sh"
+# PID-based check has neither failure mode. (lockutils.sh sourced at top.)
 for lock in "$LOCKS_DIR"/*.lockdir; do
   [ -d "$lock" ] || continue
   agent_name=$(basename "$lock" .lockdir)
