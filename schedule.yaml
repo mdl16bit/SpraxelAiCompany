@@ -60,13 +60,22 @@ continuous:
   idle_sleep_seconds:     300
 
   # Hard upper bound on a single developer agent invocation. If claude
-  # hangs (idle API response, internal loop, etc.) the wrapper kills it
-  # after this many minutes and counts the attempt as a failure. Without
-  # this, a stuck claude session blocks its worker indefinitely (the
-  # 2026-05-27 incident — w2's claude was idle 29 min with 1:18 CPU and
-  # I had to kill it manually). Default 30 minutes; most legitimate dev
-  # sessions finish in 10-20 min.
-  max_dev_minutes:        30
+  # hangs (idle API response, internal loop, etc.) the wrapper kills its
+  # whole process tree (kill_tree) after this many minutes and counts the
+  # attempt as a failure.
+  #
+  # Bumped 30 → 45 (2026-05-27): with dev_concurrency=3, three Sonnet
+  # sessions run in parallel AND their test runs (godot --headless) now
+  # run concurrently (per-worker test locks). Shared CPU during tests +
+  # API latency under concurrency pushed legitimate dev sessions just
+  # past the old 30-min bound — they were getting guillotined right at
+  # the finish line (observed: 11 watchdog kills in one afternoon, all
+  # 0-byte logs = killed mid-work, zero ships in 5 hours). The bigger
+  # [retry] items ("Planning — co-skills", "PRODUCTION VALUE PASS") are
+  # legitimately 30-40 min of work. 45 gives headroom; a genuinely hung
+  # session still dies (just 15 min later). If devs routinely need >45,
+  # the items are too big — break them down rather than bumping further.
+  max_dev_minutes:        45
 
   description:      "always-on, paced by CEO checkins"
 
