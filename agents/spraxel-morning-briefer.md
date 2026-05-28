@@ -34,6 +34,11 @@ create it with `mkdir -p .factory/local`.
 
 ## Steps
 
+0. **Get the date string from the shell — never compute the weekday
+   yourself** (you get it wrong: 2026-05-28 is Thursday, not Wednesday).
+   Run `date '+%A %Y-%m-%d'` and use its output VERBATIM for the
+   `# Morning — <Day> <YYYY-MM-DD>` header.
+
 1. **Health check first.** Run `bash ~/SpraxelAiCompany/scripts/health_check.sh`
    and capture its output. If it reports flagged runs, include the entire
    block VERBATIM as the first section of MORNING.md (above "Overnight result").
@@ -213,6 +218,8 @@ create it with `mkdir -p .factory/local`.
 ## MORNING.md template (strict — keep this shape)
 
 ```markdown
+<!-- Header <Day> <YYYY-MM-DD> = output of `date '+%A %Y-%m-%d'` (step 0).
+     Do NOT hand-compute the weekday. -->
 # Morning — <Day> <YYYY-MM-DD>
 
 <!-- Health check output goes here verbatim from health_check.sh.
