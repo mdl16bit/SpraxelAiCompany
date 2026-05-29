@@ -104,14 +104,29 @@ under `## ⏳ Awaiting your answers` in `TRIAGE`:
 
 ## Phase 2 — INTAKE new untriaged items
 
-For each item in `shape-list`'s `untriaged` list, FIRST judge whether it is
-already self-explanatory and well-bounded (a specific, unambiguous change a
-developer could just do). Reason over the injected `WORK.md` / `Philosophy.md`
-+ the relevant `Game.md` section + a few targeted `grep`s — do NOT spawn
-sub-agents or read the whole codebase.
+For each item in `shape-list`'s `untriaged` list, reason over the injected
+`WORK.md` / `Philosophy.md` + the relevant `Game.md` section + a few targeted
+`grep`s (do NOT spawn sub-agents or read the whole codebase) and classify it:
 
-- **Fast-pass** (e.g. "Change title screen letter cover from red to black",
-  "Bump bullet damage to 1.8x") — no questionnaire needed:
+- **Already done / duplicate** — the feature is ALREADY implemented in the
+  codebase (you found the class/function/scene that does it), or it's fully
+  covered by another Todo/Shipped item, or a straight duplicate. **Do NOT
+  fast-pass these** — fast-pass makes them *eligible*, so a developer would
+  pointlessly rebuild already-shipped work. Instead **`ship` them** (records
+  them as done and removes them from the buildable queue — agents must never
+  `drop`/delete; `ship` is the allowed way out of Todo):
+  ```bash
+  python3 "$WORKMD" ship "$WORK" "<title substring>"
+  ```
+  Then log a one-liner under `## ✅ Recently cleared without a questionnaire
+  (FYI)` noting it (e.g. `<title> → already SHIPPED (ClassName.method) — recorded`
+  or `<title> → COVERED by <other item>` / `→ DUPE of <other item>`). If you're
+  NOT confident it's truly done (only partially?), treat it as new work below
+  instead of shipping it.
+
+- **Fast-pass** — genuinely NEW work that's also already concrete/unambiguous
+  (e.g. "Change title screen letter cover from red to black", "Bump bullet
+  damage to 1.8x") — no questionnaire needed:
   ```bash
   python3 "$WORKMD" shape-pass "$WORK" "<title substring>" \
     --detail "spec: <one or two lines making the change unambiguous>"
@@ -182,7 +197,7 @@ LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
 if acquire_lock "$LOCK" 60 0.3; then
   ( cd "$GAME" \
     && git -c user.email=architect-bot@spraxel.ai -c user.name='Spraxel Architect' \
-         commit WORK.md -m "architect: shaped work — <F> finalized, <Q> questionnaires, <P> fast-passed" \
+         commit WORK.md -m "architect: shaped work — <F> finalized, <Q> questionnaires, <P> fast-passed, <S> already-done shipped" \
     && git pull --rebase --quiet origin master \
     && git push --quiet origin master )
   release_lock "$LOCK"
@@ -216,6 +231,6 @@ touch ~/SpraxelAiCompany/.cache/architect-triage-seen.ts
 
 ## Output (one status line)
 
-- `architect: F finalized, Q questionnaires (R follow-ups), P fast-passed`
+- `architect: F finalized, Q questionnaires (R follow-ups), P fast-passed, S already-done shipped`
 - `architect: nothing to shape` (no untriaged items, no answered proposals)
 - `architect: run_mode=dryrun — exiting.`
