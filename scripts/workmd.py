@@ -1467,7 +1467,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "claim":
         item = claim(path, args.worker_id)
         if item is None:
-            print("claim: no eligible items")
+            # stderr, NOT stdout: the continuous_dev wrapper captures stdout as
+            # the claim JSON and treats empty stdout as "nothing to claim" (a
+            # clean idle, exit 3). Printing here on stdout slipped past that
+            # check and got mislabeled "claim returned malformed json".
+            print("claim: no eligible items", file=sys.stderr)
             return 1
         print(json.dumps(item.to_dict(), indent=2))
         return 0
