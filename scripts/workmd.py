@@ -1089,6 +1089,41 @@ def bump(path: Path, title: str, new_priority: str) -> WorkItem:
         return item
 
 
+def reorder_future(path: Path, order: list[str]) -> int:
+    """Re-sort `[future]` items to the BOTTOM of ## Todo in the given order.
+
+    Each `order` entry is a case-insensitive substring of a `[future]` item's
+    title; matched items are placed (in that order) below all non-`[future]`
+    items. Any `[future]` item NOT matched by an entry is kept after the ordered
+    ones, in its original relative order. Items are MOVED VERBATIM — titles and
+    every detail line are preserved exactly (these are the same WorkItem objects,
+    just reordered), so nothing is reworded. Returns the count of `[future]`
+    items repositioned (0 if there are none). Non-`[future]` items keep their
+    current order untouched.
+    """
+    with FileLock(path):
+        wm = parse(path)
+        future = [it for it in wm.todo if it.is_future]
+        if not future:
+            return 0
+        non_future = [it for it in wm.todo if not it.is_future]
+        ordered: list[WorkItem] = []
+        used: set[int] = set()
+        for q in order:
+            ql = q.strip().lower()
+            if not ql:
+                continue
+            for it in future:
+                if id(it) not in used and ql in it.title.lower():
+                    ordered.append(it); used.add(id(it)); break
+        for it in future:  # unmatched [future] items keep their relative order
+            if id(it) not in used:
+                ordered.append(it)
+        wm.todo = non_future + ordered
+        path.write_text(serialize(wm))
+        return len(ordered)
+
+
 def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> list[WorkItem]:
     """Return the first N eligible Todo items.
 
@@ -1405,6 +1440,12 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("title")
     pb.add_argument("priority")
 
+    prf = sub.add_parser("reorder-future",
+        help="re-sort [future] items to the bottom of ## Todo in the given order (verbatim move — no reword)")
+    prf.add_argument("path")
+    prf.add_argument("order", nargs="*",
+        help="[future] title substrings in desired priority order; unmatched [future] items go after, in original order")
+
     prc = sub.add_parser("release-cut",
         help="move ## Shipped since last release → ## Shipped (previous releases) under <version>")
     prc.add_argument("path")
@@ -1578,6 +1619,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "bump":
         item = bump(path, args.title, args.priority)
         print(f"bumped to {args.priority}: {item.title}")
+        return 0
+
+    if args.cmd == "reorder-future":
+        n = reorder_future(path, args.order)
+        print(f"reorder-future: repositioned {n} [future] item(s) at the bottom of ## Todo")
         return 0
 
     if args.cmd == "release-cut":

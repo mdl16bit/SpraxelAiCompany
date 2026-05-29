@@ -36,7 +36,8 @@ read config from Philosophy.md.
 ## Mode 1 — Daily reorder (every day at 06:00 PT)
 
 This is what runs most days. **Goal**: top of `## Todo` reflects what
-should ship in the current release, in a sensible build order.
+should ship in the current release, in a sensible build order — and the
+`[future]` roadmap is sorted (verbatim) at the bottom (step 6b).
 
 ### Steps
 
@@ -69,13 +70,40 @@ should ship in the current release, in a sensible build order.
      current-release set into the next-release area. Don't disrupt
      what's already planned for this release.
 
-6. **Reorder** by rewriting WORK.md `## Todo` via `workmd.py`. Use multiple
-   `drop` + `append` calls, or write the whole section at once if the
-   churn is small.
+6. **Reorder** the current-release set at the TOP of `## Todo` via `workmd.py`.
+   If you use `drop` + `append`, re-add the item's title + ALL detail lines
+   **verbatim** — never reword while reordering.
 
-7. **Commit** WORK.md (only) with the PM bot identity:
-   `git -c user.email=pm-bot@spraxel.ai -c user.name='Spraxel PM' \
-        commit -am "pm: reorder top of todo (<N> moves)"`
+6b. **Re-sort `[future]` items to the bottom.** `[future]` items are the deferred
+   roadmap — keep them out of the active queue but in a sensible suggested order.
+   Read every `[future]` item (`grep -nE '^\[future\]' WORK.md`, plus its detail
+   lines for context) and rank them best-effort by value / urgency / dependency.
+   Then move them VERBATIM to the bottom of `## Todo` in that order:
+   ```bash
+   python3 "$WORKMD" reorder-future "$WORK" "<substr of #1>" "<substr of #2>" …
+   ```
+   `reorder-future` RE-ORDERS ONLY — it relocates each `[future]` block (title +
+   every detail line) **unchanged**; it must NEVER reword or rewrite one. Pass a
+   distinctive substring of each in your suggested priority order; any `[future]`
+   item you don't list is kept after the ranked ones (original order). Do NOT use
+   `drop`+`append` on `[future]` items — that reconstructs them (reword risk).
+
+7. **Commit + push WORK.md under the master-push lock** (so a worker's
+   `reset --hard origin/master` can't wipe the reorder — same discipline the
+   Architect uses):
+   ```bash
+   . ~/SpraxelAiCompany/scripts/lockutils.sh
+   LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+   if acquire_lock "$LOCK" 60 0.3; then
+     ( cd "$GAME" \
+       && git -c user.email=pm-bot@spraxel.ai -c user.name='Spraxel PM' \
+            commit WORK.md -m "pm: reorder todo + re-sort [future] (<N> moves)" \
+       && git pull --rebase --quiet origin master \
+       && git push --quiet origin master )
+     release_lock "$LOCK"
+   fi
+   ```
+   Nothing to commit is fine (no-op).
 
 8. **Append a one-liner** to `.factory/local/MORNING.md` `## PM` (gitignored — never commit):
    - `"PM 2026-05-25: reordered 4 items; current release v0.4 has 3/6 shipped, top 3 next: <a>, <b>, <c>"`
