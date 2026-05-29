@@ -59,7 +59,7 @@ run_agent.sh             continuous_dev.sh
 
 | Who | What |
 |-----|------|
-| **continuous_dev.sh** | Long-running Developer loop. **Runs as N parallel workers** (one process per worker id; default `dev_concurrency: 3` — see `schedule.yaml`). Each worker has its own persistent worktree at `.worktrees/worker-<id>/` and atomically claims items via `workmd.py claim --worker-id N` (tags the item `[wip:N]` so other workers skip it). Picks top eligible `## Todo` item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`/`[wip:*]`; picks up `[resume]` and `[retry]`). Branch → Developer → tests → Reviewer → squash-merge → push. **Cap counter is SHARED**: 10 ships across all workers combined drains the batch. Merges serialize via `master-push.lockdir` (~1 s critical section in `game_dir`). Failed items (tests/reviewer/merge): branch preserved on origin, item retagged **`[retry]`** in place with failure feedback in details — next dev fire picks them up silently. Does NOT escalate to CEO for dev-fixable failures. Runs `workmd.py sync-escalations` at start of every iter so `.factory/escalations.md` always reflects current `[escalated]` items. |
+| **continuous_dev.sh** | Long-running Developer loop. **Runs as N parallel workers** (one process per worker id; default `dev_concurrency: 3` — see `schedule.yaml`). Each worker has its own persistent worktree at `.worktrees/worker-<id>/` and atomically claims items via `workmd.py claim --worker-id N` (tags the item `[wip:N]` so other workers skip it). Picks top eligible `## Todo` item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`/`[wip:*]`/`[untriaged]`/`[untriaged-proposal-active]`; picks up `[resume]` and `[retry]`). Branch → Developer → tests → Reviewer → squash-merge → push. **Cap counter is SHARED**: 10 ships across all workers combined drains the batch. Merges serialize via `master-push.lockdir` (~1 s critical section in `game_dir`). Failed items (tests/reviewer/merge): branch preserved on origin, item retagged **`[retry]`** in place with failure feedback in details — next dev fire picks them up silently. Does NOT escalate to CEO for dev-fixable failures. Runs `workmd.py sync-escalations` at start of every iter so `.factory/escalations.md` always reflects current `[escalated]` items. |
 
 Daily crew (all times America/Los_Angeles):
 
@@ -71,6 +71,7 @@ Daily crew (all times America/Los_Angeles):
 | 05:30 PT | **demo-creator** | Always writes `.factory/demos/<date>/recipe.md` (launch + controls + suggested capture command per recently-shipped feature). Best-effort auto-capture via Godot `--write-movie` + ffmpeg → `.mp4` + `.png`. |
 | 06:00 PT | **pm** | Re-sorts top of `## Todo`. Biweekly Monday: tags `v0.N`, generates release notes, rolls WORK.md sections. |
 | ~06:00 PT | **CEO (you)** | `/spraxel-inbox` → walk MORNING.md sections. ~38 minutes. |
+| 09:00 & 21:00 PT | **architect** | Shapes `[untriaged]` work: processes your answered `TRIAGE.md` questionnaires (finalize spec or follow-up), intakes new untriaged items (fast-pass or new questionnaire). Also fires reactively within ~60s of a new `[untriaged]` item. |
 
 Weekly:
 
@@ -262,7 +263,9 @@ bash ~/SpraxelAiCompany/scripts/playtested.sh --reset    # undo today's marks, s
 Designer drops appear in WORK.md `## Todo` with `[idea]` tag. Three actions:
 
 ```bash
-# ACCEPT an idea  (remove the [idea] tag → eligible for overnight)
+# ACCEPT an idea  → converts [idea] to [untriaged] (sends it INTO shaping,
+#                   NOT straight to the build queue — the Architect will
+#                   fast-pass it or ask you a questionnaire; see step 3b)
 python3 $WORKMD promote $WORK "sleeping-gas grenade"
 
 # REJECT an idea  (delete the line entirely)
@@ -271,16 +274,50 @@ python3 $WORKMD drop $WORK "radio-tower mission"
 # DEFER  (do nothing — [idea] tag stays, overnight keeps skipping)
 ```
 
-Or just open WORK.md in any editor and:
-- Remove `[idea] ` from the start of a line → accept.
-- Delete the line (+ its indented details) → reject.
-- Leave it alone → defer.
+Accepting an idea no longer drops it straight into the overnight queue — it
+enters the **shaping pipeline** (becomes `[untriaged]`). The Architect then
+either fast-passes it (if already concrete) or writes you a questionnaire in
+`TRIAGE.md`. You finish defining it in step 3b. Reject and defer are unchanged.
+
+The PM reorder summary in MORNING.md is informational — no action required. To see what PM changed:
 
 The PM reorder summary in MORNING.md is informational — no action required. To see what PM changed:
 
 ```bash
 git log -1 --author='pm-bot' -p WORK.md
 ```
+
+#### 3b. ▶ Shape — answer triage questionnaires (5 min)
+
+New feature work (from the Producer, an accepted Designer idea, or your own
+hand-adds) is born `[untriaged]` and is held out of the build queue until it's
+shaped into a concrete spec. The **Architect** agent does the shaping: for each
+untriaged item it either *fast-passes* it (already concrete → made buildable, no
+questionnaire) or writes you a short /plan-style questionnaire.
+
+All questionnaires live in ONE file: `.factory/local/TRIAGE.md` (CEO-local,
+gitignored). To shape your backlog:
+
+```bash
+$EDITOR ~/GameProjects/<game>/.factory/local/TRIAGE.md
+```
+
+Under `## ⏳ Awaiting your answers`, fill the `▶` line under each question and
+save. That's it — the Architect picks up your answers on its next run (09:00 &
+21:00 PT, or within ~60s of new untriaged work via the reactive trigger) and
+either:
+- finalizes the spec (writes it into the WORK.md item + removes the tag → the
+  item becomes buildable), or
+- asks a follow-up round (up to 5) if more needs nailing down.
+
+Notes:
+- **Leave a `▶` blank** to let the Architect decide that point (it records the
+  assumption in the spec).
+- **Do nothing** = the item stays blocked. Untriaged work is never built — so an
+  unanswered questionnaire simply means that feature waits. That's intended.
+- Fast-passed items appear under `## ✅ Recently cleared without a questionnaire`
+  in TRIAGE.md — skim them; if the Architect mis-judged one as "concrete," add a
+  correcting note via dictation.
 
 #### 4. ▶ Bug triage (5 min)
 
@@ -1242,7 +1279,9 @@ Tag reference:
 | `[feature]` | System / tooling / UX | yes |
 | `[game-feature]` | Player-facing mechanic | yes |
 | `[chore]` | Refactor / docs / deps | yes |
-| `[idea]` | Designer drop, CEO triage needed | **NO** (must remove tag first) |
+| `[idea]` | Designer drop, CEO triage needed | **NO** (promote → `[untriaged]`, into shaping) |
+| `[untriaged]` | New feature work awaiting the Architect's first pass (fast-pass or questionnaire) | **NO** (until Architect finalizes/fast-passes) |
+| `[untriaged-proposal-active]` | Architect wrote a shaping questionnaire (Q&A in `.factory/local/TRIAGE.md`) | **NO** (until you answer + Architect finalizes) |
 | `[cold]` | Janitor archived as stale | **NO** (must remove tag first) |
 | `[manual]` or `MANUAL - ` prefix | CEO-only — needs human hands (controller test, art, music, level design) | **NO** (skip until tag/prefix removed) |
 | `[needs-ceo]` | Developer added clarifying questions — CEO must answer | **NO** (skip until questions answered + tag removed) |
@@ -1251,6 +1290,25 @@ Tag reference:
 | `[escalated]` | **Manually set** by CEO (or triager/designer/PM agent) for items needing real CEO judgment — gameplay-ruiner design issues, paid-asset blockers, story decisions, items the dev truly can't action. **Never auto-set by the wrapper.** Wrapper regenerates `.factory/escalations.md` from these every iter — clearing that file alone doesn't dismiss the item; only retagging in WORK.md does. | **NO** (skip until CEO retags as `[resume]`) |
 | `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up, checks out saved branch, rebases on master, hands off to dev with the CEO's clarification in details. | **yes** (dev resumes from saved branch with new guidance) |
 | `[concern]` | Designer (or future agents) flagged a game-wide issue (feature bloat, missing fundamentals, philosophical drift). Advisory text, not work to do. CEO triages: delete (dismiss), remove tag (convert into real work item), or leave (defer). | **NO** (skip until tag removed) |
+
+### Adding new work by hand — the `[untriaged]` rule
+
+All NEW feature work enters through the shaping gate. The three intake sources
+tag items at the source (there is no auto-tagger):
+
+| Source | What it tags |
+|--------|--------------|
+| Producer (`/spraxel-producer`) | new `[game-feature]`/`[feature]`/`[chore]` → `[untriaged]` |
+| Designer (via your `promote`) | accepting an `[idea]` converts it to `[untriaged]` |
+| **You, hand-editing WORK.md** | tag new feature items `[untriaged]` yourself |
+
+So when you (or Claude on your behalf) hand-add feature work and commit WORK.md,
+**prepend `[untriaged]`** — e.g. `[untriaged] [feature] p2 <title>`. The Architect
+then shapes it. **Exempt (never `[untriaged]`):**
+- `[bug]` items — concrete; they keep their normal flow.
+- `MANUAL - …` items — your hand-work, never built by the loop.
+
+Existing backlog items are left as-is; the gate applies only to new additions.
 
 ### `MANUAL - ` sub-category labels
 
@@ -1325,6 +1383,7 @@ FUTURE - DLC mission pack
 | **demo-creator** | daily 05:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
 | **pm** | daily 05:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
 | **designer** | Tue + Fri 04:30 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
+| **architect** | daily 09:00 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | sonnet | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), and intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`). Bugs + MANUAL items are exempt. |
 | **blogger** | weekly Sat 09:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |
 | **asset-librarian** | monthly 1st 07:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
@@ -1403,12 +1462,12 @@ field is missing. So a minimal Philosophy.md just needs `identity` +
 | **`run_agent.sh <name>`** | Wraps one Claude invocation. Reads the agent spec, composes prompt (spec + Philosophy + WORK.md + optional `SPRAXEL_ITEM_BRIEF`), passes `--model` based on spec frontmatter, calls `claude -p`. Per-agent lock prevents double-fire. | `tick.sh` (cron), `continuous_dev.sh` (per item), CEO manually |
 | **`install_daemon.sh`** | Drops `com.spraxel.tick.plist` into `~/Library/LaunchAgents/`. Args: `install` / `stop` / `status` / `restart`. | CEO, one-time |
 | **`new_game.sh <dir>`** | Bootstraps a new game repo with Philosophy.md, Game.md, WORK.md, `.gitignore`, `.factory/`, `test/unit/`, `scripts/scenarios/`, and the local-tests cron installer. | CEO, when starting a new game |
-| **`workmd.py`** | Parser + CLI for WORK.md. Subcommands: `parse / top / append / ship / escalate / resume / promote / drop / bump / clarify / release-cut`. Atomic mkdir-locked. | every agent + CEO |
+| **`workmd.py`** | Parser + CLI for WORK.md. Subcommands: `parse / top / append / ship / escalate / resume / promote / drop / bump / clarify / release-cut` + shaping: `shape-list / shape-start / shape-detail / shape-finalize / shape-pass`. Atomic mkdir-locked. | every agent + CEO |
 | **`cron_match.py`** | Evaluates a 5-field cron expression against `now` in a timezone. Used by `tick.sh` to decide who fires and by `spraxel_report.py` to compute next firings. | `tick.sh`, `spraxel_report.py` |
 | **`slugify.py`** | Title → kebab-case branch slug. | `continuous_dev.sh` for branch names |
 | **`health_check.sh`** | Scans today's `logs/*/<YYYY-MM-DD>*.log` for error patterns (unknown model, rate limit, session expired, fatal, traceback). Outputs a markdown block. | `morning-briefer` agent (step 1), CEO manually |
 | **`spraxel_report.py`** | Status snapshot generator: right-now state, last 24h, last 7 days, next 20 scheduled events. Pure-local read-only — no Claude tokens. Powers `/spraxel-report`. | CEO via `/spraxel-report` skill or directly |
-| **`dashboard.py`** | Always-on TUI dashboard. Auto-refresh every 5 s (configurable via `--interval`). Compact view: status / tick / wrapper / cap counter / current item / today's totals / **next 10 scheduled fires** / **next 10 CEO action items** (urgency-ordered: `[needs-ceo]` > `[escalated]` > `[concern]` > `[idea]` > dictation backlog; color-coded) / **last 20 shipped** (sha + relative age + clean subject) / last log line. Stdlib only — no tokens, no third-party deps. Run in a terminal you leave open. | CEO, runs continuously while logged in |
+| **`dashboard.py`** | Always-on TUI dashboard. Auto-refresh every 5 s (configurable via `--interval`). Compact view: status / tick / wrapper / cap counter / current item / today's totals / **next 10 scheduled fires** / **next 10 CEO action items** (urgency-ordered: `[needs-ceo]` > `[escalated]` > triage questionnaires (`TRIAGE.md`) > play-test > `[bug]` > `[idea]` > MANUAL > dictation backlog; color-coded) / **last 20 shipped** (sha + relative age + clean subject) / last log line. Stdlib only — no tokens, no third-party deps. Run in a terminal you leave open. | CEO, runs continuously while logged in |
 | **`token_report.sh`** | Counts `claude -p` invocations per agent over a window. Compares to `Philosophy.budgets.by_agent_percent`. Flags drift >25%. | CEO manually (weekly check); not yet scheduled |
 | **`capture_demo.sh <slug>`** | Records a Godot --demo-feature run via Godot's built-in Movie Maker (`--write-movie`) + ffmpeg encoding to H.264 .mp4 + extracts a .png still at 3s. No Screen Recording permission needed (engine framebuffer, not screen pixels). Requires ffmpeg on PATH; exits rc=3 if missing. Exits rc=5 with warning if recording is suspiciously short (test-style scenarios that auto-quit). | `demo-creator` agent |
 | **`backfill_escalations.py`** | One-shot migration. Reads pre-redesign `.factory/escalations.md` entries (terse with log-link format), restores items to WORK.md as `[escalated]`, rewrites escalations.md with the new self-contained per-block format. Idempotent. | CEO, one-time per game repo |
@@ -1464,6 +1523,7 @@ Things to watch for that mean trouble:
 | **morning-briefer** | haiku | daily 04:00 PT | `tick.sh` cron | `MORNING.md` |
 | **pm** | haiku | daily 05:00 PT | `tick.sh` cron | WORK.md `## Todo` (re-orders) |
 | **designer** | sonnet | Tue + Fri 04:30 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[idea]` items) |
+| **architect** | sonnet | 09:00 & 21:00 PT + reactive on `[untriaged]` | `tick.sh` cron + reactive grep | WORK.md (shape-* tag/spec edits) + `.factory/local/TRIAGE.md` |
 | **blogger** | sonnet | Sat 09:00 PT | `tick.sh` cron | `blog/<date>` branch |
 | **janitor** | haiku | Sun 01:00 PT | `tick.sh` cron | WORK.md (cold-archives), branches (deletes merged), logs (prunes >60 days) |
 | **asset-librarian** | haiku | monthly 1st 07:00 PT | `tick.sh` cron | `.factory/asset-report-<date>.md`, MORNING.md note |
