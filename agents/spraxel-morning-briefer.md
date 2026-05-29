@@ -157,6 +157,20 @@ create it with `mkdir -p .factory/local`.
    `✏️ Amend keeps the feature, queues a refinement pass with your feedback.`
    `❌ Reject reverts the feature on master, re-queues for re-implementation.`
 
+4b. **Demos to record (one-line FYI).** The demo-creator writes a per-feature
+    record guide (launch + controls + capture command) to
+    `.factory/demos/<date>/recipe.md`. Point the CEO at the LATEST one — NOT
+    "today's", because the demo-creator runs at 05:30, *after* this 05:00
+    briefing, so today's batch doesn't exist yet:
+    ```bash
+    latest=$(ls -t "$game_dir"/.factory/demos/*/recipe.md 2>/dev/null | head -1)
+    [ -n "$latest" ] && echo "$(basename "$(dirname "$latest")"): $(grep -c '^## ' "$latest") features → $latest"
+    ```
+    Emit ONE line: the date + feature count + path. Don't dump per-feature
+    detail (the file has it). Note they're <60s hand-record guides for now —
+    auto-captured clips are pending the "Demo-playthrough scenario mode" work
+    item — and that a fresh batch lands ~05:30.
+
 5. **Decide section** — Designer ideas (`[idea]` tag) the CEO accepts or
    rejects. ALWAYS spell out the actions, even when there are zero ideas
    (then say there's nothing to do).
@@ -391,6 +405,12 @@ Run from `~/GameProjects/infiltrators` (or wherever your game repo is).
    ✏️ Amend:  bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "<feedback>"
    ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
 ... (10 total)
+
+## 🎬 Demos to record (optional FYI)
+<N> features have <60s record recipes in `.factory/demos/<date>/recipe.md`
+(launch + capture command each) — grab a clip for sharing or the weekly devlog.
+Auto-captured clips are pending; a fresh batch lands ~05:30.
+(When none yet:) ✓ No demo recipes yet.
 
 ## ▶ Decide (5 min)
 "Decide" = accept or reject each Designer idea. For each one below:
