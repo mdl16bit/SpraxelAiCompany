@@ -186,28 +186,31 @@ create it with `mkdir -p .factory/local`.
    `✓ Nothing to decide — no designer ideas pending. Skip this section.`
    Then add the PM reorder summary (one line, from PM's commit) as FYI.
 
-6. **Bugs section** — new `[bug]` items (Triager + Playtester batched them
-   into `## Todo` overnight). Open the section by defining the verb in one
-   line: `"Triage" = for each bug, do ONE of: Accept / Reject / Prioritize
-   (below). The default is Accept = do nothing.` For EACH bug give enough
-   that the CEO decides WITHOUT opening WORK.md:
+6. **Bugs section** — candidate bugs the Triager + Playtester filed overnight as
+   **`[needs-ceo] [bug]`**. ⚠️ These are NOT in the build queue yet: the
+   `[needs-ceo]` tag makes the workers SKIP them until you validate — so, unlike
+   most sections, **doing nothing here does NOT get the bug fixed**; it just
+   defers it to tomorrow's briefing. Open the section by defining the verb:
+   `"Triage" = for each candidate bug, do ONE of: Accept / Reject / Prioritize.`
+   For EACH bug give enough that the CEO decides WITHOUT opening WORK.md:
    - title + a one-line description (from the item's detail lines / the
      playtest finding) — what actually happens.
    - a **false-positive check**: the Playtester sometimes files INTENDED
      behavior as a bug. Cross-check recent `feat:` ships + Game.md; if the
      "bug" matches a feature the CEO explicitly asked for, say so inline:
      `⚠️ likely intended — matches feature "<X>" (<sha>); consider Reject`.
-   Explain the three actions ONCE at the top of the section. The DEFAULT is
-   do-nothing: a `[bug]` left in `## Todo` is just a normal queue item the
-   overnight loop will fix like anything else — the CEO does NOT need to
-   route it through the Producer (Producer is for NEW dictation, not items
-   already in WORK.md).
-   - ✓ **Accept (default)**: do nothing — it stays queued; the loop fixes it.
-   - ❌ **Reject** (false positive / duplicate / intended behavior): drop it
+   Explain the actions ONCE at the top of the section:
+   - ✅ **Accept** (it's real → queue it): clears `[needs-ceo]`, leaving a live
+     `[bug]` the overnight loop fixes like any other item.
+     `bash ~/SpraxelAiCompany/scripts/with_master_lock.sh approve "<substr>"`
+   - ❌ **Reject** (false positive / duplicate / intended behavior): delete it.
      `bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"`
-   - ⬆ **Prioritize** (fix sooner): bump it
-     `python3 ~/SpraxelAiCompany/scripts/workmd.py bump ~/GameProjects/<game>/WORK.md "<substr>" p0`
-   If there are zero new `[bug]` items, write exactly:
+   - ⬆ **Prioritize** (real AND urgent): approve, then bump to p0.
+     `bash ~/SpraxelAiCompany/scripts/with_master_lock.sh approve "<substr>"` then
+     `bash ~/SpraxelAiCompany/scripts/with_master_lock.sh bump "<substr>" p0`
+   - ⏸ **Defer**: do nothing — stays `[needs-ceo]`, reappears next briefing (not
+     fixed meanwhile).
+   If there are zero new `[needs-ceo] [bug]` items, write exactly:
    `✓ No new bugs to triage. Skip this section.`
 
 6b. **Shape section** — triage questionnaires from the Architect awaiting the
@@ -403,13 +406,15 @@ Run from `~/GameProjects/infiltrators` (or wherever your game repo is).
 PM reorder summary (FYI, no action): <one line from PM's last commit>
 
 ## ▶ Bugs to triage (5 min)
-"Triage" = for each bug, do ONE of these (you do NOT route bugs through the
-Producer — they're already in the queue):
-  ✓ Accept (default): do NOTHING — it stays queued and the loop fixes it.
-  ❌ Reject (false positive / dup / intended): bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"
-  ⬆ Prioritize:       python3 ~/SpraxelAiCompany/scripts/workmd.py bump ~/GameProjects/<game>/WORK.md "<substr>" p0
+These are `[needs-ceo] [bug]` candidates — workers SKIP them until you validate,
+so doing nothing leaves them unfixed (just deferred to tomorrow).
+"Triage" = for each, do ONE of:
+  ✅ Accept (it's real → queue it):  bash ~/SpraxelAiCompany/scripts/with_master_lock.sh approve "<substr>"
+  ❌ Reject (false positive/dup/intended): bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"
+  ⬆ Prioritize (real + urgent):     …approve "<substr>"  then  …with_master_lock.sh bump "<substr>" p0
+  ⏸ Defer: do nothing — stays [needs-ceo], reappears next briefing.
 
-  - [bug] p1 <title>
+  - [needs-ceo] [bug] p1 <title>
       <one-line description of what happens>
       <⚠️ likely intended — matches feature "<X>" (<sha>); consider Reject>  (only when applicable)
   - ...

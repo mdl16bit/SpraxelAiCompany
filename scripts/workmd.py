@@ -797,6 +797,34 @@ def promote(path: Path, title: str, details: list[str] | None = None,
         return item
 
 
+def approve(path: Path, title: str) -> WorkItem:
+    """Clear the [needs-ceo] tag from an item — the CEO validating a candidate so
+    it becomes a live, dev-claimable item.
+
+    [needs-ceo] is the gate the Triager/Playtester (candidate [bug]) and the
+    Developer (a question for the CEO) put on an item; workers skip it until the
+    CEO acts. Approving strips ONLY the [needs-ceo] tag, leaving the rest of the
+    title intact (e.g. `[needs-ceo] [bug] p1 Foo` -> `[bug] p1 Foo`), so the
+    overnight loop picks it up by priority like any other item.
+
+    Returns the item with [needs-ceo] stripped, or raises if not found / the item
+    isn't tagged [needs-ceo].
+    """
+    with FileLock(path):
+        wm = parse(path)
+        section, idx = _find_in_all(wm, title)
+        if idx < 0:
+            raise ValueError(f"item not found: {title!r}")
+        item = getattr(wm, section)[idx]
+        if not re.search(r"\[needs-ceo\]", item.title, flags=re.I):
+            raise ValueError(f"item has no [needs-ceo] tag: {title!r}")
+        item.title = re.sub(r"\[needs-ceo\]\s*", "", item.title, count=1, flags=re.I)
+        item.title = re.sub(r"\s{2,}", " ", item.title).strip()
+        _rewrite_item_lines(item)
+        path.write_text(serialize(wm))
+        return item
+
+
 def find_item_by_triage_id(wm: WorkMd, triage_id: str) -> tuple[str, int]:
     """Find an item across all sections by its `triage-id` detail line.
     Returns (section_name, index) or ('', -1). Used by the Architect to map a
@@ -1359,6 +1387,11 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--retitle", default=None,
         help="replace the item's descriptive text (tags + priority are preserved); pass just the new description")
 
+    pap = sub.add_parser("approve",
+        help="clear [needs-ceo] from an item — CEO validates a candidate ([bug]/question) → live, dev-claimable")
+    pap.add_argument("path")
+    pap.add_argument("title")
+
     pd = sub.add_parser("drop", help="delete an item entirely from any section (reject idea / dedupe bug)")
     pd.add_argument("path")
     pd.add_argument("title")
@@ -1526,6 +1559,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "promote":
         item = promote(path, args.title, details=args.detail, retitle=args.retitle)
         print(f"promoted: {item.title}")
+        return 0
+
+    if args.cmd == "approve":
+        item = approve(path, args.title)
+        print(f"approved: {item.title}")
         return 0
 
     if args.cmd == "drop":

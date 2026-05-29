@@ -339,16 +339,21 @@ follow-up) and leaves partial ones for later. You don't run anything.
 
 #### 4. ▶ Bug triage (5 min)
 
-Triager appended new `[bug]` items overnight. Actions:
+Triager + Playtester appended new candidate bugs overnight as **`[needs-ceo] [bug]`**.
+⚠️ They are NOT in the build queue yet — workers skip `[needs-ceo]` until you
+validate — so leaving one alone DEFERS it; it does not get fixed. Use the safe
+wrapper (`with_master_lock.sh` locks + syncs + commits + pushes; a bare
+`workmd.py` edit gets eaten by a worker's `reset --hard` — see WORKER_OPERATIONS.md §4):
 
 ```bash
-# BUMP priority   (urgent → p0, or low → p2)
-python3 $WORKMD bump $WORK "stairs teleport" p0
-
-# DELETE a duplicate
-python3 $WORKMD drop $WORK "duplicate-bug-title-substring"
-
-# KEEP — just leave the line alone; overnight picks it up by priority order.
+WML=~/SpraxelAiCompany/scripts/with_master_lock.sh
+# ACCEPT — clear [needs-ceo] → live [bug] the overnight loop fixes
+bash $WML approve "_cache_scene_lights"
+# REJECT — false positive / duplicate / intended behavior
+bash $WML drop "duplicate-bug-title-substring"
+# PRIORITIZE — accept, then bump to p0
+bash $WML approve "stairs teleport" && bash $WML bump "stairs teleport" p0
+# DEFER — leave it: stays [needs-ceo], reappears next briefing (NOT fixed meanwhile)
 ```
 
 #### 5. ▶ Escalations (1-3 min, usually 0)
@@ -461,9 +466,16 @@ git push
 | Verb | What it does |
 |------|--------------|
 | `promote <substr>` | Remove `[idea]` / `[cold]` tag → accept idea / resurrect cold item. |
+| `approve <substr>` | Remove `[needs-ceo]` tag → validate a candidate bug / answered question → live, dev-claimable. |
 | `drop <substr>` | Delete an item entirely from any section. |
 | `bump <substr> pN` | Change priority (p0..p3). |
 | `append --section todo …` | Add a new item. (Producer skill does this for you.) |
+
+⚠️ These all mutate the canonical `WORK.md` — run them via
+`bash ~/SpraxelAiCompany/scripts/with_master_lock.sh <verb> <args>` (it locks,
+syncs, commits + pushes). A bare `workmd.py <verb>` leaves the edit uncommitted,
+where a worker's `reset --hard origin/master` silently discards it. See
+WORKER_OPERATIONS.md §4.
 
 All four match on title substring (case-insensitive, first match wins). Be specific enough to uniquely match.
 
@@ -492,12 +504,12 @@ If it lists blocking items, clear them (full how-to in the Morning
 WORK=~/GameProjects/<game>/WORK.md
 WORKMD=~/SpraxelAiCompany/scripts/workmd.py
 
-# [needs-ceo] — Developer asked a question. Edit the item's detail lines
-#   with your answer, then drop the tag so it re-enters rotation:
-python3 $WORKMD promote $WORK "<title-substring>"      # removes a leading tag
+# [needs-ceo] — Developer asked a question (or a candidate bug). Edit the item's
+#   detail lines with your answer, then clear the tag so it re-enters rotation:
+bash ~/SpraxelAiCompany/scripts/with_master_lock.sh approve "<title-substring>"
 
 # [escalated] — your call. Resume after editing details with guidance:
-python3 $WORKMD resume $WORK "<title-substring>"
+bash ~/SpraxelAiCompany/scripts/with_master_lock.sh resume "<title-substring>"
 ```
 
 Dump any new ideas while you're here (no need to process now):
