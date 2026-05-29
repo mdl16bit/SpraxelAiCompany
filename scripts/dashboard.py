@@ -568,7 +568,7 @@ def read_philosophy_int(game_dir: Path | None, dotted_key: str, default: int) ->
 def render(now: datetime, game_dir: Path | None) -> str:
     lines = []
     # Read configurable dashboard counts from Philosophy.md (with defaults).
-    recent_ships_n = read_philosophy_int(game_dir, "dashboard.recent_ships", 20)
+    recent_ships_n = read_philosophy_int(game_dir, "dashboard.recent_ships", 15)
     ceo_actions_n  = read_philosophy_int(game_dir, "dashboard.ceo_actions", 10)
     title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
     bar = "─" * len(title)
@@ -684,7 +684,8 @@ def render(now: datetime, game_dir: Path | None) -> str:
             if commits and commits[0] > 0:
                 n, cage = commits
                 ccol = GREEN if cage < 300 else YELLOW
-                cdisp = f"  {ccol}+{n}c {fmt_etime(cage)} ago{RESET}"
+                plural = "commit" if n == 1 else "commits"
+                cdisp = f"  {ccol}{n} {plural}, last {fmt_etime(cage)} ago{RESET}"
             lines.append(f"    {DIM}w{wid}{RESET}  {tag} {age_col}  {title_disp}{cdisp}")
     lines.append("")
 
@@ -698,7 +699,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
     lines.append("")
 
     # Next 10 scheduled runs
-    lines.append(f"  {BOLD}▸ Next 10 runs{RESET}")
+    lines.append(f"  {BOLD}▸ Next 10 agents to execute{RESET}")
     fires = next_n_fires(now, 10)
     if not fires:
         lines.append(f"    {DIM}(no upcoming runs found){RESET}")
