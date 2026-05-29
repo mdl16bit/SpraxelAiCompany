@@ -334,8 +334,27 @@ PY
 # escalation from being recorded. Returns 0 if HEAD ends up on clean
 # master, 1 otherwise (the only way that fails is a genuinely broken repo
 # — disk full, lock held by another process, etc.).
-clean_slate() {
+# Nuke + recreate this worker's worktree, detached at origin/master. The
+# bulletproof recovery when an in-place checkout/reset is wedged — e.g. an
+# LFS/filter-dirty entry (addons/gut/*.ttf) that git perpetually reports
+# "not uptodate" and refuses to update on a tree switch. NEITHER
+# `checkout --force` NOR `reset --hard <other-commit>` can move past such an
+# entry, but a from-scratch checkout into a clean dir cannot be blocked by a
+# dirty file — so a wedged worktree can never death-loop a worker again.
+_rebuild_worktree() {
+  echo "continuous: clean_slate — rebuilding wedged worktree $WORK_DIR from origin/master" >&2
+  cd "$game_dir" 2>/dev/null || cd / 2>/dev/null || return 1
+  git -C "$game_dir" fetch --quiet origin master 2>/dev/null
+  git -C "$game_dir" worktree remove --force "$WORK_DIR" 2>/dev/null
+  git -C "$game_dir" worktree prune 2>/dev/null
+  rm -rf "$WORK_DIR" 2>/dev/null
+  git -C "$game_dir" worktree add --detach "$WORK_DIR" origin/master --quiet 2>/dev/null || return 1
   cd "$WORK_DIR" || return 1
+  return 0
+}
+
+clean_slate() {
+  cd "$WORK_DIR" 2>/dev/null || { _rebuild_worktree; return $?; }
   # Abort any in-progress merge/rebase/cherry-pick.
   git merge --abort 2>/dev/null
   git rebase --abort 2>/dev/null
@@ -350,17 +369,20 @@ clean_slate() {
   # `git checkout master`, because the main checkout (or another worker)
   # may hold master. Detached HEAD avoids the worktree-branch-conflict.
   git fetch --quiet origin master 2>/dev/null
-  # --force: don't let local worktree junk block the switch. Some files
-  # (e.g. addons/gut/*.ttf) show as perpetually-modified via a filter/eol
-  # quirk, which made a plain `checkout --detach` refuse ("would overwrite
-  # local changes") and clean_slate fail → 3x → 30-min backoff (2026-05-28
-  # incident, w2 after a mid-op kill). --force discards them.
-  if ! git checkout --detach --force origin/master --quiet 2>/dev/null; then
-    # Last-ditch: hard-reset to the fetched ref, then retry the detach.
-    git reset --hard FETCH_HEAD --quiet 2>/dev/null
-    git checkout --detach --force origin/master --quiet 2>/dev/null || return 1
+  # Get onto a clean origin/master. Detach HEAD at the CURRENT commit first (no
+  # file changes → can't trip a dirty-entry refusal), then move to origin/master.
+  # Both `checkout <other-tree>` AND `reset --hard <other-commit>` REFUSE on a
+  # stat/filter-dirty entry ("Entry X not uptodate. Cannot merge") — the repeat
+  # offender is LFS-tracked vendored fonts (addons/gut/*.ttf) that git's clean
+  # filter leaves perpetually "modified"; --force cannot beat it. So if the
+  # in-place reset can't land, fall back to a from-scratch worktree rebuild,
+  # which a wedged file cannot block (2026-05-28/29 w2 clean_slate death-loop).
+  git checkout --detach --quiet 2>/dev/null || true
+  if ! git reset --hard origin/master --quiet 2>/dev/null \
+     && ! git reset --hard FETCH_HEAD --quiet 2>/dev/null; then
+    _rebuild_worktree || return 1
+    return 0
   fi
-  git reset --hard origin/master --quiet 2>/dev/null
   # Remove leftover untracked files from a wrecked iteration (respects
   # .gitignore — won't touch .godot/.factory/local caches).
   git clean -fdq 2>/dev/null
