@@ -293,6 +293,15 @@ while :; do
         | bash "$REPO_DIR/scripts/report.sh" "$agent" >/dev/null 2>&1 || true
       echo "run_agent: $agent left no report — wrote a stub" >&2
     fi
+    # Architect seen-stamp safety-net. The architect is told to `touch` this
+    # LAST so tick.sh's reactive TRIAGE-answer trigger doesn't re-wake it on its
+    # OWN writes — but LLM agents routinely skip end-of-run housekeeping, leaving
+    # the stamp stale and causing redundant reactive re-dispatches. Enforce it
+    # here on every successful run so the stamp can never go stale.
+    if [ "$agent" = "architect" ]; then
+      mkdir -p "$REPO_DIR/.cache"
+      touch "$REPO_DIR/.cache/architect-triage-seen.ts"
+    fi
     exit 0
   fi
   reason="rc=$rc"

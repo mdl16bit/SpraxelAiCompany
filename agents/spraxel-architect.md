@@ -276,3 +276,15 @@ touch ~/SpraxelAiCompany/.cache/architect-triage-seen.ts
 - `architect: F finalized, Q questionnaires (R follow-ups), P fast-passed, S already-done shipped`
 - `architect: nothing to shape` (no untriaged items, no answered proposals)
 - `architect: run_mode=dryrun — exiting.`
+
+## Report (REQUIRED — leave a dated self-report)
+
+So the Morning Briefer can digest what you shaped (otherwise the wrapper writes a
+thin stub). Mirror the other agents:
+```bash
+printf '%s\n' \
+  "- Finalized: <T-ids + one line each>" \
+  "- Questionnaires sent / followed-up: <T-ids + round>" \
+  "- Fast-passed: <titles>; already-done shipped: <titles>" \
+  | bash ~/SpraxelAiCompany/scripts/report.sh architect
+```
