@@ -844,28 +844,32 @@ def _rewrite_item_lines(item: WorkItem) -> None:
 
 def shape_list(path: Path) -> dict:
     """JSON-able view of the shaping pipeline: Todo items tagged `[untriaged]`
-    (need intake) and `[untriaged-proposal-active]` (questionnaire in flight)."""
+    (need intake), `[untriaged-proposal-active]` (questionnaire in flight), and
+    `[concern]` (Designer design-issue advisories the Architect shapes into a
+    resolution questionnaire, same as untriaged)."""
     wm = parse(path)
     untriaged = [it.to_dict() for it in wm.todo if it.is_untriaged]
     in_flight = [it.to_dict() for it in wm.todo if it.is_untriaged_proposal_active]
-    return {"untriaged": untriaged, "proposal_active": in_flight}
+    concerns = [it.to_dict() for it in wm.todo if it.is_concern]
+    return {"untriaged": untriaged, "proposal_active": in_flight, "concerns": concerns}
 
 
 def shape_start(path: Path, title: str, triage_id: str | None = None) -> tuple[WorkItem, str]:
-    """Intake: swap `[untriaged]`→`[untriaged-proposal-active]` and attach a
-    stable `triage-id` detail line (auto `T-xxxx` if not supplied). Returns
-    (item, triage_id). The Architect calls this once it has written the item's
-    Round-1 questionnaire to TRIAGE.md."""
+    """Intake: swap `[untriaged]` (or `[concern]`)→`[untriaged-proposal-active]`
+    and attach a stable `triage-id` detail line (auto `T-xxxx` if not supplied).
+    Returns (item, triage_id). The Architect calls this once it has written the
+    item's Round-1 questionnaire to TRIAGE.md. `[concern]` items are accepted so
+    Designer design-issue advisories flow through the same shaping pipeline."""
     with FileLock(path):
         wm = parse(path)
         section, idx = _find_in_all(wm, title)
         if idx < 0:
             raise ValueError(f"item not found: {title!r}")
         item = getattr(wm, section)[idx]
-        if not item.is_untriaged:
-            raise ValueError(f"item is not [untriaged]: {item.title!r}")
+        if not (item.is_untriaged or item.is_concern):
+            raise ValueError(f"item is not [untriaged]/[concern]: {item.title!r}")
         tid = (triage_id or f"T-{uuid.uuid4().hex[:4]}").strip()
-        new_title = re.sub(r"\[untriaged\]\s*", "[untriaged-proposal-active] ",
+        new_title = re.sub(r"\[(?:untriaged|concern)\]\s*", "[untriaged-proposal-active] ",
                            item.title, count=1, flags=re.I)
         item.title = re.sub(r"\s{2,}", " ", new_title).strip()
         if item.triage_id is None:

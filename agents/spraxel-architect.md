@@ -161,6 +161,26 @@ consequence. **When a choice affects how the feature plays, feels, looks, or is
 balanced, ASK it — that is the CEO's call, not yours.** Prefer surfacing one
 question too many over silently picking a design direction the CEO never saw.
 
+### Concerns — intake `shape-list`'s `concerns` list too
+
+`[concern]` items are Designer **design-issue advisories** (feature bloat,
+balance, philosophical drift) — each has `observation` / `why it matters` /
+`suggested fix` detail lines. They need a CEO DECISION, not a build spec, so
+shape each into a **resolution questionnaire** (same machinery as needs-shaping):
+1. Write a Round-1 questionnaire to `TRIAGE` framed as "How should I resolve this
+   concern?" — make the options concrete and derived from the concern: **(a)** the
+   Designer's `suggested fix` (quote it), **(b)** a viable alternative you propose,
+   **(c)** a narrower/partial version, … and ALWAYS include **`Leave as-is —
+   dismiss this concern`** as an option (not every concern needs action).
+2. `shape-start` the concern (it accepts `[concern]`, swaps it to
+   `[untriaged-proposal-active]`, stamps the `triage-id`).
+
+When the CEO answers (Phase 1): if they chose a fix → `shape-finalize` into the
+resolution work item (a `[feature]`/`[game-feature]`, or an `[epic]` if it needs
+decomposing); if they chose **dismiss** → `ship` it (records the concern as
+resolved-by-decision and removes it from the queue) and log
+`<concern> → DISMISSED by CEO` under `## ✅ Recently finalized`.
+
 ### Questionnaire section format (write EXACTLY this shape)
 
 One option per line; blank line before the options; the answer goes on an

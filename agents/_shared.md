@@ -66,7 +66,7 @@ Items in `## Todo` can carry tags that control loop behavior + signal kind:
 | `[cold]` | Janitor stale-archived | **NO** until CEO removes tag |
 | `[manual]` or `MANUAL - ` prefix | CEO-only work (art, music, level design, tuning, writing) | **NO** ever |
 | `[future]` or `FUTURE - ` prefix | Roadmap item not ready to schedule | **NO** until CEO promotes |
-| `[concern]` | Designer/Producer advisory commentary | **NO** until CEO triages |
+| `[concern]` | Designer design-issue advisory (bloat/balance/drift) | **NO** — the Architect shapes it into a resolution questionnaire (TRIAGE.md → MORNING.md Shape); CEO answers → fix queued or dismissed |
 | `[escalated]` | Needs real CEO judgment (design/PM gameplay-ruiner, paid-asset block, story decision). RARE — never set automatically; only by triager/designer/PM/CEO manually. Wrapper regenerates `.factory/escalations.md` from these every iter. | **NO** until CEO retags as `[resume]` |
 | `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up the saved branch | yes (high priority) |
 | `[retry]` | Wrapper auto-set after tests/reviewer/merge failed on prior dev attempt. Next dev fire resumes from saved branch with failure feedback in details. **Not a CEO action** — silently retried. | yes (high priority) |

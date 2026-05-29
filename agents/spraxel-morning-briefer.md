@@ -237,6 +237,15 @@ create it with `mkdir -p .factory/local`.
    nothing else to run. If the file is missing or has no awaiting proposals, write
    the zero-case line. (Do NOT answer them yourself — that's the CEO's call.)
 
+6c. **Design concerns section (FYI)** — scan WORK.md `## Todo` for `[concern]`
+   items (Designer advisories: feature bloat, balance, philosophical drift). For
+   each, show the title + the item's one-line `why it matters` and `suggested
+   fix` detail lines. Note that the Architect turns each concern into a
+   resolution questionnaire (it'll appear under "Shape" once shaped) — so the
+   real decision happens there — but the CEO can also dismiss one outright now if
+   it's clearly not worth pursuing. If there are zero `[concern]` items, write
+   `✓ No open design concerns.`
+
 7. **Questions for CEO section** — scan WORK.md `## Todo` for items tagged
    `[needs-ceo]`. The Developer added these because it didn't understand
    the item. Surface each with its questions:
@@ -463,6 +472,17 @@ Awaiting your answers (<N>) — in .factory/local/TRIAGE.md:
   - ...
 <!-- If zero proposals awaiting, replace the list with this one line: -->
 ✓ Nothing to shape — no triage questionnaires awaiting answers. Skip this section.
+
+## ⚠️ Design concerns (FYI — Architect will questionnaire these)
+Designer-flagged design smells (bloat / balance / drift). The Architect turns
+each into a resolution questionnaire above (under "Shape") — decide there. Or
+dismiss one now if it's clearly not worth pursuing.
+  - <concern title>
+      why: <one-line why it matters> · fix idea: <suggested fix, one line>
+      ❌ dismiss now: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<unique snippet>"
+  - ...
+<!-- If zero concerns: -->
+✓ No open design concerns.
 
 ## ❓ Developer asked you these (3 min)
 <N> items the Developer didn't understand. Answer by editing the item in
