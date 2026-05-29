@@ -245,9 +245,16 @@ actually stick.
    exercise the new behavior — not just instantiate the class. For:
    - **`[feature]` / `[game-feature]`**: a new `test/unit/test_<slug>.gd`
      that calls the new methods/asserts the new state transitions.
-   - **`[bug]`**: a regression test that fails on master without your fix
-     and passes with it. Name it `test/unit/test_<bug-slug>_regression.gd`
-     (or extend the existing module's test).
+   - **`[bug]`**: try your best to add a regression test that fails without
+     your fix and passes with it. Name it
+     `test/unit/test_<bug-slug>_regression.gd` (or extend the existing
+     module's test). **You MUST validate it is legitimate** — confirm the test
+     actually FAILS before your fix and PASSES after, so it genuinely pins the
+     bug instead of passing vacuously. You ARE permitted to run this one
+     regression test to do that validation (see the step 7 exception). If, after
+     a real attempt, the bug genuinely cannot be captured in a test, say so
+     explicitly in your step-9 handoff and proceed — but a validated regression
+     test is the strong default for every `[bug]`.
    - **`[chore]`**: usually a refactor — extend or update the existing
      tests covering the changed module to prove behavior didn't drift.
 
@@ -277,15 +284,31 @@ actually stick.
    3-workers-thrashing-Godot stalls, so skip it entirely. Make your final
    commit of any remaining changes and proceed to step 8.
 
-   **The ONE exception — a `[test_failure]` item.** If your item is a
-   `[test_failure]` (its brief names a single failing test via a `test-ref:`
-   like `unit:test/unit/test_foo.gd` or `scenario:add-dogs`), you MAY — and
-   should — run **only that one test** to verify your fix:
-   ```bash
-   bash scripts/run_local_tests.sh --only <test-ref>
-   ```
-   Run nothing else (NOT the full suite). The wrapper re-runs exactly this test
-   as the merge gate, so make sure it passes before you finish.
+   **Exceptions — you may run a SINGLE test, in these two cases only:**
+
+   1. **A `[test_failure]` item.** If your item is a `[test_failure]` (its brief
+      names a single failing test via a `test-ref:` like
+      `unit:test/unit/test_foo.gd` or `scenario:add-dogs`), you MAY — and should
+      — run **only that one test** to verify your fix:
+      ```bash
+      bash scripts/run_local_tests.sh --only <test-ref>
+      ```
+      The wrapper re-runs exactly this test as the merge gate, so make sure it
+      passes before you finish.
+
+   2. **Validating a `[bug]` regression test you just wrote (step 5).** To prove
+      the test legitimately pins the bug, run **only that one regression test**:
+      first BEFORE your fix is in place to confirm it FAILS (the bug is still
+      present), then AFTER your fix to confirm it now PASSES:
+      ```bash
+      bash scripts/run_local_tests.sh --only unit:test/unit/test_<bug-slug>_regression.gd
+      ```
+      A regression test that passes both with and without the fix proves nothing
+      — rework it until it fails-without / passes-with.
+
+   In BOTH cases, run **nothing else** — not the full suite, not other tests. The
+   batch runner still owns full-suite coverage; this narrow allowance exists only
+   to validate the single test tied to your item, not as a license to run more.
 
 8. **Ensure everything is committed** (you've been committing incrementally per
    the rule above — this just confirms no working changes are left uncommitted).

@@ -468,9 +468,12 @@ ship_one_item() {
   next_title=$(echo "$next_title" | sed -E 's/^\[wip:[0-9]+\]\s*//')
 
   # A [test_failure] item (filed by the batch test runner) carries a
-  # `test-ref: <kind>:<id>` detail naming the one failing test. This is the
-  # ONLY kind of item whose dev may run a test — and the wrapper re-runs ONLY
-  # that one test as the merge gate (devs run no tests on any other item).
+  # `test-ref: <kind>:<id>` detail naming the one failing test. This is the only
+  # kind of item whose named test the wrapper re-runs as the MERGE GATE. Devs run
+  # no tests on most items, with two narrow self-validation exceptions (see
+  # spraxel-developer.md step 7): a [test_failure] fix, and validating the single
+  # regression test a dev writes for a [bug] (fail-without-fix / pass-with-fix).
+  # Neither exception changes the gate logic below — only [test_failure] gates.
   local is_test_failure="false" test_ref=""
   if echo "$next_title" | grep -qiE '^\[test_failure\]'; then
     is_test_failure="true"
@@ -872,12 +875,14 @@ sys.exit(1)
       return 2   # don't count toward batch
     fi
 
-    # Test gate. Developers run NO tests on normal items — the batch test runner
-    # (scripts/test_runner.sh) sweeps the whole suite separately and files any
-    # failure as a [test_failure] item. The ONE exception is fixing such an item:
-    # we re-run ONLY its named test (test_ref) as the merge gate, so the fix is
-    # verified before it ships. This is the sole place a test runs in the dev
-    # path, and it's cheap (one test, not the suite → no CPU contention).
+    # Test gate. The batch test runner (scripts/test_runner.sh) sweeps the whole
+    # suite separately and files any failure as a [test_failure] item. The only
+    # WRAPPER-driven test run is this gate, and it fires for [test_failure] items
+    # only: we re-run ONLY the named test (test_ref) so the fix is verified before
+    # it ships. It's cheap (one test, not the suite → no CPU contention). (Devs
+    # may also self-run a single test during their work in two cases — a
+    # [test_failure] fix and validating a [bug] regression test — but those are
+    # dev-side, not this gate; see spraxel-developer.md step 7.)
     if [ "$is_test_failure" = "true" ] && [ -n "$test_ref" ]; then
       echo "continuous: [test_failure] gate — re-running $test_ref" >> "$item_log"
       SPRAXEL_GAME_DIR="$game_dir" SPRAXEL_WORKER_ID="$WORKER_ID" \
