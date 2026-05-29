@@ -31,8 +31,29 @@ The overnight wrapper has already:
 4. Exported `WORK_MD_PATH` to the canonical WORK.md path (the main
    checkout's copy, shared by all parallel workers).
 
-Your job: implement that item, commit, exit. Do NOT merge — overnight handles
-that after Reviewer + tests pass.
+Your job: implement that item, **committing in small working steps as you go**,
+then exit. Do NOT merge — overnight handles that after Reviewer + tests pass.
+
+## CRITICAL: commit incrementally — never lose work to a kill
+
+Commit each logical chunk to your feat branch **the moment it's a sensible
+checkpoint** — don't save it all for one big commit at the end. Examples of
+good checkpoints: "add the new class/scene", "wire up the behavior", "add the
+GUT test", "fix the failing case". This is the single most important habit:
+
+- **If you're killed mid-work** (stall watchdog, the 90-min backstop, a crash,
+  or a CEO interrupt), every committed chunk is preserved on the branch — the
+  wrapper force-pushes it and the next run resumes from exactly where you left
+  off (`[retry]`, rebased on master, your commits visible in `git log`). An
+  *uncommitted* edit at kill-time is lost forever. So commit early, commit often.
+- **It will NOT clutter master.** The wrapper squash-merges your whole branch
+  into ONE commit whose message is what you print in the final step — so your
+  20 granular checkpoint commits collapse to a single clean commit on master.
+- Commit at **meaningful** boundaries, not arbitrary line-count splits.
+  Intermediate commits may be half-built or not-yet-passing — that's fine; tests
+  only gate at merge time (step 7), and you build on top. Terse messages are OK
+  for checkpoints (e.g. `wip: spawn logic`); the polished message is the one you
+  print at the end.
 
 ## CRITICAL: WORK.md path discipline
 
@@ -247,12 +268,14 @@ actually stick.
    `SCENARIO <slug> PASS` or `SCENARIO <slug> FAIL`. Used by the overnight
    loop and by the CEO during the morning play-test.
 
-7. **Run the local test suite — ALWAYS, before you commit.** Execute:
+7. **Run the local test suite — ALWAYS, as the final gate before you're done.**
+   (You've been committing incrementally along the way; this is the last check
+   before you print the squash message.) Execute:
    ```bash
    bash scripts/run_local_tests.sh
    ```
    Wait for it to finish. Then:
-   - **If all tests pass** → proceed to commit.
+   - **If all tests pass** → make a final commit of any remaining changes, proceed.
    - **If only YOUR new/changed tests fail** → fix your code, re-run, repeat.
    - **If pre-existing tests fail** (unrelated to your change — e.g., a
      scenario that was already broken on master) → don't fix them; that's
@@ -263,12 +286,15 @@ actually stick.
      syntax error) → escalate via `clarify` — something is wrong with the
      test harness that the CEO needs to look at.
 
-8. **Commit**. Stage relevant files only (no `git add .`). Commit with the
-   developer bot identity (see _shared.md). Use **Conventional Commits**
-   format — NEVER echo the WORK.md title verbatim (the CEO writes those
-   colloquially as dictation; commit messages need to be professional and
-   readable to future you, the Reviewer, the Blogger, and anyone reading
-   `git log`).
+8. **Ensure everything is committed** (you've been committing incrementally per
+   the rule above — this just confirms no working changes are left uncommitted).
+   Always stage relevant files only (no `git add .`); commit with the developer
+   bot identity (see _shared.md). The **Conventional Commits** format below is
+   what you print in step 9 — it becomes master's single squashed-commit subject,
+   so make it clean (use it for your final checkpoint commit too). NEVER echo the
+   WORK.md title verbatim (the CEO writes those colloquially as dictation; commit
+   messages must be professional and readable to future you, the Reviewer, the
+   Blogger, and anyone reading `git log`).
 
    Subject format: `<type>(<scope>): <imperative summary, 50-80 chars>`
    - **type**: `feat` for new player-facing work, `fix` for bug repros,

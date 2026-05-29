@@ -755,6 +755,7 @@ folds everything into one squash-merge to master at the end."
       started=$(date +%s)
       last_progress=$started
       last_fp=""
+      last_pushed=""
       while kill -0 "$dev_pid" 2>/dev/null; do
         sleep 60
         kill -0 "$dev_pid" 2>/dev/null || break
@@ -777,6 +778,17 @@ folds everything into one squash-merge to master at the end."
                    -exec stat -f '%m' {} + 2>/dev/null | sort -rn | head -1)
         if [ "${newest:-0}" != "${last_fp:-0}" ]; then
           last_fp="${newest:-0}"; last_progress=$now
+        fi
+        # Persist committed work to origin each poll (best-effort), so the dev's
+        # incremental commits survive even if the WRAPPER itself dies before the
+        # end-of-run push. Only pushes when the branch head moved; failures (e.g.
+        # a momentary race with the dev's own git) are ignored and retried next
+        # poll. The branch is unique to this item, so the force-push is safe.
+        head=$(git -C "$WORK_DIR" rev-parse HEAD 2>/dev/null)
+        if [ -n "$head" ] && [ "$head" != "$last_pushed" ]; then
+          if git -C "$WORK_DIR" push --force-with-lease --quiet origin "$branch":"$branch" 2>/dev/null; then
+            last_pushed="$head"
+          fi
         fi
         if [ $((now - last_progress)) -ge "$stall_secs" ]; then
           echo "continuous: dev STALLED — no file writes for ${DEV_STALL_MINUTES}m — killing tree (PID $dev_pid)" >> "$item_log"

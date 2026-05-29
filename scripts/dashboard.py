@@ -181,6 +181,25 @@ def worker_phase(worker_id: int) -> tuple[str, int | None]:
     return ("idle", None)
 
 
+def worker_commits(worker_id: int) -> tuple[int, int] | None:
+    """(commits_ahead_of_origin/master, seconds_since_last_commit) for the worker's
+    feat branch, read from its worktree — a live "is it actually making progress?"
+    signal now that devs commit incrementally. None if no worktree."""
+    wt = Path(__file__).resolve().parent.parent / ".worktrees" / f"worker-{worker_id}"
+    if not wt.is_dir():
+        return None
+    n_out = sh(f"git -C {wt} rev-list --count origin/master..HEAD 2>/dev/null")
+    try:
+        n = int((n_out or "0").strip() or "0")
+    except ValueError:
+        return None
+    if n == 0:
+        return (0, 0)
+    ts = sh(f"git -C {wt} log -1 --format=%ct HEAD 2>/dev/null").strip()
+    age = (int(time.time()) - int(ts)) if ts.isdigit() else 0
+    return (n, age)
+
+
 def resolve_game_dir() -> Path | None:
     if not SCHEDULE.exists(): return None
     for line in SCHEDULE.read_text().splitlines():
@@ -657,7 +676,16 @@ def render(now: datetime, game_dir: Path | None) -> str:
                 title_disp = f"{CYAN}\"{wip_items[wid]}\"{RESET}"
             else:
                 title_disp = f"{DIM}(no item claimed){RESET}"
-            lines.append(f"    {DIM}w{wid}{RESET}  {tag} {age_col}  {title_disp}")
+            # Commit progress: "+Nc <age>" = N commits on the branch, last one
+            # <age> ago. Green if a commit landed recently, yellow if it's been
+            # a while (possible stall), so you can see real progress at a glance.
+            commits = worker_commits(wid)
+            cdisp = ""
+            if commits and commits[0] > 0:
+                n, cage = commits
+                ccol = GREEN if cage < 300 else YELLOW
+                cdisp = f"  {ccol}+{n}c {fmt_etime(cage)} ago{RESET}"
+            lines.append(f"    {DIM}w{wid}{RESET}  {tag} {age_col}  {title_disp}{cdisp}")
     lines.append("")
 
     # Throughput — git-log derived, no state file race
