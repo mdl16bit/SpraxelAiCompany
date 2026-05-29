@@ -59,7 +59,9 @@ Items in `## Todo` can carry tags that control loop behavior + signal kind:
 |-----|---------|---------------------------|
 | `pN` (p0..p3) | Priority — p0 urgent, p3 nice-to-have | yes (sorted by priority) |
 | `[bug]` / `[feature]` / `[chore]` / `[game-feature]` | Kind hint | yes |
-| `[idea]` | Designer drop, un-promoted | **NO** until CEO removes tag |
+| `[idea]` | Designer drop, un-promoted | **NO** until CEO promotes (→ `[untriaged]`, into shaping) |
+| `[untriaged]` | New feature-type item awaiting the Architect's first pass (fast-pass or questionnaire). Set by producer / designer-promote / manual CEO add. | **NO** until the Architect finalizes/fast-passes |
+| `[untriaged-proposal-active]` | Architect wrote a shaping questionnaire; Q&A is in `.factory/local/TRIAGE.md` (keyed by the item's `triage-id` detail). | **NO** until the Architect finalizes the spec |
 | `[needs-ceo]` | Developer left questions via `clarify` | **NO** until CEO answers + removes tag |
 | `[cold]` | Janitor stale-archived | **NO** until CEO removes tag |
 | `[manual]` or `MANUAL - ` prefix | CEO-only work (art, music, level design, tuning, writing) | **NO** ever |
@@ -126,6 +128,7 @@ Set role-specific git config before committing:
 | Blogger | blogger-bot@spraxel.ai | Spraxel Blogger |
 | Asset Librarian | asset-bot@spraxel.ai | Spraxel Asset Librarian |
 | Producer | producer-bot@spraxel.ai | Spraxel Producer |
+| Architect | architect-bot@spraxel.ai | Spraxel Architect |
 
 Never reuse the CEO's identity (`mdl16bit`).
 
