@@ -676,8 +676,23 @@ while True:
 print('## Today\\'s item')
 print()
 print(title)
+# Hide internal subtask metadata (epic-id/seq) from the dev, but capture seq to
+# emit a clear 'this is one subtask' instruction.
+_seq = None
 for det in it.get('details', []):
+    _ds = det.strip().lower()
+    if _ds.startswith('epic-id:'):
+        continue
+    m = re.match(r'seq:\s*(\d+)', det.strip(), re.I)
+    if m:
+        _seq = m.group(1); continue
     print(f'  {det}')
+if _seq:
+    print()
+    print(f'## SUBTASK {_seq} of a larger feature')
+    print('This is ONE subtask of a decomposed feature. Earlier subtasks (lower seq) are')
+    print('ALREADY merged to master — build on their code, do NOT re-implement them. Do')
+    print('ONLY this subtask\\'s spec above, and leave the game working/shippable on its own.')
 ")
     # Resume / Retry mode prompt suffix: tell the dev they're picking up
     # prior work on an existing branch (already checked out + rebased on
@@ -1144,6 +1159,8 @@ print(t)
                 commit --quiet -m "$commit_message" \
            && git push --quiet origin master; then
           python3 "$WORKMD" ship "$game_dir/WORK.md" "$next_title" >> "$item_log" 2>&1 || true
+          # If this was the last child of an epic, auto-ship its parent too.
+          python3 "$WORKMD" reconcile-epics "$game_dir/WORK.md" >> "$item_log" 2>&1 || true
           git add WORK.md 2>/dev/null
           git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
               commit --quiet -m "chore(work): mark '$short_title' as shipped" 2>/dev/null
