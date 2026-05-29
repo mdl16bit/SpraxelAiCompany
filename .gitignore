@@ -13,6 +13,7 @@ logs/
 .locks/
 .cache/
 .paused
+.claude/*.lock
 
 # Crew-agent worktrees — transient git worktrees created by run_agent.sh
 # when the main game-repo checkout is on a feature branch. Removed at the
