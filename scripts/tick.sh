@@ -82,12 +82,17 @@ while IFS='|' read -r name cron; do
   fi
 done <<< "$agent_entries"
 
-# Reactive Architect trigger — shape newly-added [untriaged] items promptly
-# instead of waiting for the Architect's twice-daily cron. Cheap grep; only
-# fires when raw [untriaged] items exist AND the Architect isn't already
-# running (lock check avoids re-dispatch spam while it works). The regex
-# `^\[untriaged\]` matches the raw tag only — the closing `]` excludes
-# `[untriaged-proposal-active]` items (questionnaire already in flight).
+# Reactive Architect trigger — wake the Architect promptly (instead of waiting
+# for its twice-daily cron), lock-guarded so a run never overlaps itself. Two
+# cases:
+#   1. NEW [untriaged] items exist → needs intake (fast-pass or a questionnaire).
+#      `^\[untriaged\]` matches the raw tag only (the closing `]` excludes
+#      `[untriaged-proposal-active]`).
+#   2. The CEO ANSWERED questionnaires → TRIAGE.md was edited more recently than
+#      the Architect last ran (it touches the seen-stamp at the END of every
+#      run, so this only fires on the CEO's edits, not the Architect's own
+#      writes) AND there are still proposal-active items to process. This is what
+#      makes "edit TRIAGE.md + save" get picked up within ~60s.
 arch_game_dir=$(python3 - "$SCHEDULE" <<'PY'
 import sys, os, re
 m = re.search(r"game_dir:\s*(\S+)", open(sys.argv[1]).read())
@@ -95,13 +100,23 @@ print(os.path.expanduser(m.group(1)) if m else "")
 PY
 )
 arch_work_md="$arch_game_dir/WORK.md"
-if [ -x "$RUN_AGENT" ] && [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ] \
-   && grep -qE '^\[untriaged\]' "$arch_work_md" \
+arch_triage="$arch_game_dir/.factory/local/TRIAGE.md"
+arch_stamp="$REPO_DIR/.cache/architect-triage-seen.ts"
+arch_reason=""
+if [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ]; then
+  if grep -qE '^\[untriaged\]' "$arch_work_md"; then
+    arch_reason="untriaged present"
+  elif [ -f "$arch_triage" ] && grep -qE '^\[untriaged-proposal-active\]' "$arch_work_md" \
+       && { [ ! -e "$arch_stamp" ] || [ "$arch_triage" -nt "$arch_stamp" ]; }; then
+    arch_reason="triage answers"
+  fi
+fi
+if [ -x "$RUN_AGENT" ] && [ -n "$arch_reason" ] \
    && ! lock_holder_alive "$LOCKS_DIR/architect.lockdir"; then
   dlog="$REPO_DIR/logs/architect"
   mkdir -p "$dlog"
   nohup bash "$RUN_AGENT" architect >>"$dlog/reactive-$(date +%Y-%m-%d).log" 2>&1 &
-  dispatched+=("architect (reactive: untriaged present)")
+  dispatched+=("architect (reactive: $arch_reason)")
 fi
 
 # Continuous Developer loop — N parallel workers, self-paced against the

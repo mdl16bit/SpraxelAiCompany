@@ -192,6 +192,17 @@ If there's nothing to commit (e.g. you only wrote questionnaires + did
 shape-start, which DID change WORK.md — so there usually is), `git commit` is a
 no-op and that's fine.
 
+## Finish — stamp "TRIAGE seen" (REQUIRED, do this LAST)
+
+After all TRIAGE.md writes are done, touch the seen-stamp so `tick.sh`'s
+reactive answer-trigger knows your own writes aren't new CEO answers — it will
+only re-wake you when the CEO edits TRIAGE.md *after* now:
+
+```bash
+mkdir -p ~/SpraxelAiCompany/.cache
+touch ~/SpraxelAiCompany/.cache/architect-triage-seen.ts
+```
+
 ## Constraints
 
 - **Never** make an `[untriaged]`/`[untriaged-proposal-active]` item eligible
