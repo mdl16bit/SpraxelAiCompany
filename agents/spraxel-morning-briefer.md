@@ -163,9 +163,11 @@ create it with `mkdir -p .factory/local`.
    CEO's answers. Read `.factory/local/TRIAGE.md`; under its
    `## ⏳ Awaiting your answers` header, list each `### T-xxxx · <title>`
    proposal with its round number. These gate new work: until answered, the
-   items can't be built. Point the CEO at the file to fill the ▶ lines. If the
-   file is missing or has no awaiting proposals, write the zero-case line.
-   (Do NOT try to answer them yourself — that's the CEO's call.)
+   items can't be built. ALWAYS include the explicit "HOW TO ANSWER" block from
+   the template verbatim (open the file → type after each ▶ → save → picked up in
+   ~60s) — the CEO must know that *saving the file is the entire hand-back*, with
+   nothing else to run. If the file is missing or has no awaiting proposals, write
+   the zero-case line. (Do NOT answer them yourself — that's the CEO's call.)
 
 7. **Questions for CEO section** — scan WORK.md `## Todo` for items tagged
    `[needs-ceo]`. The Developer added these because it didn't understand
@@ -312,12 +314,19 @@ Producer — they're already in the queue):
 ✓ No new bugs to triage. Skip this section.
 
 ## ▶ Shape (answer triage questionnaires) (5 min)
-The Architect needs your answers to turn these into buildable specs. Until you
-answer, the items stay blocked (developers never build untriaged work).
-  → Open .factory/local/TRIAGE.md, fill the ▶ lines under each question, save.
-    The Architect processes your answers on its next run (09:00 / 21:00 PT, or
-    sooner). Leave a ▶ blank to let it decide. It may ask up to 5 rounds.
+The Architect turns vague new work into buildable specs by asking you questions.
+Until you answer, these items stay BLOCKED (developers never build untriaged work).
+HOW TO ANSWER (this is the whole job — there's nothing to "submit"):
+  1. Open the ONE questionnaire file:  open ~/GameProjects/<game>/.factory/local/TRIAGE.md
+  2. Under "⏳ Awaiting your answers", type your answer after each ▶ , then SAVE.
+     (Only edit the ▶ lines. Don't touch the T-#### ids or the ##/### headers.)
+  3. That's it. Saving = handing it back. Within ~60s the Architect re-reads the
+     file and either (a) finalizes the spec → the item becomes buildable, or
+     (b) asks a follow-up round (up to 5). It also runs on schedule at 09:00 & 21:00 PT.
+  • Leave a ▶ blank to let the Architect decide that point.
+  • Don't want a feature? Leave it unanswered (it just waits) — that's fine.
 
+Awaiting your answers (<N>) — in .factory/local/TRIAGE.md:
   - <T-xxxx> <item title>  (Round <N> of 5)
   - ...
 <!-- If zero proposals awaiting, replace the list with this one line: -->

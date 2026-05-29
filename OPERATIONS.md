@@ -291,33 +291,17 @@ git log -1 --author='pm-bot' -p WORK.md
 
 New feature work (from the Producer, an accepted Designer idea, or your own
 hand-adds) is born `[untriaged]` and is held out of the build queue until it's
-shaped into a concrete spec. The **Architect** agent does the shaping: for each
-untriaged item it either *fast-passes* it (already concrete → made buildable, no
-questionnaire) or writes you a short /plan-style questionnaire.
-
-All questionnaires live in ONE file: `.factory/local/TRIAGE.md` (CEO-local,
-gitignored). To shape your backlog:
+shaped into a concrete spec. The **Architect** agent does the shaping. See the
+full reference below ("The shaping loop"); the short version of YOUR job:
 
 ```bash
-$EDITOR ~/GameProjects/<game>/.factory/local/TRIAGE.md
+$EDITOR ~/GameProjects/<game>/.factory/local/TRIAGE.md   # one file, all questionnaires
 ```
 
-Under `## ⏳ Awaiting your answers`, fill the `▶` line under each question and
-save. That's it — the Architect picks up your answers on its next run (09:00 &
-21:00 PT, or within ~60s of new untriaged work via the reactive trigger) and
-either:
-- finalizes the spec (writes it into the WORK.md item + removes the tag → the
-  item becomes buildable), or
-- asks a follow-up round (up to 5) if more needs nailing down.
-
-Notes:
-- **Leave a `▶` blank** to let the Architect decide that point (it records the
-  assumption in the spec).
-- **Do nothing** = the item stays blocked. Untriaged work is never built — so an
-  unanswered questionnaire simply means that feature waits. That's intended.
-- Fast-passed items appear under `## ✅ Recently cleared without a questionnaire`
-  in TRIAGE.md — skim them; if the Architect mis-judged one as "concrete," add a
-  correcting note via dictation.
+Under `## ⏳ Awaiting your answers`, type your answer after each `▶`, then save.
+**That's the entire action — saving is how you "send it back."** Within ~60s the
+Architect re-reads the file and either finalizes the spec (the item becomes
+buildable) or asks a follow-up round. You don't run anything.
 
 #### 4. ▶ Bug triage (5 min)
 
@@ -1291,6 +1275,62 @@ Tag reference:
 | `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up, checks out saved branch, rebases on master, hands off to dev with the CEO's clarification in details. | **yes** (dev resumes from saved branch with new guidance) |
 | `[concern]` | Designer (or future agents) flagged a game-wide issue (feature bloat, missing fundamentals, philosophical drift). Advisory text, not work to do. CEO triages: delete (dismiss), remove tag (convert into real work item), or leave (defer). | **NO** (skip until tag removed) |
 | `[epic]` | Parent of a decomposed feature (Architect-created). Display + completion tracker; auto-ships once its last subtask ships. | **NO** ever (devs build the subtasks, never the parent) |
+
+### The shaping loop — Architect + TRIAGE.md
+
+Every new feature item enters the queue **`[untriaged]`** and is invisible to the
+developers until it's been shaped into a concrete spec. The **Architect** agent
+(Sonnet; runs 09:00 & 21:00 PT, and reactively within ~60s — see below) owns this.
+On each run it does two things:
+
+1. **Intake** — for each `[untriaged]` item it decides:
+   - *Already concrete?* → **fast-pass**: strips `[untriaged]` so the item is
+     immediately buildable (no questions asked). It's logged under
+     `## ✅ Recently cleared without a questionnaire` in TRIAGE.md so you can see
+     what it auto-cleared.
+   - *Ambiguous?* → writes a short /plan-style **questionnaire** into TRIAGE.md
+     and re-tags the item `[untriaged-proposal-active]` (still not buildable).
+2. **Review** — reads your answers and either **finalizes** the spec (writes it
+   into the WORK.md item, removes the gate tag → the item is now buildable and the
+   loop will build it) or asks a **follow-up round** (up to 5) if more is needed.
+
+**Q: Is there one file with every questionnaire?** Yes —
+`~/GameProjects/<game>/.factory/local/TRIAGE.md`. ONE file, CEO-local (gitignored),
+holds every pending questionnaire grouped by item under `## ⏳ Awaiting your
+answers`. Finalized/auto-cleared items move to the `## ✅` sections (auto-pruned).
+
+**Q: How do I answer? Do I just edit the file and save?** Yes. Open it, and under
+each question type your answer after the `▶`, then **save**. Example:
+
+```
+### T-7f3a · Add hero enemies — recurring named adversaries
+Round 1 of 5 · created 2026-05-28 16:40 PDT
+Q1. How many distinct hero enemies at launch?  (a) 1–2  (b) 3–5  (c) 6+
+    ▶ (b) 3-5
+Q2. Recur across missions, or per-level?
+    ▶ recurring across the whole campaign
+```
+
+Rules: only edit the `▶` lines. **Don't** edit the `T-####` ids or the `###`/`##`
+headers (they link your answers back to the WORK.md item). Leave a `▶` **blank**
+to let the Architect decide that point (it records the assumption in the spec).
+
+**Q: Does it get looked at automatically? How do my answers get back into the
+system?** Saving the file IS the hand-back — there's nothing else to run. `tick.sh`
+notices TRIAGE.md changed and wakes the Architect **within ~60s**; it also runs on
+its 09:00 & 21:00 schedule. On that run it processes your answers (finalize or
+follow-up) and commits the updated WORK.md. If you ever want it *now*, you can also
+run `bash ~/SpraxelAiCompany/scripts/run_agent.sh architect` (only while the system
+is unpaused).
+
+**Q: What if I don't answer?** The item just waits — untriaged work is never built,
+so an unanswered questionnaire simply parks that feature until you get to it. (To
+kill it instead: `workmd.py drop`.)
+
+**Where untriaged items come from:** the Producer tags new feature items
+`[untriaged]`; accepting a Designer `[idea]` (`promote`) converts it to
+`[untriaged]`; and you tag your own hand-adds (see "Adding new work by hand"
+below). Bugs and `MANUAL` items never enter this loop.
 
 ### Subtasks & epics
 

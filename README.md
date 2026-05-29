@@ -25,7 +25,10 @@ You don't keep a Claude Code window open. **Everything runs locally**:
 ANY TIME   continuous_dev.sh  — long-running Developer loop
                                picks top of WORK.md ## Todo (skips [idea]/
                                [cold]/[manual]/[future]/[escalated]/
-                               [needs-ceo]/[concern]; picks up [resume])
+                               [needs-ceo]/[concern]/[untriaged]/
+                               [untriaged-proposal-active]/[epic]; picks up
+                               [resume]). Epic subtasks are claimed strictly
+                               in seq order (next one only after the prior ships)
                                branch → claude -p developer → tests →
                                reviewer → squash-merge → push
                                sleeps when cap hit (target_per_batch since
@@ -44,6 +47,13 @@ ANY TIME   continuous_dev.sh  — long-running Developer loop
                                capture (when Mac is awake)
 07:00      pm                — reorders top of ## Todo; biweekly Monday
                                release-cut (auto-tags v0.N, generates notes)
+09:00,     architect         — shapes [untriaged] feature work into buildable
+21:00 +                        specs: fast-pass concrete items, or write a
+reactive                       /plan-style questionnaire to .factory/local/
+                               TRIAGE.md; on your answers, finalize the spec OR
+                               decompose into an [epic] + sequential subtasks.
+                               Also wakes within ~60s when you add untriaged
+                               work or save TRIAGE.md answers.
 
 ─ Weekly ───────────────────────────────────────────────────────
 Tue+Fri 07:00  designer      — drops 4-6 [idea] items + 0-3 [concern] items
@@ -71,10 +81,36 @@ python3 ~/SpraxelAiCompany/scripts/dashboard.py
     Compact glanceable view: status, wrapper PID + uptime, cap
     counter, current item, today's ships/escalations, next 10
     scheduled fires (PT), next 10 CEO action items (needs-ceo /
-    escalated / concern / idea / dictation backlog — color-coded by
-    urgency), last 20 shipped (sha + age + subject), last log line.
+    escalated / triage questionnaires / play-test / bug / idea /
+    manual / dictation backlog — color-coded by urgency), last 20
+    shipped (sha + age + subject), last log line.
     Stdlib-only Python — no Claude calls.
 ```
+
+## New work gets shaped before it's built
+
+Developers never build a vague one-liner. Every new feature item enters the queue
+tagged **`[untriaged]`** and is invisible to the loop until the **Architect** agent
+(Sonnet) turns it into a concrete spec — like Claude `/plan` mode, but file-based:
+
+1. **Intake.** The Architect reads each `[untriaged]` item. If it's already clear it
+   **fast-passes** it (tag removed → buildable). If it's ambiguous it writes a short
+   questionnaire into **one** CEO-facing file, `.factory/local/TRIAGE.md`, and re-tags
+   the item `[untriaged-proposal-active]`.
+2. **You answer.** Open `TRIAGE.md`, type your answer after each `▶`, and **save** —
+   that's the whole hand-back, nothing to submit. The tick daemon wakes the Architect
+   within ~60 s (and it also runs at 09:00 & 21:00 PT).
+3. **Finalize or decompose.** With your answers the Architect either writes the spec
+   into the item and removes the gate (now buildable), or — for a big feature —
+   **decomposes** it into a parent `[epic]` plus a sequence of subtask items. Subtasks
+   ship strictly in order (each builds on the prior one's merged code), and the parent
+   auto-ships once the last subtask lands. If it needs more, it asks a follow-up round
+   (up to 5).
+
+Where `[untriaged]` comes from: the Producer tags new feature items; accepting a
+Designer `[idea]` (`promote`) converts it to `[untriaged]`; you tag your own hand-adds.
+**Bugs and `MANUAL` items skip shaping entirely.** Full walkthrough + FAQ in
+[`OPERATIONS.md`](OPERATIONS.md) ("The shaping loop").
 
 ## Layout
 
@@ -94,7 +130,10 @@ SpraxelAiCompany/
 │   │                          for [resume]
 │   ├── workmd.py            ← WORK.md parser + CLI
 │   │                          (parse|top|append|ship|escalate|resume|
-│   │                          promote|drop|bump|clarify|release-cut)
+│   │                          promote|drop|bump|clarify|release-cut|
+│   │                          shape-list|shape-start|shape-detail|
+│   │                          shape-finalize|shape-pass|shape-epic|
+│   │                          reconcile-epics)
 │   ├── cron_match.py        ← 5-field cron expression evaluator
 │   ├── slugify.py           ← title → kebab-case branch slug
 │   ├── install_daemon.sh    ← drops `com.spraxel.tick.plist` into
@@ -120,10 +159,11 @@ SpraxelAiCompany/
 ├── agents/
 │   ├── _shared.md           ← universal rules (paused-check, branch-guard,
 │   │                          tag conventions, escalation flow)
-│   └── spraxel-*.md         ← 12 role specs:
-│                              developer, reviewer, pm, designer, triager,
-│                              playtester, morning-briefer, demo-creator,
-│                              blogger, janitor, asset-librarian, producer
+│   └── spraxel-*.md         ← 13 role specs:
+│                              developer, reviewer, pm, designer, architect,
+│                              triager, playtester, morning-briefer,
+│                              demo-creator, blogger, janitor, asset-librarian,
+│                              producer
 ├── skills/                  ← CEO slash-commands
 │   │                          (also hardlinked to ~/.claude/skills/)
 │   ├── spraxel-inbox/       ← /inbox — morning routine
@@ -157,9 +197,15 @@ SpraxelAiCompany/
   No agent owns the file's structure.
 - **Tags are the language.** `[bug]`/`[feature]`/`[game-feature]`/`[chore]`
   for kinds; `[idea]`/`[cold]`/`[manual]`/`[needs-ceo]`/`[future]`/
-  `[escalated]`/`[resume]`/`[concern]` for state. The wrapper skips all
-  the state tags except `[resume]` (which is the dev's "pick this back
-  up" signal).
+  `[escalated]`/`[resume]`/`[concern]`/`[untriaged]`/
+  `[untriaged-proposal-active]`/`[epic]` for state. The wrapper skips all
+  the state tags except `[resume]` (the dev's "pick this back up" signal);
+  epic subtasks are gated until their predecessor ships.
+- **Shape before build.** New feature work is born `[untriaged]` and can't be
+  built until the Architect agent turns it into a concrete spec (via a
+  `.factory/local/TRIAGE.md` questionnaire you answer, or an auto fast-pass).
+  Big features get decomposed into a parent `[epic]` + sequential subtasks so a
+  developer ships one focused chunk at a time. Bugs + `MANUAL` items skip it.
 - **Fail loudly, preserve work.** A blocked Developer escalates: item
   stays in WORK.md tagged `[escalated]`, feature branch pushed to origin,
   rich failure summary appended to `.factory/escalations.md`. Master is
