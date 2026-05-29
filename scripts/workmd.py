@@ -749,8 +749,10 @@ def _find_in_all(wm: WorkMd, title: str) -> tuple[str, int]:
     return "", -1
 
 
-def promote(path: Path, title: str) -> WorkItem:
-    """'Accept' a Designer idea or 'resurrect' a cold-archived item.
+def promote(path: Path, title: str, details: list[str] | None = None,
+            retitle: str | None = None) -> WorkItem:
+    """'Accept' a Designer idea or 'resurrect' a cold-archived item — optionally
+    WITH edits (accept-with-edits).
 
     - `[idea]` → `[untriaged]`: accepting a designer idea sends it INTO the
       shaping pipeline (the Architect will fast-pass it or write a
@@ -758,6 +760,14 @@ def promote(path: Path, title: str) -> WorkItem:
       keeps the CEO from greenlighting vague ideas.
     - `[cold]` → removed: a janitor-archived item was already real, shaped
       work; resurrecting it makes it directly eligible again.
+
+    Edits applied at accept time (so the CEO doesn't need a drop+re-append
+    dance just to tweak an idea before it enters shaping):
+    - `details`: extra spec/constraint lines appended under the item (e.g.
+      "Only trigger ~1/3 of patrol reversals"). The Architect reads these.
+    - `retitle`: replace the idea's descriptive text while PRESERVING its
+      leading tags + priority (the `[idea]`→`[untriaged]` swap still happens).
+      Pass just the new description, not the tags.
     """
     with FileLock(path):
         wm = parse(path)
@@ -770,12 +780,19 @@ def promote(path: Path, title: str) -> WorkItem:
         else:
             new_title = re.sub(r"\[cold\]\s*", "", item.title, flags=re.I)
         new_title = re.sub(r"\s{2,}", " ", new_title).strip()
-        if new_title == item.title:
+        if new_title == item.title and not details and not retitle:
             raise ValueError(f"item has no [idea]/[cold] tag: {title!r}")
+        # Optional retitle: swap the descriptive text, keep leading tags + pN.
+        if retitle is not None:
+            m = re.match(r"^\s*((?:(?:\[[^\]]+\]|p[0-3])\s*)+)", new_title, flags=re.I)
+            prefix = m.group(1).strip() + " " if m else ""
+            new_title = f"{prefix}{retitle.strip()}"
         item.title = new_title
-        # If the item carried its raw_lines from parse, rewrite the title line too.
-        if item.raw_lines:
-            item.raw_lines[0] = new_title
+        if details:
+            item.details.extend(details)
+        # Rebuild raw_lines from scratch so appended details + the new title all
+        # persist through serialize() (which prefers raw_lines when present).
+        _rewrite_item_lines(item)
         path.write_text(serialize(wm))
         return item
 
@@ -1333,9 +1350,14 @@ def main(argv: list[str] | None = None) -> int:
     ptf.add_argument("title", help="full item title incl. tag, e.g. '[test_failure] p1 unit:test/unit/test_foo.gd failing'")
     ptf.add_argument("--detail", action="append", default=[], help="indented detail line (repeatable) — e.g. a failure excerpt")
 
-    pr = sub.add_parser("promote", help="remove [idea]/[cold] tag from an item (accept idea / resurrect cold)")
+    pr = sub.add_parser("promote",
+        help="accept an idea ([idea]→[untriaged]) / resurrect a [cold] item — optionally with edits (--detail / --retitle)")
     pr.add_argument("path")
     pr.add_argument("title")
+    pr.add_argument("--detail", action="append", default=[],
+        help="spec/constraint line to append under the item at accept time (repeatable)")
+    pr.add_argument("--retitle", default=None,
+        help="replace the item's descriptive text (tags + priority are preserved); pass just the new description")
 
     pd = sub.add_parser("drop", help="delete an item entirely from any section (reject idea / dedupe bug)")
     pd.add_argument("path")
@@ -1498,7 +1520,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "promote":
-        item = promote(path, args.title)
+        item = promote(path, args.title, details=args.detail, retitle=args.retitle)
         print(f"promoted: {item.title}")
         return 0
 
