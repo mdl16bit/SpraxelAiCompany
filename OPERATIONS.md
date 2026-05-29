@@ -91,6 +91,35 @@ Testing (no longer a 30-min cron — see "Testing" below):
 
 ---
 
+## Reviewer findings — `.factory/reviews/<slug>.md`
+
+Before the overnight loop merges a feature, the **Reviewer** agent reads the
+dev's `git diff master...HEAD` and writes its findings to
+`.factory/reviews/<item-slug>.md` — one file per item, **gitignored (local-only)**,
+overwritten on each attempt (so it always reflects the latest verdict). Format:
+
+```
+## Verdict
+clean | blocking
+## Findings
+- [info]    <noteworthy, not blocking>
+- [warning] <fixable, not critical>
+- [block]   <correctness / contract violation — gates the merge>
+```
+
+A `[block]` finding **is a rejection**: the merge is blocked, the item bounces
+to `[retry]`, and the next dev run reads this file verbatim to fix it. You never
+*have* to act on these — the retry loop handles them — but they're the clearest
+window into *why* something didn't ship.
+
+**MORNING.md surfaces new rejections for you.** Under "▶ Reviewer rejections", it
+lists any review with a `[block]` finding modified since your last briefing, so
+you can spot an item that keeps getting bounced (a sign it's under-specified or
+hitting a fragile reviewer pattern). To browse them all:
+`ls -t <game>/.factory/reviews/` and open the slug you care about.
+
+---
+
 ## CEO daily routine (the part that matters)
 
 **The one thing to remember: any time you sit down at the machine, run

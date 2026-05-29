@@ -311,6 +311,25 @@ create it with `mkdir -p .factory/local`.
     If `N >= 5`, add: `⚠️ Retry queue is stacking up (<N>) — items may be
     too vague or there's a fragile test/reviewer pattern worth a look.`
 
+8b. **Reviewer rejections (FYI — auto-retried, no action needed).** Surface any
+    NEW rejected reviews so the CEO can see what the Reviewer blocked before
+    merge. A rejection = a `.factory/reviews/*.md` file containing a `[block]`
+    finding; "new" = modified since the PREVIOUS `MORNING.md`. List the slug +
+    each `[block]` line. These already bounced to `[retry]` and auto-retry
+    tonight — pure visibility (so the CEO can spot an item rejected repeatedly).
+    Run this BEFORE writing the new MORNING.md (step 11) — it compares against
+    the previous MORNING.md's mtime:
+    ```bash
+    reviews="$game_dir/.factory/reviews"; prev="$game_dir/.factory/local/MORNING.md"
+    for f in "$reviews"/*.md; do
+      [ -e "$f" ] || continue
+      grep -q '\[block\]' "$f" || continue                       # not a rejection
+      { [ ! -e "$prev" ] || [ "$f" -nt "$prev" ]; } || continue  # not new since last briefing
+      echo "- $(basename "${f%.md}")"
+      grep '\[block\]' "$f" | sed -E 's/^[[:space:]]*-?[[:space:]]*\[block\][[:space:]]*/    • /'
+    done
+    ```
+
 9. **Time box** — fixed template, total ~38 min (see template below).
 
 10. **Write `.factory/local/MORNING.md`** in the game repo (mkdir -p the
@@ -467,6 +486,15 @@ poke at one if you want.
       (optional, hands-on: git fetch origin <branch> && git checkout <branch>)
   ...
 (When empty:) ✓ Retry queue empty.
+
+## ▶ Reviewer rejections since last briefing (FYI — auto-retried)
+New `.factory/reviews/*.md` with a `[block]` finding — the Reviewer caught these
+before merge and the item already bounced to `[retry]`. No action needed; shown
+so you can spot something that keeps getting rejected.
+  - <slug>
+    • <the [block] finding, one line>
+  ...
+(When none:) ✓ No new reviewer rejections.
 
 ## ▶ Time box
 - 20 min play-test
