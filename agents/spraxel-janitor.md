@@ -30,13 +30,16 @@ For every item in WORK.md `## Todo`:
 - `[cold]` items are skipped by the overnight loop. CEO can resurrect by
   removing the tag during a morning routine.
 
-Read the threshold + apply via:
+Read the threshold + detect coldness via:
 ```bash
 N=$(grep -E '^\s*cold_threshold_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
 [ -z "$N" ] && N=30
 git log --since=${N}.days.ago -- WORK.md | grep -l "<item-title-substring>"
 ```
-If no commit mentions the title in $N days, it's cold.
+If no commit mentions the title in $N days, it's cold. **Note the cold items
+here, but apply the `[cold]` prepend inside the locked block in "Commit +
+report"** — applying it before the lock's `reset --hard origin/master` would just
+get wiped.
 
 ### 2. Delete orphan branches
 
@@ -177,23 +180,81 @@ days** (keep the `.briefed.ts` marker):
 find .factory/local/reports -name '*.md' -mtime +14 -delete 2>/dev/null || true
 ```
 
+### 4. Prune demo recipes + review findings
+
+Both grow without bound and aren't needed long-term — the Blogger consumes the
+latest demo recipe within the week; a review file only matters to the next
+RETRY-MODE dev run for that item.
+
+**Review findings — `.factory/reviews/*.md` (local-only, gitignored)** → delete
+in place now; no commit needed. Older than N days, N =
+`Philosophy.md#janitor.review_retention_days` (default 30):
+```bash
+N=$(grep -E '^\s*review_retention_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
+[ -z "$N" ] && N=30
+reviews_pruned=$(find .factory/reviews -name '*.md' -mtime +${N} 2>/dev/null | wc -l | xargs)
+find .factory/reviews -name '*.md' -mtime +${N} -delete 2>/dev/null || true
+echo "janitor: pruned ${reviews_pruned:-0} review file(s)"
+```
+
+**Demo recipes — `.factory/demos/<date>/` (COMMITTED — and once auto-capture
+lands, holding `.mp4`/`.png` in LFS)** → these change master, so do NOT delete
+them here; just IDENTIFY the old folders. The `git rm` + commit + push happens in
+the locked block in "Commit + report" (a bare removal a worker's `reset --hard`
+would resurrect). Older than N days, N = `Philosophy.md#janitor.demo_retention_days`
+(default 30):
+```bash
+N=$(grep -E '^\s*demo_retention_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
+[ -z "$N" ] && N=30
+find .factory/demos -mindepth 1 -maxdepth 1 -type d -mtime +${N} 2>/dev/null
+# ^ note these folder paths; you'll `git rm -r` them inside the lock below.
+```
+
 ## Commit + report
 
-- Commit WORK.md (only if cold-archives happened) with the janitor bot
-  identity. Message: `janitor: cold-archived <N> stale items`.
-- Branch deletions and log prunes don't need commits — they're file-system /
-  remote-state operations.
+**All master mutations go through ONE locked, synced block.** The cold-archive
+`[cold]` tags (§1) and the demo-folder removals (§4) both change master, so they
+must be applied AFTER syncing and pushed under `master-push.lockdir` — otherwise a
+worker's `reset --hard origin/master` undoes them. The lock holds only within a
+single live process, and the sync discards any pre-lock edits, so APPLY the
+mutations INSIDE the block, after the reset:
+```bash
+. ~/SpraxelAiCompany/scripts/lockutils.sh
+LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+if acquire_lock "$LOCK" 120 0.3; then
+  trap 'release_lock "$LOCK"' EXIT
+  git fetch -q origin master && git reset --hard origin/master -q   # fresh master
+  # APPLY here (post-sync):
+  #   1. prepend [cold] to each stale item identified in §1 (edit WORK.md)
+  #   2. for each old demo folder identified in §4:  git rm -rq "<folder>"
+  git add -A WORK.md .factory/demos
+  if ! git diff --cached --quiet; then
+    git -c user.email=janitor@spraxel.ai -c user.name='Spraxel Janitor' \
+      commit -q -m "janitor: cold-archived <N> items, pruned <M> demo folders"
+    git push -q origin master || echo "janitor: push failed — retry next week"
+  fi
+  release_lock "$LOCK"
+else
+  echo "janitor: master-push lock busy — skipped cold-archive + demo prune this run"
+fi
+```
+- Branch deletions (§2), log + report prunes (§3), and review-file deletes (§4)
+  are local / remote-state — no commit needed.
 - If `.factory/local/MORNING.md` exists, append a `## Janitor` section
   (the file is gitignored — never commit it):
-  - `Janitor 2026-05-25: cold-archived 3 items, deleted 8 branches, pruned 2 GB of logs.`
+  - `Janitor 2026-05-25: cold-archived 3 items, deleted 8 branches, pruned 2 GB logs, 12 review files, 4 demo folders.`
 
 ## Constraints
 
 - **Never delete WORK.md items**. Cold-archive (tag with `[cold]`) instead.
 - **Never delete master**. Don't touch tags.
 - **Don't prune logs younger than 60 days** — recent debugging may need them.
+- **Don't prune demo folders / review files younger than their threshold**
+  (default 30 days) — the Blogger + a retry dev may still need the recent ones.
+- **Apply `[cold]` tags and demo `git rm` ONLY inside the locked, post-sync block**
+  (Commit + report). A mutation applied before the lock's `reset --hard` is wiped.
 
 ## Output
 
-- `janitor: <N> cold, <M> branches, <K> logs`
+- `janitor: <N> cold, <M> branches, <K> logs, <R> reviews, <D> demos`
 - `janitor: nothing to clean`

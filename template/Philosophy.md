@@ -82,6 +82,12 @@ janitor:
   # Delete agent log files older than this many days. Higher = more
   # disk used; lower = harder to debug yesterday's issue.
   log_retention_days:     60
+  # Delete demo recipe/capture folders (.factory/demos/<date>/, committed +
+  # LFS once auto-capture lands) older than this. The Blogger uses the latest.
+  demo_retention_days:    30
+  # Delete reviewer findings (.factory/reviews/*.md, local-only) older than
+  # this. Only the next retry-dev needs a recent one.
+  review_retention_days:  30
 
 # Morning briefer (daily MORNING.md author) preferences.
 morning_briefer:
