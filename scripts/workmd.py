@@ -70,12 +70,19 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern|untriaged-proposal-active|untriaged|wip:\d+)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern|untriaged-proposal-active|untriaged|epic|wip:\d+)\]", re.I)
 WIP_TAG_RE = re.compile(r"\[wip:(\d+)\]", re.I)
 # A new work item's first state: shaping not yet done. Devs + Designer skip it.
 # `[untriaged]` = raw, awaiting Architect intake (fast-pass or first questionnaire);
 # `[untriaged-proposal-active]` = a questionnaire is in flight in .factory/local/TRIAGE.md.
 TRIAGE_ID_RE = re.compile(r"^\s*triage-id:\s*(\S+)\s*$", re.I)
+# Subtasks / epics. The Architect can decompose a complex feature into a parent
+# `[epic]` item (devs skip it; it auto-ships when its last child ships) + N child
+# items that share `epic-id: E-xxxx` and are ordered by `seq: N`. A child is only
+# eligible once every lower-seq sibling has shipped (left ## Todo) — strictly
+# sequential, so each child builds on the prior one's merged code.
+EPIC_ID_RE = re.compile(r"^\s*epic-id:\s*(\S+)\s*$", re.I)
+SEQ_RE = re.compile(r"^\s*seq:\s*(\d+)\s*$", re.I)
 # Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
 MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 # Future-item prefix: "FUTURE - foo", "FUTURE: foo", "FUTURE foo" — overnight
@@ -212,6 +219,33 @@ class WorkItem:
                 return m.group(1)
         return None
 
+    @property
+    def is_epic(self) -> bool:
+        """True if this is a parent `[epic]` item — a display + completion
+        tracker for a decomposed feature. Devs NEVER build it directly; it
+        auto-ships once all its children (same epic-id) have shipped."""
+        return "epic" in self.tags
+
+    @property
+    def epic_id(self) -> str | None:
+        """For a parent `[epic]` or a child subtask: the shared `epic-id: E-xxxx`
+        detail that groups a decomposed feature's items together."""
+        for d in self.details:
+            m = EPIC_ID_RE.match(d)
+            if m:
+                return m.group(1)
+        return None
+
+    @property
+    def seq(self) -> int | None:
+        """A child subtask's 1-based order within its epic (`seq: N` detail).
+        Children are claimable strictly in seq order."""
+        for d in self.details:
+            m = SEQ_RE.match(d)
+            if m:
+                return int(m.group(1))
+        return None
+
     def to_dict(self) -> dict:
         return {
             "title": self.title,
@@ -219,6 +253,8 @@ class WorkItem:
             "priority": self.priority,
             "tags": self.tags,
             "triage_id": self.triage_id,
+            "epic_id": self.epic_id,
+            "seq": self.seq,
             "lineno": self.lineno,
         }
 
@@ -793,6 +829,84 @@ def shape_pass(path: Path, title: str, details: list[str] | None = None) -> Work
         return item
 
 
+def shape_epic(path: Path, triage_id: str, children: list[str]) -> tuple[WorkItem, list[WorkItem]]:
+    """Decompose a shaped feature into a parent `[epic]` + sequential children.
+
+    Finds the proposal-active item by `triage_id`, converts it into the parent
+    `[epic] <feature>` (devs skip it; it auto-ships via reconcile_epics once all
+    children ship), and inserts N child subtask items right after it in ## Todo.
+    Each child reuses the parent's kind + priority and carries `epic-id: <id>`
+    (== triage_id) + `seq: N`. epic-id reuses the triage-id value.
+
+    `children` is a list of "<title> | <spec line> | <spec line>..." strings —
+    the first `|`-segment is the child title, the rest become spec detail lines.
+    Returns (parent, [children])."""
+    if not children:
+        raise ValueError("shape-epic needs at least one --child")
+    with FileLock(path):
+        wm = parse(path)
+        sec, idx = find_item_by_triage_id(wm, triage_id)
+        if idx < 0 or sec != "todo":
+            raise ValueError(f"no in-Todo item with triage-id: {triage_id!r}")
+        parent = wm.todo[idx]
+        # Inherit kind + priority from the parent's current title for the children.
+        kind_m = re.search(r"\[(bug|feature|chore|game-feature)\]", parent.title, re.I)
+        kind = kind_m.group(1).lower() if kind_m else "feature"
+        prio = parent.priority or ""
+        # Parent becomes a clean "[epic] <feature name>" line (all other leading
+        # tags + priority stripped — the parent is never built).
+        feature = re.sub(r"^\s*((\[[^\]]+\]|p[0-3])\s*)+", "", parent.title, flags=re.I).strip()
+        parent.title = f"[epic] {feature}"
+        if parent.epic_id is None:
+            parent.details.append(f"epic-id: {triage_id}")
+        _rewrite_item_lines(parent)
+        # Build child items.
+        kids: list[WorkItem] = []
+        for n, spec in enumerate(children, start=1):
+            parts = [p.strip() for p in spec.split("|")]
+            ctitle = parts[0]
+            cdetails = [p for p in parts[1:] if p]
+            prefix = f"[{kind}] {prio} " if prio else f"[{kind}] "
+            kid = WorkItem(
+                title=f"{prefix}{feature} — {ctitle}",
+                details=[f"epic-id: {triage_id}", f"seq: {n}"] + cdetails,
+            )
+            _rewrite_item_lines(kid)
+            kids.append(kid)
+        # Insert children right after the parent (raw-file cohesion).
+        wm.todo[idx + 1:idx + 1] = kids
+        path.write_text(serialize(wm))
+        return parent, kids
+
+
+def reconcile_epics(path: Path) -> int:
+    """Auto-ship any `[epic]` parent whose children have all shipped. A parent
+    is complete when it has ≥1 child total and ZERO children remaining in
+    ## Todo (shipped children have moved to Shipped-since). Idempotent; the
+    wrapper calls this after each ship. Returns the count of epics shipped."""
+    shipped = 0
+    with FileLock(path):
+        wm = parse(path)
+        for parent in list(wm.todo):
+            if not parent.is_epic:
+                continue
+            eid = parent.epic_id
+            if not eid:
+                continue
+            in_todo = [c for c in wm.todo if not c.is_epic and c.epic_id == eid]
+            elsewhere = [c for c in (wm.current + wm.shipped)
+                         if not c.is_epic and c.epic_id == eid]
+            if (len(in_todo) + len(elsewhere)) >= 1 and not in_todo:
+                wm.todo.remove(parent)
+                parent.title = WIP_TAG_RE.sub("", parent.title).strip()
+                _rewrite_item_lines(parent)
+                wm.current.append(parent)
+                shipped += 1
+        if shipped:
+            path.write_text(serialize(wm))
+    return shipped
+
+
 def drop(path: Path, title: str) -> WorkItem:
     """Remove an item entirely from any section. Use to reject a Designer
     idea, delete a duplicate bug, or clear a stale item without archiving.
@@ -883,7 +997,28 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
 def _is_skipped(it: WorkItem) -> bool:
     return (it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo
             or it.is_future or it.is_escalated or it.is_concern or it.is_wip
-            or it.is_untriaged or it.is_untriaged_proposal_active)
+            or it.is_untriaged or it.is_untriaged_proposal_active
+            or it.is_epic)
+
+
+def _subtask_blocked(wm: "WorkMd", it: WorkItem) -> bool:
+    """True if `it` is an epic child whose predecessor hasn't shipped yet.
+
+    A child (has epic_id + seq) is blocked while ANY lower-seq sibling is still
+    in `## Todo` — pending, [wip], [retry], or [escalated]. A shipped child has
+    left Todo (moved to Shipped-since), so this naturally lets exactly the next
+    incomplete subtask through and gates the rest. Non-subtask items (no epic_id
+    / no seq) are never blocked."""
+    eid = it.epic_id
+    seq = it.seq
+    if not eid or seq is None:
+        return False
+    for sib in wm.todo:
+        if sib is it or sib.is_epic:
+            continue
+        if sib.epic_id == eid and sib.seq is not None and sib.seq < seq:
+            return True
+    return False
 
 
 def _is_resumable(it: WorkItem) -> bool:
@@ -912,7 +1047,7 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
     resumable: list[WorkItem] = []
     fresh: list[WorkItem] = []
     for it in wm.todo:
-        if _is_skipped(it):
+        if _is_skipped(it) or _subtask_blocked(wm, it):
             continue
         if it.title.strip().lower() in skip:
             continue
@@ -943,14 +1078,14 @@ def claim(path: Path, worker_id: int) -> WorkItem | None:
         chosen_idx = -1
         # Two-pass: first scan for [retry]/[resume], then any eligible.
         for i, it in enumerate(wm.todo):
-            if _is_skipped(it):
+            if _is_skipped(it) or _subtask_blocked(wm, it):
                 continue
             if _is_resumable(it):
                 chosen_idx = i
                 break
         if chosen_idx < 0:
             for i, it in enumerate(wm.todo):
-                if _is_skipped(it):
+                if _is_skipped(it) or _subtask_blocked(wm, it):
                     continue
                 chosen_idx = i
                 break
@@ -1167,6 +1302,17 @@ def main(argv: list[str] | None = None) -> int:
     psp.add_argument("--detail", action="append", default=[],
         help="optional clarifying detail line (repeatable)")
 
+    pep = sub.add_parser("shape-epic",
+        help="decompose a shaped feature into a parent [epic] + sequential child subtasks")
+    pep.add_argument("path")
+    pep.add_argument("--id", required=True, help="triage-id of the proposal-active item to decompose")
+    pep.add_argument("--child", action="append", required=True, dest="child",
+        help="'<child title> | <spec line> | <spec line>' (repeatable, in order)")
+
+    prx = sub.add_parser("reconcile-epics",
+        help="auto-ship any [epic] parent whose children have all shipped (wrapper calls after each ship)")
+    prx.add_argument("path")
+
     args = p.parse_args(argv)
     path = Path(os.path.expanduser(args.path))
 
@@ -1302,6 +1448,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "shape-pass":
         item = shape_pass(path, args.title, args.detail)
         print(f"shape-pass: {item.title}")
+        return 0
+
+    if args.cmd == "shape-epic":
+        parent, kids = shape_epic(path, args.id, args.child)
+        print(f"shape-epic: {parent.title} → {len(kids)} subtask(s)")
+        for k in kids:
+            print(f"  {k.title}")
+        return 0
+
+    if args.cmd == "reconcile-epics":
+        n = reconcile_epics(path)
+        print(f"reconcile-epics: shipped {n} completed epic parent(s)")
         return 0
 
     return 1
