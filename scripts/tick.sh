@@ -262,6 +262,13 @@ done
 # next test waiter; sweeping them every tick keeps them from wedging a worker.
 [ -n "$arch_game_dir" ] && sweep_dead_locks "$arch_game_dir/.factory" >/dev/null 2>&1
 
+# Reap orphaned [wip:N] claims — items tagged claimed by a worker that's been
+# killed/restarted and is no longer on that item's branch. A stale claim looks
+# taken, so no worker can grab it → silent starvation. Same idea as the dead-lock
+# sweep, but for WORK.md claims. Debounced internally (needs 2 consecutive
+# sweeps) so a just-claimed-not-yet-branched item is never falsely released.
+bash "$REPO_DIR/scripts/sweep_orphan_wips.sh" 2>&1 | grep -v '^$' || true
+
 # Stale test-runner cleanup: if the active flag is set but the runner lock has
 # no live holder, the runner was SIGKILL'd before its EXIT trap could clean up.
 # Clear the active flag (so dev workers resume) and zero the on-time counter
