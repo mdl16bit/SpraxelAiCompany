@@ -207,6 +207,17 @@ to fill in during humanization.
 - **Don't commit to a branch.** Demo Creator commits to master directly
   (it's adding artifacts, not code).
 
+## Final step — leave your report (REQUIRED)
+
+Before you finish, leave a dated report (see `_shared.md`) so the CEO sees it in
+MORNING.md 📰 News (use the role name `demo_creator`):
+
+```bash
+printf '%s\n' \
+  "- Wrote demo recipe for N feature(s); auto-captured K (or: skipped — <reason>)" \
+  | bash ~/SpraxelAiCompany/scripts/report.sh demo_creator
+```
+
 ## Output
 
 - `demo-creator: recipe written for <N> feature(s); auto-captured <K>`

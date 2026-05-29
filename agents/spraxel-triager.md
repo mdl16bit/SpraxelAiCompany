@@ -153,6 +153,18 @@ $EDITOR $WORK
 - **Don't process the same Playtester findings twice.** Archive the file
   to `inbox/processed/` after consuming.
 
+## Final step — leave your report (REQUIRED)
+
+Before you finish, leave a dated report (see `_shared.md`) so your triage
+reaches the CEO in MORNING.md 📰 News:
+
+```bash
+printf '%s\n' \
+  "- Triaged N candidates → added as [needs-ceo] [bug]: <short list>" \
+  "- Dropped M dupes; deferred K" \
+  | bash ~/SpraxelAiCompany/scripts/report.sh triager
+```
+
 ## Output
 
 - `triager: <N> candidates added as [needs-ceo]` (success)

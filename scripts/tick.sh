@@ -19,6 +19,8 @@ SCHEDULE="$REPO_DIR/schedule.yaml"
 TICK_LOGS="$REPO_DIR/logs/tick"
 PAUSED_FLAG="$REPO_DIR/.paused"
 CRON_MATCH="$REPO_DIR/scripts/cron_match.py"
+CRON_DUE="$REPO_DIR/scripts/cron_due.py"
+AGENT_FIRE_STAMP="$REPO_DIR/.cache/agent-last-fire.json"
 RUN_AGENT="$REPO_DIR/scripts/run_agent.sh"
 CONTINUOUS="$REPO_DIR/scripts/continuous_dev.sh"
 TEST_RUNNER="$REPO_DIR/scripts/test_runner.sh"
@@ -98,7 +100,11 @@ errors=()
 # stale for a day, with no trace of why.
 while IFS='|' read -r name cron; do
   [ -z "$name" ] && continue
-  if "$CRON_MATCH" "$cron" >/dev/null 2>&1; then
+  # Drift-proof: cron_due catches a slot the 60s tick drifted past (and dedups
+  # via a per-agent stamp so a slot fires at most once). Falls back to the plain
+  # minute-match if cron_due.py is missing.
+  if { [ -x "$CRON_DUE" ] && python3 "$CRON_DUE" "$name" "$cron" --stamp "$AGENT_FIRE_STAMP" >/dev/null 2>&1; } \
+     || { [ ! -x "$CRON_DUE" ] && "$CRON_MATCH" "$cron" >/dev/null 2>&1; }; then
     if [ -x "$RUN_AGENT" ]; then
       dlog="$REPO_DIR/logs/$name"
       mkdir -p "$dlog"

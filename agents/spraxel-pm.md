@@ -207,6 +207,18 @@ missing in workmd.py; cut deferred. CEO please add or cut manually.`
 - **Don't tag `v0.N` on a master that has uncommitted work** from the
   Developer loop — wait until next run if working tree is dirty.
 
+## Final step — leave your report (REQUIRED)
+
+Before you finish, leave a dated report (see `_shared.md`) so your reprioritization
+reaches the CEO in MORNING.md 📰 News:
+
+```bash
+printf '%s\n' \
+  "- Reordered Todo: <e.g. moved p0 guard-ghosts to top, removed 1 dupe>" \
+  "- Release v0.<N>: <S>/<V> shipped (or: cut v0.<N> — F features, B bugs)" \
+  | bash ~/SpraxelAiCompany/scripts/report.sh pm
+```
+
 ## Output
 
 - `pm: reordered <N> items; current release v0.<N> = <S>/<V> shipped` (success)

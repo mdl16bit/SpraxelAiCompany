@@ -35,8 +35,10 @@ things you already explored unless new commits touched them.
 
 For each new feature shipped since your last run:
 
-- **Happy path**: launch with `godot --demo-feature=<slug> --quit-after=30`
-  and verify the feature visually does what its Game.md block says.
+- **Happy path**: launch the feature **headless** (see the exact invocation in
+  step 4 — you run under a launchd cron with NO display, so a windowed launch
+  just hangs) and verify via the emitted **trace/log**, not visually, that the
+  feature does what its Game.md block says.
 - **Edge cases**: think of 3–5 ways a player might break it:
   - Input spam: rapid presses of the feature's control
   - Out-of-order operations: try the feature in a state it wasn't designed for
@@ -47,11 +49,23 @@ For each new feature shipped since your last run:
 
 ### 4. Execute the plan
 
+**Invocation — copy this exactly.** You run under a launchd cron with no
+display, so godot MUST be headless, and `--demo-feature` is an APP arg that
+goes AFTER the `--` separator (same proven pattern `run_local_tests.sh` uses).
+A bare `godot --demo-feature=<slug>` tries to open a window/editor and hangs
+forever with no output — that is why every prior playtester run produced an
+empty log (fixed 2026-05-29). Always pass `--quit-after=<N>` as a hard stop.
+
 For each test:
 
 ```bash
-godot --demo-feature=<slug> --quit-after=20 --trace-file=/tmp/playtest-<slug>.jsonl 2>&1 | tee /tmp/playtest-<slug>.log
+GODOT=$(python3 -c "import yaml,re;t=open('Philosophy.md').read();print(yaml.safe_load(re.search(r'^---\n(.*?)\n---',t,re.S).group(1)).get('dev',{}).get('godot_binary',''))")
+"$GODOT" --headless --path . -- --demo-feature=<slug> --quit-after=20 --trace-file=/tmp/playtest-<slug>.jsonl 2>&1 | tee /tmp/playtest-<slug>.log
 ```
+
+(If the launch emits no trace + no PASS/FAIL within `--quit-after` seconds,
+that itself is a finding — a hung or broken demo hook — not a reason to retry
+in a windowed mode.)
 
 Inspect the trace + log for:
 - Crashes / errors / warnings (`ERROR:`, `SCRIPT ERROR`, `WARNING:`)
@@ -137,6 +151,18 @@ anything suspicious. Triager + CEO filter.
 - **Don't break the build.** If launching a `--demo-feature` causes a
   parse error or crash on startup, that's a real bug — write it up but
   don't try to fix it.
+
+## Final step — leave your report (REQUIRED)
+
+Before you finish, leave a dated report (see `_shared.md`) so the CEO sees your
+playtest in MORNING.md 📰 News:
+
+```bash
+printf '%s\n' \
+  "- Playtested N features headless; M anomalies → .factory/inbox/playtest-findings.md" \
+  "- <one-line headline of the worst finding, or 'no anomalies'>" \
+  | bash ~/SpraxelAiCompany/scripts/report.sh playtester
+```
 
 ## Output
 

@@ -262,6 +262,21 @@ case "$agent" in
   *)                  max_attempts=3 ;;
 esac
 
+# Report safety-net. Every reporting agent SHOULD leave a dated report (see
+# _shared.md) so the Morning Briefer's News digest sees its work — but LLM
+# compliance is imperfect (2026-05-29 audit: triager/designer/pm/demo_creator
+# all ran yet left no report). If a successful run leaves none, we write a
+# minimal stub from the agent's log so the run is never invisible. Exempt:
+# developer/reviewer (the continuous loop reports per-shipped-item for them)
+# and morning_briefer (it's the consumer of reports).
+REPORTS_DIR="$game_dir/.factory/local/reports"
+case "$agent" in
+  developer|reviewer|morning_briefer) self_reports=0 ;;
+  *)                                  self_reports=1 ;;
+esac
+count_reports() { ( ls "$REPORTS_DIR"/*-"$agent".md 2>/dev/null || true ) | wc -l | tr -d ' '; }
+reports_before=$(count_reports)
+
 attempt=1
 while :; do
   echo "run_agent: $agent ($model_id) attempt $attempt/$max_attempts → $log" >&2
@@ -270,6 +285,14 @@ while :; do
   rc=$?
   if [ "$rc" -eq 0 ] && [ -s "$log" ]; then
     echo "run_agent: $agent ok (attempt $attempt)" >&2
+    if [ "$self_reports" -eq 1 ] && [ "$(count_reports)" = "$reports_before" ]; then
+      tailmsg=$( { grep -vE '^[[:space:]]*$' "$log" 2>/dev/null || true; } | tail -1 | cut -c1-160)
+      printf '%s\n' \
+        "- $agent ran but left no self-report (stub written by the wrapper)." \
+        "  Last log line: ${tailmsg:-(no output captured)}" \
+        | bash "$REPO_DIR/scripts/report.sh" "$agent" >/dev/null 2>&1 || true
+      echo "run_agent: $agent left no report — wrote a stub" >&2
+    fi
     exit 0
   fi
   reason="rc=$rc"

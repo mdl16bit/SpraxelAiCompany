@@ -289,12 +289,21 @@ as fresh prose and run `/spraxel-producer` to taskify.
   `promote` converts it to `[untriaged]` and the Architect shapes it — you don't
   tag `[untriaged]` yourself.
 
+## Final step — leave your report (REQUIRED)
+
+Before you finish, leave a dated report (see `_shared.md`) so your ideas reach
+the CEO in MORNING.md 📰 News:
+
+```bash
+printf '%s\n' \
+  "- Posted N [idea]s: <short titles>" \
+  "- C concerns; E Philosophy conflicts escalated: <which>" \
+  | bash ~/SpraxelAiCompany/scripts/report.sh designer
+```
+
 ## Output
 
 - `designer: <N> ideas posted, <C> concerns, <E> philosophy conflicts escalated` (success)
 - `designer: nothing new — all my candidate ideas were dupes` (no-op,
   rare; usually means CEO needs to expand Philosophy or you need to
   scan inspiration more aggressively next run)
-
-Also leave a report (per `_shared.md`) summarizing ideas + concerns + any
-Philosophy conflicts you escalated, so it reaches the CEO in MORNING.md 📰 News.
