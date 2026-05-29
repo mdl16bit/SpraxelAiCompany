@@ -295,11 +295,35 @@ def _morning_playtest(game_dir: Path | None, limit: int = 6) -> list[tuple[str, 
     return out
 
 
+def _triage_awaiting(game_dir: Path | None) -> list[tuple[str, str]]:
+    """Triage questionnaires awaiting your answers — parsed from the local
+    TRIAGE.md '## ⏳ Awaiting your answers' section. Each '### T-xxxx · <title>'
+    header under it is one proposal the Architect needs you to answer before
+    the item can be built."""
+    if not game_dir:
+        return []
+    tpath = game_dir / ".factory" / "local" / "TRIAGE.md"
+    if not tpath.exists():
+        return []
+    try:
+        text = tpath.read_text(errors="replace")
+    except Exception:
+        return []
+    m = re.search(r"^##\s*⏳\s*Awaiting.*?\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)
+    if not m:
+        return []
+    out: list[tuple[str, str]] = []
+    for hm in re.finditer(r"^###\s+(T-\S+)\s*·?\s*(.*)$", m.group(1), re.M):
+        out.append(("triage", (hm.group(2).strip() or hm.group(1))))
+    return out
+
+
 def pending_ceo_actions(game_dir: Path | None, n: int = 10) -> list[tuple[str, str]]:
     """Return up to n (label, text) CEO to-dos — the dashboard mirror of the
     morning routine — ordered by urgency:
       1. [needs-ceo] — dev asked questions (live WORK.md)
       2. [escalated] — design/PM call manually flagged (live WORK.md; RARE)
+      2b. triage     — shaping questionnaires awaiting your answers (TRIAGE.md)
       3. play-test   — overnight features to verify (MORNING.md / git)
       4. [bug]       — bugs to triage (live WORK.md)
       5. [idea]      — designer suggestions to decide (live WORK.md)
@@ -331,6 +355,8 @@ def pending_ceo_actions(game_dir: Path | None, n: int = 10) -> list[tuple[str, s
     for it in wm.todo:
         if it.is_escalated and not it.is_needs_ceo:
             out.append(("escalated", it.title))
+    # 2b. triage questionnaires awaiting your answers (local TRIAGE.md)
+    out += _triage_awaiting(game_dir)
     # 3. play-test (overnight ships to verify)
     out += _morning_playtest(game_dir, limit=5)
     # 4. bugs to triage (workmd has no is_bug; match the [bug] tag)
@@ -669,6 +695,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
         color_map = {
             "needs-ceo": RED,
             "escalated": YELLOW,
+            "triage":    MAGENTA,
             "concern":   MAGENTA,
             "playtest":  GREEN,
             "bug":       RED,

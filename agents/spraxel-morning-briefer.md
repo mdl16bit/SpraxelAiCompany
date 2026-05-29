@@ -159,6 +159,14 @@ create it with `mkdir -p .factory/local`.
    If there are zero new `[bug]` items, write exactly:
    `✓ No new bugs to triage. Skip this section.`
 
+6b. **Shape section** — triage questionnaires from the Architect awaiting the
+   CEO's answers. Read `.factory/local/TRIAGE.md`; under its
+   `## ⏳ Awaiting your answers` header, list each `### T-xxxx · <title>`
+   proposal with its round number. These gate new work: until answered, the
+   items can't be built. Point the CEO at the file to fill the ▶ lines. If the
+   file is missing or has no awaiting proposals, write the zero-case line.
+   (Do NOT try to answer them yourself — that's the CEO's call.)
+
 7. **Questions for CEO section** — scan WORK.md `## Todo` for items tagged
    `[needs-ceo]`. The Developer added these because it didn't understand
    the item. Surface each with its questions:
@@ -298,6 +306,18 @@ Producer — they're already in the queue):
   - ...
 <!-- If zero new bugs, replace the list with this one line: -->
 ✓ No new bugs to triage. Skip this section.
+
+## ▶ Shape (answer triage questionnaires) (5 min)
+The Architect needs your answers to turn these into buildable specs. Until you
+answer, the items stay blocked (developers never build untriaged work).
+  → Open .factory/local/TRIAGE.md, fill the ▶ lines under each question, save.
+    The Architect processes your answers on its next run (09:00 / 21:00 PT, or
+    sooner). Leave a ▶ blank to let it decide. It may ask up to 5 rounds.
+
+  - <T-xxxx> <item title>  (Round <N> of 5)
+  - ...
+<!-- If zero proposals awaiting, replace the list with this one line: -->
+✓ Nothing to shape — no triage questionnaires awaiting answers. Skip this section.
 
 ## ❓ Developer asked you these (3 min)
 <N> items the Developer didn't understand. Answer by editing the item in

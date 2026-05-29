@@ -32,6 +32,15 @@ grep -nE '^\[needs-ceo\]' "$WORK" || echo "  (none)"
 echo "-- [escalated] (needs your judgment) --"
 grep -nE '^\[escalated\]' "$WORK" || echo "  (none)"
 [ -f "$GAME/.factory/escalations.md" ] && { echo "-- escalations.md snapshot --"; sed -n '1,40p' "$GAME/.factory/escalations.md"; }
+echo "-- triage questionnaires awaiting your answers (Architect) --"
+TRIAGE="$GAME/.factory/local/TRIAGE.md"
+if [ -f "$TRIAGE" ]; then
+  awk '/^##[[:space:]].*Awaiting/{f=1;next} /^##[[:space:]]/{f=0} f&&/^### /{print "  "$0}' "$TRIAGE" \
+    | grep . || echo "  (none awaiting)"
+  echo "  → fill the ▶ lines in: $TRIAGE"
+else
+  echo "  (none yet — Architect writes these as untriaged work arrives)"
+fi
 if [ "$DOW" = "6" ]; then
   echo "-- Saturday: blog draft awaiting humanization? --"
   git -C "$GAME" ls-remote --heads origin "blog/$(date +%F)" 2>/dev/null | grep -q . \
@@ -64,10 +73,12 @@ ls "$GAME/.factory/local/MORNING.md" 2>/dev/null && echo "  → cat it in the mo
 
 Summarize the gathered state to the CEO in this order, concise:
 
-1. **🔴 Blocking** — if `[needs-ceo]`, `[escalated]`, or (Sat) a blog branch
-   exist, list them and tell the CEO each one needs a decision. **If
-   nothing is blocking, say so explicitly: "Nothing blocking — the loop is
-   running free."** This is the single most important line.
+1. **🔴 Blocking** — if `[needs-ceo]`, `[escalated]`, triage questionnaires
+   awaiting answers, or (Sat) a blog branch exist, list them and tell the CEO
+   each one needs a decision. Triage questionnaires (in `TRIAGE.md`) gate new
+   work — until answered, those items can't be built. **If nothing is blocking,
+   say so explicitly: "Nothing blocking — the loop is running free."** This is
+   the single most important line.
 2. **📋 Top-10 MANUAL** — the CEO's hand-work backlog (art, music, design,
    story calls the bots can't do). Always show these so the CEO can pick
    one to work on.
