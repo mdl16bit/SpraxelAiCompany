@@ -1119,7 +1119,19 @@ print(t)
       else
         # Squash failed — likely a CODE merge conflict (not WORK.md), which
         # is a real dev-fixable failure. Bail to the retry path.
-        git merge --abort 2>/dev/null || true
+        #
+        # CRITICAL: `git merge --squash` does NOT create a MERGE_HEAD, so
+        # `git merge --abort` is a no-op here ("fatal: There is no merge to
+        # abort") — the conflicted + staged squash state would PERSIST in
+        # game_dir. That left the working tree dirty/UU, which then broke the
+        # [retry] self-heal commit ("cannot reach master") AND the next
+        # worker's merge, orphaning the item as [wip] (2026-05-29 incident).
+        # Hard-reset to clean master + drop untracked leftovers (git clean
+        # respects .gitignore, so the .godot cache etc. are safe; this also
+        # stops orphan untracked scenario files from polluting test
+        # enumeration) so game_dir is pristine for the retry path below.
+        git reset --hard origin/master --quiet 2>/dev/null || true
+        git clean -fd --quiet 2>/dev/null || true
         exit 1
       fi
     )
