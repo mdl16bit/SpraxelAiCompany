@@ -60,7 +60,7 @@ copy_if_missing() {
 }
 
 # Top-level stub files (skipped if they already exist)
-for f in Philosophy.md Game.md WORK.md .gitignore; do
+for f in Philosophy.md Game.md WORK.md .gitignore .gitattributes CLAUDE.md; do
     copy_if_missing "$TEMPLATE_DIR/$f" "$TARGET/$f"
 done
 
@@ -135,13 +135,22 @@ done. next steps to wire this game into the offline Spraxel system:
   5. Install the daemon (idempotent — safe to re-run):
        bash ~/SpraxelAiCompany/scripts/install_daemon.sh
 
-  6. Install the local-tests cron in THIS repo:
+  6. Install the GUT test framework into THIS repo (the templated test runner
+     calls res://addons/gut — without it EVERY unit test errors):
+       cd $TARGET && git clone --depth 1 https://github.com/bitwes/Gut /tmp/gut \
+         && rm -rf addons/gut && mkdir -p addons && mv /tmp/gut/addons/gut addons/gut \
+         && rm -rf /tmp/gut
+       # (or install via Godot editor: AssetLib > "Gut"). Do NOT put addons/ in
+       # Git LFS — .gitattributes excludes it on purpose (LFS-tracked GUT fonts
+       # wedge worktree checkouts). See docs/WORKER_OPERATIONS.md §1.
+
+  7. Install the local-tests cron in THIS repo:
        cd $TARGET && bash scripts/install_local_tests.sh
 
-  7. Verify both are loaded:
+  8. Verify both are loaded:
        launchctl list | grep com.spraxel
 
-  8. (Optional) Open MORNING.md by running the morning-briefer once:
+  9. (Optional) Open MORNING.md by running the morning-briefer once:
        bash ~/SpraxelAiCompany/scripts/run_agent.sh morning-briefer
 
 For day-to-day operation, see ~/SpraxelAiCompany/OPERATIONS.md.

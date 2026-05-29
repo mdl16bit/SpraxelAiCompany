@@ -1,0 +1,52 @@
+# Git LFS — track binary asset files outside the regular Git object store.
+#
+# Prerequisites (one-time per developer):
+#   brew install git-lfs       # macOS, or apt-get install git-lfs on Linux
+#   git lfs install            # installs hooks in this repo's .git/
+# After that, normal `git add` / `git commit` / `git push` works as usual —
+# Git automatically routes matched files to LFS based on the rules below.
+# Existing committed binaries before this file was added are NOT migrated;
+# they stay in regular Git history. Going forward, new binary commits use LFS.
+# To migrate existing assets/ files into LFS retroactively:
+#   git lfs migrate import --include="assets/**" --everything
+# (rewrites history — coordinate with anyone else who has a clone)
+
+# Images
+*.png  filter=lfs diff=lfs merge=lfs -text
+*.jpg  filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.webp filter=lfs diff=lfs merge=lfs -text
+*.gif  filter=lfs diff=lfs merge=lfs -text
+*.tga  filter=lfs diff=lfs merge=lfs -text
+*.bmp  filter=lfs diff=lfs merge=lfs -text
+# Audio
+*.ogg  filter=lfs diff=lfs merge=lfs -text
+*.mp3  filter=lfs diff=lfs merge=lfs -text
+*.wav  filter=lfs diff=lfs merge=lfs -text
+*.flac filter=lfs diff=lfs merge=lfs -text
+*.opus filter=lfs diff=lfs merge=lfs -text
+# Video (Demo Creator artifacts, eventually)
+*.mp4  filter=lfs diff=lfs merge=lfs -text
+*.webm filter=lfs diff=lfs merge=lfs -text
+*.mov  filter=lfs diff=lfs merge=lfs -text
+# Fonts (game-owned, under assets/ — vendored addon fonts are excluded below)
+*.ttf  filter=lfs diff=lfs merge=lfs -text
+*.otf  filter=lfs diff=lfs merge=lfs -text
+*.woff filter=lfs diff=lfs merge=lfs -text
+*.woff2 filter=lfs diff=lfs merge=lfs -text
+# Godot binary exports
+*.pck  filter=lfs diff=lfs merge=lfs -text
+assets/** filter=lfs diff=lfs merge=lfs -text
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vendored third-party addons (e.g. the GUT test framework) — keep as PLAIN Git
+# objects, NOT LFS. This rule is LAST so it overrides the *.ttf / *.png rules
+# above for anything under addons/.
+#
+# WHY: GUT ships tiny binary fonts (addons/gut/fonts/*.ttf). Under an LFS filter
+# they became perpetually "not uptodate" in git's eyes, which made worktree
+# tree-switches (git checkout/reset --force) refuse with "Entry '…ttf' not
+# uptodate. Cannot merge." — wedging clean_slate and death-looping a worker.
+# These files are small and rarely change, so plain Git is correct and avoids
+# the wedge entirely. See docs/WORKER_OPERATIONS.md §1.
+addons/** -filter -diff -merge -text
