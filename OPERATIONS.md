@@ -82,9 +82,12 @@ Weekly:
 | Sun 01:00 PT | **janitor** | Cold-archives 30+ day stale items, prunes merged `feat/*` branches + 60+ day logs, sweeps orphan `feat/cont-*` branches whose WORK.md item is gone. |
 | 1st 07:00 PT | **asset-librarian** | Scans `assets/`, reports orphans + license gaps. |
 
-Every 30 minutes (separately scheduled — `com.spraxel.localtests.plist`):
+Testing (no longer a 30-min cron — see "Testing" below):
 
-- **local-tests** — runs Godot GUT + every `scripts/scenarios/*.gd` headlessly. Writes `.factory/local-tests-status.json`. The Triager reads this nightly.
+- **batch test runner** (`test_runner.sh`) — dispatched by `tick.sh` when the
+  ship cap maxes out + workers drain, or after 100h of engine on-time. Runs the
+  whole suite serially and files failures as `[test_failure]` items. The old
+  `com.spraxel.localtests` 30-min daemon is retired.
 
 ---
 
@@ -663,7 +666,8 @@ Next tick runs it. Confirm with `tail -f logs/tick/$(date +%F).log`.
 | `target_per_batch` | 10 | ships per batch before all workers sleep (resets on your checkin) |
 | `dev_stall_minutes` | 12 | kill a dev only after this long with **no** progress |
 | `max_dev_minutes` | 90 | absolute cap even on a progressing dev |
-| `scenario_sample_size` | 4 | random acceptance scenarios per commit (0 = full suite) |
+| `test_runner.max_minutes` | 120 | wall-clock budget per batch test-runner run (0 = run to completion) |
+| `test_runner.force_after_engine_hours` | 100 | force a test-runner run after this much engine on-time since the last |
 
 Full table with rationale: see **Configuration reference** below.
 
@@ -1283,6 +1287,37 @@ Tag reference:
 | `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up, checks out saved branch, rebases on master, hands off to dev with the CEO's clarification in details. | **yes** (dev resumes from saved branch with new guidance) |
 | `[concern]` | Designer (or future agents) flagged a game-wide issue (feature bloat, missing fundamentals, philosophical drift). Advisory text, not work to do. CEO triages: delete (dismiss), remove tag (convert into real work item), or leave (defer). | **NO** (skip until tag removed) |
 | `[epic]` | Parent of a decomposed feature (Architect-created). Display + completion tracker; auto-ships once its last subtask ships. | **NO** ever (devs build the subtasks, never the parent) |
+| `[test_failure]` | A regression filed by the batch test runner, queued at the TOP of `## Todo` with a `test-ref: <kind>:<id>` detail. | yes — but only ONE is worked at a time (others gated → workers take normal items); the fixing dev may run the named test. |
+
+### Testing — the batch test runner + `[test_failure]`
+
+**Developers run NO tests during feature work.** They write + commit tests but
+never execute any. Running the suite on every commit with 3 workers meant three
+Godot processes thrashing the CPU at once (30–40 min test phases, stalls, almost
+no commits). Instead a dedicated **batch test runner** (`scripts/test_runner.sh`)
+is the one place the whole suite runs.
+
+- **What it does:** runs every test ONE AT A TIME (serial → zero contention),
+  tracking which test-refs it has run this cycle. Each failure becomes a
+  `[test_failure]` item at the TOP of `## Todo` (deduped by test-ref). It runs
+  until the whole suite is covered OR `test_runner.max_minutes` (default 120)
+  elapses, resuming with un-run tests next time and resetting once a full cycle
+  completes.
+- **Two triggers (tick.sh dispatches it — it is NOT cron-scheduled):**
+  1. the ship cap maxes out (`target_per_batch` reached since the last CEO
+     checkin) **and** all developer workers have drained, or
+  2. `test_runner.force_after_engine_hours` (default 100) of engine on-time have
+     elapsed since its last run (paused time doesn't count and never resets it).
+- **Exclusive:** while a run is scheduled or active, `tick.sh` spawns no new
+  workers and existing workers finish their current item then idle — the runner
+  runs alone. The dashboard Status shows `running — test runner scheduled` (then
+  `… running`).
+- **Fixing a `[test_failure]`:** workers claim it like any item, EXCEPT only one
+  is in flight at a time (others gated). The fixing dev MAY run ONLY that test
+  (`run_local_tests.sh --only <test-ref>`); the wrapper re-runs exactly that test
+  as the merge gate.
+- The old `com.spraxel.localtests` 30-min full-suite daemon has been **retired** —
+  the triggered runner supersedes it.
 
 ### The shaping loop — Architect + TRIAGE.md
 
@@ -1548,8 +1583,9 @@ field is missing. So a minimal Philosophy.md just needs `identity` +
 
 | Script | Purpose | Invoked by |
 |--------|---------|------------|
-| **`tick.sh`** | The launchd-fired heartbeat. Every 60s: reads `schedule.yaml`, fires due crew agents, spawns `continuous_dev.sh` if not running. | `com.spraxel.tick.plist` (launchd) |
-| **`continuous_dev.sh`** | Long-running Developer loop. Ships items from `## Todo` until `target_per_batch` reached since last CEO signal, then sleeps. Detects clarifications + lock-conflicts; baseline-aware test gate. Single instance via `.locks/continuous.lockdir`. | spawned by `tick.sh` if not alive |
+| **`tick.sh`** | The launchd-fired heartbeat. Every 60s: reads `schedule.yaml`, fires due crew agents, spawns `continuous_dev.sh` if not running, accrues engine on-time, and dispatches the batch test runner when triggered (cap+drained, or 100h). | `com.spraxel.tick.plist` (launchd) |
+| **`continuous_dev.sh`** | Long-running Developer loop. Ships items from `## Todo` until `target_per_batch` reached since last CEO signal, then sleeps. Detects clarifications + lock-conflicts. Devs run NO tests (except re-running a `[test_failure]`'s named test as that item's merge gate); idles while a test-runner run is scheduled/active. Per-worker lock `.locks/continuous-wN.lockdir`. | spawned by `tick.sh` if not alive |
+| **`test_runner.sh`** | The batch test runner. Runs the WHOLE suite serially (no contention), files each failure as a `[test_failure]` item at the top of `## Todo`. Tracks progress across runs; budget `test_runner.max_minutes`. Exclusive via `.locks/test-runner.lockdir`. NOT cron-fired. | dispatched by `tick.sh` (cap+drained, or `force_after_engine_hours`) |
 | **`run_agent.sh <name>`** | Wraps one Claude invocation. Reads the agent spec, composes prompt (spec + Philosophy + WORK.md + optional `SPRAXEL_ITEM_BRIEF`), passes `--model` based on spec frontmatter, calls `claude -p`. Per-agent lock prevents double-fire. | `tick.sh` (cron), `continuous_dev.sh` (per item), CEO manually |
 | **`install_daemon.sh`** | Drops `com.spraxel.tick.plist` into `~/Library/LaunchAgents/`. Args: `install` / `stop` / `status` / `restart`. | CEO, one-time |
 | **`new_game.sh <dir>`** | Bootstraps a new game repo with Philosophy.md, Game.md, WORK.md, `.gitignore`, `.factory/`, `test/unit/`, `scripts/scenarios/`, and the local-tests cron installer. | CEO, when starting a new game |
@@ -1579,7 +1615,7 @@ These get installed by `new_game.sh`. They're not part of the framework's daemon
 
 | Script | Purpose | Invoked by |
 |--------|---------|------------|
-| **`run_local_tests.sh`** | The test-gate runner. Refreshes Godot's class cache, runs GUT under `test/unit/`, runs every `scripts/scenarios/*.gd` via `--demo-feature=<slug>`, writes `.factory/local-tests-status.json`. Exit 0 = green, 1 = failures, 2 = setup error. | `com.spraxel.localtests.plist` (every 30 min), `continuous_dev.sh` after every Developer commit, CEO manually |
+| **`run_local_tests.sh`** | Runs GUT under `test/unit/` + every `scripts/scenarios/*.gd`, writes `.factory/local-tests-status.json`. Exit 0 = green, 1 = failures, 2 = setup error. NEW: `--list` enumerates canonical test-refs; `--only <ref>` runs exactly one test. | `test_runner.sh` (`--list` + `--only` per ref); `continuous_dev.sh` (`--only` for a `[test_failure]` fix gate); CEO manually |
 | **`run_unit_tests.sh`** | Fast GUT-only runner. No class-cache refresh, no scenarios, no notifications. | CEO iterating on a specific test |
 | **`install_local_tests.sh`** | Drops `com.spraxel.localtests.plist`. Args: `install` / `stop` / `status`. | CEO, one-time per game repo |
 

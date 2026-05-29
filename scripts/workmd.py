@@ -70,7 +70,7 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern|untriaged-proposal-active|untriaged|epic|wip:\d+)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern|untriaged-proposal-active|untriaged|epic|test_failure|wip:\d+)\]", re.I)
 WIP_TAG_RE = re.compile(r"\[wip:(\d+)\]", re.I)
 # A new work item's first state: shaping not yet done. Devs + Designer skip it.
 # `[untriaged]` = raw, awaiting Architect intake (fast-pass or first questionnaire);
@@ -83,6 +83,12 @@ TRIAGE_ID_RE = re.compile(r"^\s*triage-id:\s*(\S+)\s*$", re.I)
 # sequential, so each child builds on the prior one's merged code.
 EPIC_ID_RE = re.compile(r"^\s*epic-id:\s*(\S+)\s*$", re.I)
 SEQ_RE = re.compile(r"^\s*seq:\s*(\d+)\s*$", re.I)
+# A `[test_failure]` item (filed by the batch test runner) carries a
+# `test-ref: <kind>:<id>` detail naming the single test that failed, e.g.
+# `test-ref: unit:test/unit/test_foo.gd` or `test-ref: scenario:add-dogs`.
+# The fixing developer re-runs ONLY this ref as its merge gate, and the runner
+# dedupes against open [test_failure] items by this ref.
+TEST_REF_RE = re.compile(r"^\s*test-ref:\s*(\S+)\s*$", re.I)
 # Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
 MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 # Future-item prefix: "FUTURE - foo", "FUTURE: foo", "FUTURE foo" — overnight
@@ -244,6 +250,26 @@ class WorkItem:
             m = SEQ_RE.match(d)
             if m:
                 return int(m.group(1))
+        return None
+
+    @property
+    def is_test_failure(self) -> bool:
+        """True if this is a regression filed by the batch test runner. It IS
+        claimable (NOT skipped), but only ONE [test_failure] is worked at a time
+        across all workers (see _test_failure_blocked) — other workers take
+        normal items. The fixing dev MAY run the single named test (test_ref) to
+        verify the fix, the only place tests run in the dev path."""
+        return "test_failure" in self.tags
+
+    @property
+    def test_ref(self) -> str | None:
+        """For a `[test_failure]` item: the `test-ref: <kind>:<id>` detail naming
+        the one failing test (e.g. `unit:test/unit/test_foo.gd`,
+        `scenario:add-dogs`). Used as the dedup key + the targeted fix gate."""
+        for d in self.details:
+            m = TEST_REF_RE.match(d)
+            if m:
+                return m.group(1)
         return None
 
     def to_dict(self) -> dict:
@@ -671,16 +697,47 @@ def escalate(
     return item
 
 
-def append(path: Path, section: str, line: str, details: list[str] | None = None) -> None:
-    """Append a new item to the named section ('todo', 'current', 'shipped')."""
+def append(path: Path, section: str, line: str, details: list[str] | None = None,
+           top: bool = False) -> None:
+    """Add a new item to the named section ('todo', 'current', 'shipped').
+
+    Appends to the END by default; `top=True` inserts at index 0 (the test
+    runner queues [test_failure] items at the top of ## Todo)."""
     section_attr = {"todo": "todo", "current": "current", "shipped": "shipped"}.get(section)
     if section_attr is None:
         raise ValueError(f"unknown section: {section!r}")
     with FileLock(path):
         wm = parse(path)
         item = WorkItem(title=line.strip(), details=list(details or []))
-        getattr(wm, section_attr).append(item)
+        if top:
+            getattr(wm, section_attr).insert(0, item)
+        else:
+            getattr(wm, section_attr).append(item)
         path.write_text(serialize(wm))
+
+
+def file_test_failure(path: Path, test_ref: str, title: str,
+                      details: list[str] | None = None) -> bool:
+    """File a [test_failure] regression for `test_ref` at the TOP of ## Todo.
+
+    Deduped: if any OPEN (## Todo) item already carries `test-ref: <test_ref>`,
+    do nothing and return False — re-running the suite never piles duplicate
+    items for the same still-broken test. Otherwise prepend a new item whose
+    first detail is `test-ref: <test_ref>` and return True.
+
+    The title should already include the `[test_failure]` tag + a priority,
+    e.g. `[test_failure] p1 unit:test/unit/test_foo.gd failing`.
+    """
+    with FileLock(path):
+        wm = parse(path)
+        ref = test_ref.strip()
+        for it in wm.todo:
+            if it.test_ref == ref:
+                return False
+        merged = [f"test-ref: {ref}"] + list(details or [])
+        wm.todo.insert(0, WorkItem(title=title.strip(), details=merged))
+        path.write_text(serialize(wm))
+        return True
 
 
 def _find_in_all(wm: WorkMd, title: str) -> tuple[str, int]:
@@ -1026,6 +1083,23 @@ def _subtask_blocked(wm: "WorkMd", it: WorkItem) -> bool:
     return False
 
 
+def _test_failure_blocked(wm: "WorkMd", it: WorkItem) -> bool:
+    """True if `it` is a [test_failure] item while ANOTHER [test_failure] is
+    already claimed ([wip:*]). Only ONE test_failure is worked at a time across
+    all workers — so a second worker scanning the queue skips every test_failure
+    and takes the next normal item instead. When the in-flight fix ships (leaves
+    ## Todo) or retries, the next test_failure unblocks. Non-test_failure items
+    are never blocked by this."""
+    if not it.is_test_failure:
+        return False
+    for o in wm.todo:
+        if o is it:
+            continue
+        if o.is_test_failure and o.is_wip:
+            return True
+    return False
+
+
 def _is_resumable(it: WorkItem) -> bool:
     """[retry] / [resume] items have a saved branch + failure feedback
     in details; the next dev gets a head start. Prefer these over fresh
@@ -1052,7 +1126,7 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
     resumable: list[WorkItem] = []
     fresh: list[WorkItem] = []
     for it in wm.todo:
-        if _is_skipped(it) or _subtask_blocked(wm, it):
+        if _is_skipped(it) or _subtask_blocked(wm, it) or _test_failure_blocked(wm, it):
             continue
         if it.title.strip().lower() in skip:
             continue
@@ -1083,14 +1157,14 @@ def claim(path: Path, worker_id: int) -> WorkItem | None:
         chosen_idx = -1
         # Two-pass: first scan for [retry]/[resume], then any eligible.
         for i, it in enumerate(wm.todo):
-            if _is_skipped(it) or _subtask_blocked(wm, it):
+            if _is_skipped(it) or _subtask_blocked(wm, it) or _test_failure_blocked(wm, it):
                 continue
             if _is_resumable(it):
                 chosen_idx = i
                 break
         if chosen_idx < 0:
             for i, it in enumerate(wm.todo):
-                if _is_skipped(it) or _subtask_blocked(wm, it):
+                if _is_skipped(it) or _subtask_blocked(wm, it) or _test_failure_blocked(wm, it):
                     continue
                 chosen_idx = i
                 break
@@ -1250,6 +1324,14 @@ def main(argv: list[str] | None = None) -> int:
     pa.add_argument("--section", required=True, choices=("todo", "current", "shipped"))
     pa.add_argument("title")
     pa.add_argument("--detail", action="append", default=[], help="indented detail line (repeatable)")
+    pa.add_argument("--top", action="store_true", help="insert at the TOP of the section instead of the end")
+
+    ptf = sub.add_parser("file-test-failure",
+        help="file a [test_failure] regression at the top of ## Todo, deduped by --test-ref (used by the batch test runner)")
+    ptf.add_argument("path")
+    ptf.add_argument("--test-ref", required=True, help="canonical ref of the failing test, e.g. unit:test/unit/test_foo.gd or scenario:add-dogs")
+    ptf.add_argument("title", help="full item title incl. tag, e.g. '[test_failure] p1 unit:test/unit/test_foo.gd failing'")
+    ptf.add_argument("--detail", action="append", default=[], help="indented detail line (repeatable) — e.g. a failure excerpt")
 
     pr = sub.add_parser("promote", help="remove [idea]/[cold] tag from an item (accept idea / resurrect cold)")
     pr.add_argument("path")
@@ -1402,8 +1484,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "append":
-        append(path, args.section, args.title, args.detail)
-        print(f"appended to {args.section}: {args.title}")
+        append(path, args.section, args.title, args.detail, top=args.top)
+        where = "top of" if args.top else "to"
+        print(f"appended {where} {args.section}: {args.title}")
+        return 0
+
+    if args.cmd == "file-test-failure":
+        filed = file_test_failure(path, args.test_ref, args.title, args.detail)
+        if filed:
+            print(f"filed [test_failure] for {args.test_ref}")
+            return 0
+        print(f"file-test-failure: already open for {args.test_ref} — skipped (dedup)")
         return 0
 
     if args.cmd == "promote":

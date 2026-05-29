@@ -268,23 +268,24 @@ actually stick.
    `SCENARIO <slug> PASS` or `SCENARIO <slug> FAIL`. Used by the overnight
    loop and by the CEO during the morning play-test.
 
-7. **Run the local test suite — ALWAYS, as the final gate before you're done.**
-   (You've been committing incrementally along the way; this is the last check
-   before you print the squash message.) Execute:
+7. **Do NOT run tests.** Testing is no longer part of feature work. You WRITE
+   and COMMIT new tests (steps 5–6) but you do **not execute any** — not the
+   suite, not a scenario, not a single GUT file. A dedicated batch **test
+   runner** sweeps the whole suite separately (serially, with no CPU
+   contention) and files each failure as a `[test_failure]` work item for a
+   later targeted fix. Running tests here is exactly what caused the
+   3-workers-thrashing-Godot stalls, so skip it entirely. Make your final
+   commit of any remaining changes and proceed to step 8.
+
+   **The ONE exception — a `[test_failure]` item.** If your item is a
+   `[test_failure]` (its brief names a single failing test via a `test-ref:`
+   like `unit:test/unit/test_foo.gd` or `scenario:add-dogs`), you MAY — and
+   should — run **only that one test** to verify your fix:
    ```bash
-   bash scripts/run_local_tests.sh
+   bash scripts/run_local_tests.sh --only <test-ref>
    ```
-   Wait for it to finish. Then:
-   - **If all tests pass** → make a final commit of any remaining changes, proceed.
-   - **If only YOUR new/changed tests fail** → fix your code, re-run, repeat.
-   - **If pre-existing tests fail** (unrelated to your change — e.g., a
-     scenario that was already broken on master) → don't fix them; that's
-     project tech-debt, not your scope. But **note them in the commit
-     message body**: `pre-existing failures: drill-door, hide-box (not
-     touched by this change)`.
-   - **If `run_local_tests.sh` itself errors** (no exit code, hangs, shell
-     syntax error) → escalate via `clarify` — something is wrong with the
-     test harness that the CEO needs to look at.
+   Run nothing else (NOT the full suite). The wrapper re-runs exactly this test
+   as the merge gate, so make sure it passes before you finish.
 
 8. **Ensure everything is committed** (you've been committing incrementally per
    the rule above — this just confirms no working changes are left uncommitted).
@@ -442,7 +443,7 @@ follow-ups added to WORK.md:
 - **Scope is the item title + its indented details — nothing else.** Don't
   drift into "while I'm here" refactors or sibling improvements.
 - **No `git push`** — overnight pushes after merge. If you push, you bypass
-  the test gate.
+  the reviewer + merge gate.
 - **No PR creation** — there are no PRs in the offline workflow.
 - **No `gh issue` calls** — there are no issues. WORK.md is the contract.
 - **One commit per run** — if the implementation spans many edits, squash

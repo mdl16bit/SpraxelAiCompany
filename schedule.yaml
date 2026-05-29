@@ -105,21 +105,28 @@ continuous:
   dev_stall_minutes:      15
   max_dev_minutes:        90
 
-  # Per-commit scenario sampling. The acceptance suite is ~61 scenarios,
-  # each a separate godot --headless launch (full suite ~20-25 min) — far
-  # too slow to run on every commit with 3 workers. Each per-commit test
-  # run instead executes this many RANDOM scenarios as a smoke test; a
-  # sampled scenario that fails is filed as a [bug] in WORK.md (tracked +
-  # fixed later) rather than blocking the ship. Over many commits the
-  # random sampling covers the whole suite. GUT unit tests always run in
-  # full (they're fast) and still gate the ship. Set to 0 to run the full
-  # suite every time (the old behavior).
-  scenario_sample_size:   4
-
   description:      "always-on, paced by CEO checkins"
 
-# Local tests (Godot scenarios + GUT). Already managed by ~/Library/LaunchAgents/com.spraxel.localtests.plist.
-# Listed here for visibility; the tick daemon does NOT fire it.
-local_tests:
-  managed_by:    launchd_separate
-  cadence:       "every 30 min while Mac awake"
+# Batch test runner (scripts/test_runner.sh). Developers NO LONGER run tests
+# during feature work — they only write + commit them. This runner is the one
+# place the whole suite is exercised: it runs every test ONE AT A TIME (no CPU
+# contention) and files each failure as a [test_failure] item at the top of
+# WORK.md. It is NOT cron-scheduled; tick.sh dispatches it on two triggers:
+#   1. the ship cap maxes out AND all developer workers have drained, or
+#   2. force_after_engine_hours of engine on-time elapse since its last run.
+# While it runs, tick.sh spawns no new developer workers (it runs exclusively).
+test_runner:
+  # Wall-clock budget per run. The runner tracks which tests it has run and
+  # resumes with the un-run ones next time, resetting once a full cycle
+  # completes — so a 2h cap need not cover the whole suite in one go.
+  # Set to 0 to always run to completion (no time limit).
+  max_minutes:              120
+  # Fallback trigger: if the cap-based trigger hasn't fired, force a run after
+  # this many cumulative hours of engine on-time (paused time doesn't count,
+  # and pausing never resets the counter).
+  force_after_engine_hours: 100
+
+# Local tests (Godot scenarios + GUT) are invoked BY scripts/test_runner.sh
+# (and by the continuous loop's [test_failure] fix gate, via run_local_tests.sh
+# --only). The old com.spraxel.localtests 30-min daemon has been retired — the
+# triggered test_runner supersedes it.

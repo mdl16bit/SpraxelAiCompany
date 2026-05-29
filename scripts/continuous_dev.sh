@@ -135,7 +135,6 @@ defaults = {
     "idle_sleep_seconds":      300,
     "max_dev_minutes":         90,   # absolute backstop for the progress watchdog
     "dev_stall_minutes":       15,   # kill only after this long with NO file writes
-    "scenario_sample_size":     4,   # per-commit: run N random scenarios, not all 61
 }
 try:
     text = open(sys.argv[1]).read()
@@ -285,55 +284,6 @@ PY
 }
 
 # --- Sampled-scenario bug filing ---
-# After a per-commit test run, the test script reports any failed *sampled*
-# scenarios under `scenario_failures` in the status JSON (these are
-# non-blocking — they don't fail the ship). We file each as a [bug] in
-# WORK.md, deduped, so the system fixes it on a later iteration. This is
-# what makes "sample 4 scenarios per commit instead of running all 61"
-# safe: regressions still get caught + tracked over many commits.
-file_scenario_bugs() {
-  local gd="$1" wid="$2"
-  local status_file="$gd/.factory/local-tests-status-w${wid}.json"
-  [ -f "$status_file" ] || return 0
-  local scen_fails
-  scen_fails=$(python3 -c "
-import json
-try:
-    d = json.load(open('$status_file'))
-    for s in d.get('scenario_failures', []):
-        print(s)
-except Exception:
-    pass
-")
-  [ -z "$scen_fails" ] && return 0
-  local sblock="$LOCKS_DIR/master-push.lockdir"
-  acquire_lock "$sblock" 60 0.3 || return 0
-  (
-    trap 'release_lock "'"$sblock"'"' EXIT
-    cd "$gd" || exit 0
-    git fetch --quiet origin master 2>/dev/null
-    git checkout --quiet master 2>/dev/null || exit 0
-    git reset --hard origin/master --quiet 2>/dev/null
-    local added=0 sslug
-    while IFS= read -r sf; do
-      [ -z "$sf" ] && continue
-      sslug=$(echo "$sf" | sed -E 's/^scenario ([^:]+):.*/\1/')
-      # Dedup: skip if an item already tracks this scenario.
-      grep -qiF "scenario-test: $sslug " WORK.md 2>/dev/null && continue
-      python3 "$WORKMD" append "$gd/WORK.md" --section todo \
-        "[bug] scenario-test: $sslug regressed — $sf (auto-filed from sampled per-commit run by w$wid)" \
-        2>/dev/null && added=$((added + 1))
-    done <<< "$scen_fails"
-    [ "$added" -eq 0 ] && exit 0
-    git add WORK.md 2>/dev/null
-    git diff --cached --quiet && exit 0
-    git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-        commit --quiet -m "chore(bug): $added sampled-scenario regression(s) flagged by w$wid" 2>/dev/null || exit 0
-    git push --quiet origin master 2>/dev/null
-    echo "continuous: filed $added scenario-regression [bug](s) to WORK.md" >&2
-  )
-}
-
 # --- CEO signal detection ---
 # Returns 0 if a CEO signal has happened since last_signal_sha:
 #   - a master commit by an author whose email doesn't match *-bot@spraxel.ai
@@ -517,6 +467,23 @@ ship_one_item() {
   # form. [wip:N] is an internal locking detail, never user-facing.
   next_title=$(echo "$next_title" | sed -E 's/^\[wip:[0-9]+\]\s*//')
 
+  # A [test_failure] item (filed by the batch test runner) carries a
+  # `test-ref: <kind>:<id>` detail naming the one failing test. This is the
+  # ONLY kind of item whose dev may run a test — and the wrapper re-runs ONLY
+  # that one test as the merge gate (devs run no tests on any other item).
+  local is_test_failure="false" test_ref=""
+  if echo "$next_title" | grep -qiE '^\[test_failure\]'; then
+    is_test_failure="true"
+    test_ref=$(echo "$next_json" | python3 -c "
+import sys, json, re
+d = json.load(sys.stdin); it = d[0] if isinstance(d, list) and d else d
+for det in (it or {}).get('details', []):
+    m = re.match(r'test-ref:\s*(\S+)', det.strip(), re.I)
+    if m:
+        print(m.group(1)); break
+" 2>/dev/null)
+  fi
+
   slug=$(echo "$next_title" | python3 "$SLUGIFY")
   item_log="$LOG_DIR/w${WORKER_ID}-${slug}.log"
 
@@ -650,7 +617,6 @@ if it:
   fi
 
   local outcome=fail
-  local baseline_failures=""
   for attempt in 1 2; do
     echo "=== attempt $attempt at $(date) ===" >> "$item_log"
 
@@ -679,6 +645,7 @@ print(title)
 # Hide internal subtask metadata (epic-id/seq) from the dev, but capture seq to
 # emit a clear 'this is one subtask' instruction.
 _seq = None
+_test_ref = None
 for det in it.get('details', []):
     _ds = det.strip().lower()
     if _ds.startswith('epic-id:'):
@@ -686,7 +653,19 @@ for det in it.get('details', []):
     m = re.match(r'seq:\s*(\d+)', det.strip(), re.I)
     if m:
         _seq = m.group(1); continue
+    mt = re.match(r'test-ref:\s*(\S+)', det.strip(), re.I)
+    if mt:
+        _test_ref = mt.group(1); continue
     print(f'  {det}')
+if _test_ref:
+    print()
+    print('## TEST FIX — you MAY run this one test')
+    print(f'This item is a regression in the test: {_test_ref}')
+    print('Find the root cause and fix the CODE (or the test itself if the test is wrong).')
+    print('You ARE permitted to run THIS test — and ONLY this one — to verify your fix:')
+    print(f'  bash scripts/run_local_tests.sh --only {_test_ref}')
+    print('Do NOT run the full suite or any other test. The wrapper re-runs only this')
+    print('test as the merge gate.')
 if _seq:
     print()
     print(f'## SUBTASK {_seq} of a larger feature')
@@ -893,80 +872,31 @@ sys.exit(1)
       return 2   # don't count toward batch
     fi
 
-    # Baseline-aware test gate: capture pre-Developer test state once per item,
-    # then re-run after Developer's changes. Only count NEW failures (tests
-    # that passed before this change but fail after). Pre-existing failures
-    # in unrelated modules are noted but don't trigger escalation.
-    #
-    # Baseline is SHARED across all parallel-dev workers via a per-master-SHA
-    # cache file. The first worker to hit a given master SHA runs the test
-    # suite + writes the cache; subsequent workers (same SHA) read from
-    # cache, skipping the ~5-10 min baseline run. Cache key = origin/master
-    # short SHA, so the cache invalidates naturally when master advances.
-    if [ -z "${baseline_failures:-}" ]; then
-      master_sha=$(git -C "$WORK_DIR" rev-parse --short origin/master 2>/dev/null)
-      baseline_cache="$CACHE_DIR/baseline-tests-${master_sha}.txt"
-      if [ -n "$master_sha" ] && [ -f "$baseline_cache" ]; then
-        baseline_failures=$(cat "$baseline_cache")
-        echo "continuous: baseline failures restored from cache ($master_sha; $(echo "$baseline_failures" | grep -c .) entries)" >> "$item_log"
-      else
-        # No cache for this master SHA — run the suite, capture, write cache.
-        git stash push --quiet -m "baseline-test-stash" 2>/dev/null
-        git checkout --detach origin/master --quiet 2>/dev/null
-        SPRAXEL_GAME_DIR="$game_dir" SPRAXEL_WORKER_ID="$WORKER_ID" \
-        SPRAXEL_SCENARIO_SAMPLE="$SCENARIO_SAMPLE_SIZE" \
-        bash "$WORK_DIR/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1 || true
-        baseline_failures=$(python3 -c "
+    # Test gate. Developers run NO tests on normal items — the batch test runner
+    # (scripts/test_runner.sh) sweeps the whole suite separately and files any
+    # failure as a [test_failure] item. The ONE exception is fixing such an item:
+    # we re-run ONLY its named test (test_ref) as the merge gate, so the fix is
+    # verified before it ships. This is the sole place a test runs in the dev
+    # path, and it's cheap (one test, not the suite → no CPU contention).
+    if [ "$is_test_failure" = "true" ] && [ -n "$test_ref" ]; then
+      echo "continuous: [test_failure] gate — re-running $test_ref" >> "$item_log"
+      SPRAXEL_GAME_DIR="$game_dir" SPRAXEL_WORKER_ID="$WORKER_ID" \
+        bash "$WORK_DIR/scripts/run_local_tests.sh" --only "$test_ref" --quiet >> "$item_log" 2>&1
+      rc=$?
+      tf_pass=$(python3 -c "
 import json
 try:
-    d = json.load(open('$game_dir/.factory/local-tests-status-w$WORKER_ID.json'))
-    print('\\n'.join(d.get('failures', [])))
+    print('1' if json.load(open('$game_dir/.factory/local-tests-status-w$WORKER_ID.json')).get('pass') else '0')
 except Exception:
-    pass
+    print('0')
 ")
-        git checkout --quiet "$branch" 2>/dev/null
-        git stash pop --quiet 2>/dev/null
-        # Atomic write so concurrent workers don't see a half-written cache.
-        if [ -n "$master_sha" ]; then
-          printf '%s' "$baseline_failures" > "$baseline_cache.tmp.$$"
-          mv "$baseline_cache.tmp.$$" "$baseline_cache" 2>/dev/null
-        fi
-        echo "continuous: baseline failures captured ($(echo "$baseline_failures" | grep -c .) entries; cached under $master_sha)" >> "$item_log"
-      fi
-    fi
-
-    # Run tests on Developer's branch IN THE WORKER'S WORKTREE — not in
-    # game_dir. Critical fix from 2026-05-27 audit: previously this invoked
-    # `bash $game_dir/scripts/run_local_tests.sh`, whose REPO_DIR resolved
-    # to game_dir → tests ran against game_dir's tree (usually master), NOT
-    # the worker's feat branch. Result: broken changes could pass the test
-    # gate because tests never actually exercised the dev's code.
-    SPRAXEL_GAME_DIR="$game_dir" SPRAXEL_WORKER_ID="$WORKER_ID" \
-    SPRAXEL_SCENARIO_SAMPLE="$SCENARIO_SAMPLE_SIZE" \
-      bash "$WORK_DIR/scripts/run_local_tests.sh" --quiet >> "$item_log" 2>&1
-    rc=$?
-    # File a [bug] for each sampled-scenario failure (non-blocking — these
-    # don't fail the run, but we track them so they get fixed later).
-    file_scenario_bugs "$game_dir" "$WORKER_ID"
-    if [ $rc -ne 0 ]; then
-      current_failures=$(python3 -c "
-import json
-try:
-    d = json.load(open('$game_dir/.factory/local-tests-status-w$WORKER_ID.json'))
-    print('\\n'.join(d.get('failures', [])))
-except Exception:
-    pass
-")
-      # Compare: anything in current_failures NOT in baseline_failures = new.
-      new_failures=$(comm -23 <(echo "$current_failures" | sort -u) <(echo "$baseline_failures" | sort -u))
-      if [ -n "$new_failures" ]; then
-        echo "continuous: tests FAILED — NEW failures on attempt $attempt:" >> "$item_log"
-        echo "$new_failures" >> "$item_log"
+      if [ "$rc" -ne 0 ] || [ "$tf_pass" != "1" ]; then
+        echo "continuous: [test_failure] gate FAILED — $test_ref still failing on attempt $attempt" >> "$item_log"
         [ "$attempt" -lt 2 ] && { git checkout --quiet "$branch"; continue; }
         outcome=fail
         break
       fi
-      echo "continuous: tests had failures but all were pre-existing (baseline match) — accepting" >> "$item_log"
+      echo "continuous: [test_failure] gate PASSED — $test_ref now green" >> "$item_log"
     fi
 
     if ! bash "$RUN_AGENT" reviewer >> "$item_log" 2>&1; then
@@ -1359,6 +1289,16 @@ fail_streak=0
 while true; do
   # Pause check.
   if [ -e "$PAUSED_FLAG" ]; then
+    sleep "$POLL_INTERVAL_SECONDS"
+    continue
+  fi
+  # Test-runner drain. When a batch test-runner run is scheduled or active, the
+  # runner must run EXCLUSIVELY — so we stop claiming new items and idle here.
+  # This is at the TOP of the loop (a claim gate), NOT the mid-run pause check,
+  # so a worker that's mid-item FINISHES + ships it before idling — that's how
+  # "wait for current agents to finish" drains cleanly. tick.sh launches the
+  # runner once every worker has reached this idle state.
+  if [ -e "$CACHE_DIR/test-runner-pending" ] || [ -e "$CACHE_DIR/test-runner-active" ]; then
     sleep "$POLL_INTERVAL_SECONDS"
     continue
   fi

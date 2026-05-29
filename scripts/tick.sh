@@ -21,14 +21,22 @@ PAUSED_FLAG="$REPO_DIR/.paused"
 CRON_MATCH="$REPO_DIR/scripts/cron_match.py"
 RUN_AGENT="$REPO_DIR/scripts/run_agent.sh"
 CONTINUOUS="$REPO_DIR/scripts/continuous_dev.sh"
+TEST_RUNNER="$REPO_DIR/scripts/test_runner.sh"
 LOCKS_DIR="$REPO_DIR/.locks"
+CACHE_DIR="$REPO_DIR/.cache"
+STATE_FILE="$CACHE_DIR/continuous-state.json"
+UPTIME_FILE="$CACHE_DIR/engine-uptime-since-test.json"
+TR_PENDING="$CACHE_DIR/test-runner-pending"     # scheduled → draining; no new workers
+TR_ACTIVE="$CACHE_DIR/test-runner-active"        # runner running
+TR_RUNNER_LOCK="$LOCKS_DIR/test-runner.lockdir"
+TR_RAN_SHA="$CACHE_DIR/test-runner-ran-sha"      # last batch the runner fired for
 # PID-aware lock helpers (lock_holder_alive / release_lock). Sourced up
 # front so BOTH the continuous-wN sweep and the agent-lockdir sweep can use
 # them — all lockdirs now contain a holder.pid file, which a plain `rmdir`
 # can't remove (non-empty dir). release_lock removes holder.pid first.
 . "$REPO_DIR/scripts/lockutils.sh"
 
-mkdir -p "$TICK_LOGS"
+mkdir -p "$TICK_LOGS" "$CACHE_DIR"
 ymd=$(date +%Y-%m-%d)
 log="$TICK_LOGS/$ymd.log"
 now=$(date '+%Y-%m-%d %H:%M:%S %Z')
@@ -38,6 +46,26 @@ if [ -e "$PAUSED_FLAG" ]; then
   echo "$now  paused" >> "$log"
   exit 0
 fi
+
+# Engine on-time accumulator. Each UNPAUSED tick adds the elapsed time since
+# the previous tick (capped at 120s so sleep/wake or missed ticks don't inflate
+# it) to a cumulative counter the batch test runner resets to 0 when it runs.
+# tick.sh force-schedules the runner once this passes
+# test_runner.force_after_engine_hours. Because this runs AFTER the pause bail,
+# paused time is never counted — pausing freezes the count without resetting it.
+python3 - "$UPTIME_FILE" <<'PY' 2>/dev/null || true
+import json, sys, time
+f = sys.argv[1]
+now = int(time.time())
+try:
+    d = json.load(open(f)); last = int(d.get("last_tick_ts", now)); secs = int(d.get("seconds", 0))
+except Exception:
+    last, secs = now, 0
+delta = now - last
+if 0 < delta <= 120:
+    secs += delta
+json.dump({"seconds": secs, "last_tick_ts": now}, open(f, "w"))
+PY
 
 # Bail if claude CLI is missing or broken.
 if ! command -v claude >/dev/null 2>&1; then
@@ -228,6 +256,18 @@ done
 # next test waiter; sweeping them every tick keeps them from wedging a worker.
 [ -n "$arch_game_dir" ] && sweep_dead_locks "$arch_game_dir/.factory" >/dev/null 2>&1
 
+# Stale test-runner cleanup: if the active flag is set but the runner lock has
+# no live holder, the runner was SIGKILL'd before its EXIT trap could clean up.
+# Clear the active flag (so dev workers resume) and zero the on-time counter
+# (so the force trigger doesn't immediately re-fire into a crash loop — the cap
+# trigger still covers routine QA; progress.json is kept so the next run
+# resumes the unfinished cycle).
+if [ -e "$TR_ACTIVE" ] && ! lock_holder_alive "$TR_RUNNER_LOCK"; then
+  rm -f "$TR_ACTIVE" 2>/dev/null
+  python3 -c "import json,time;json.dump({'seconds':0,'last_tick_ts':int(time.time())},open('$UPTIME_FILE','w'))" 2>/dev/null || true
+  errors+=("cleared stale test-runner active flag (runner died)")
+fi
+
 # Spawn missing workers (1..dev_concurrency).
 #
 # Lockdir check is sufficient on its own: continuous_dev.sh's `mkdir
@@ -243,7 +283,64 @@ done
 # 2x the wrappers, and (b) if the real wrapper SIGKILLed and only
 # the orphan watchdog remained, the pgrep would prevent legitimate
 # respawn. Trust the lockdir — that's what it's for.
-if [ -x "$CONTINUOUS" ]; then
+# ── Batch test runner: triggers + exclusive gating ──────────────────────────
+# The runner (scripts/test_runner.sh) sweeps the whole suite serially and files
+# [test_failure] items. It runs EXCLUSIVELY: while scheduled/active, no new dev
+# workers spawn and existing workers drain (they idle on the flag at top-of-loop
+# — see continuous_dev.sh). Two triggers: (1) ship cap maxed + workers drained,
+# (2) force_after_engine_hours of on-time elapsed since the last run.
+tr_cfg=$(python3 - "$SCHEDULE" <<'PY'
+import sys, re
+text = open(sys.argv[1]).read()
+def block(name):
+    m = re.search(rf"^{name}:\s*\n((?:(?:[ \t]+.*)?\n)*?)(?=^\S|\Z)", text, re.M)
+    return m.group(1) if m else ""
+def val(blk, key, default):
+    m = re.search(rf"^\s+{key}:\s*(\d+)", blk, re.M)
+    return m.group(1) if m else str(default)
+print(val(block("continuous"), "target_per_batch", 10),
+      val(block("test_runner"), "force_after_engine_hours", 100))
+PY
+)
+tr_target=$(echo "$tr_cfg" | awk '{print $1}')
+tr_force_hours=$(echo "$tr_cfg" | awk '{print $2}')
+
+# Drained = no developer worker is mid-item: no live developer-worker-* lock AND
+# no [wip:N] item in WORK.md.
+tr_drained=1
+for dl in "$LOCKS_DIR"/developer-worker-*.lockdir; do
+  [ -d "$dl" ] || continue
+  if lock_holder_alive "$dl"; then tr_drained=0; break; fi
+done
+if [ "$tr_drained" -eq 1 ] && [ -f "$arch_work_md" ] && grep -qE '\[wip:[0-9]+\]' "$arch_work_md"; then
+  tr_drained=0
+fi
+
+tr_shipped=$(python3 -c "import json;print(json.load(open('$STATE_FILE')).get('shipped_since_last_signal',0))" 2>/dev/null || echo 0)
+tr_last_sha=$(python3 -c "import json;print(json.load(open('$STATE_FILE')).get('last_signal_sha',''))" 2>/dev/null || echo "")
+tr_uptime=$(python3 -c "import json;print(json.load(open('$UPTIME_FILE')).get('seconds',0))" 2>/dev/null || echo 0)
+tr_force_secs=$(( tr_force_hours * 3600 ))
+
+# Decide whether to SCHEDULE (set pending). ran-sha guards against re-firing for
+# the same at-cap batch (it only resets when the CEO checks in → new last_sha).
+if [ ! -e "$TR_PENDING" ] && [ ! -e "$TR_ACTIVE" ] && [ -x "$TEST_RUNNER" ]; then
+  tr_reason=""
+  if [ "${tr_uptime:-0}" -ge "$tr_force_secs" ] 2>/dev/null; then
+    tr_reason="engine on-time >= ${tr_force_hours}h"
+  elif [ "${tr_shipped:-0}" -ge "${tr_target:-10}" ] 2>/dev/null \
+       && [ "$tr_drained" -eq 1 ] \
+       && [ "$(cat "$TR_RAN_SHA" 2>/dev/null)" != "$tr_last_sha" ]; then
+    tr_reason="ship cap reached + workers drained"
+  fi
+  if [ -n "$tr_reason" ]; then
+    : > "$TR_PENDING"
+    dispatched+=("test_runner SCHEDULED ($tr_reason)")
+  fi
+fi
+
+# Spawn missing workers — UNLESS a test-runner run is scheduled/active (it must
+# run alone, so we stop refilling the worker pool and let it drain).
+if [ -x "$CONTINUOUS" ] && [ ! -e "$TR_PENDING" ] && [ ! -e "$TR_ACTIVE" ]; then
   mkdir -p "$REPO_DIR/logs/continuous"
   for id in $(seq 1 "$dev_concurrency"); do
     lock="$LOCKS_DIR/continuous-w$id.lockdir"
@@ -253,6 +350,16 @@ if [ -x "$CONTINUOUS" ]; then
       dispatched+=("continuous_dev w$id spawned")
     fi
   done
+fi
+
+# Launch the runner once SCHEDULED, workers have DRAINED, and it isn't already
+# running. Stamp ran-sha so this at-cap batch isn't re-triggered next tick.
+if [ -e "$TR_PENDING" ] && [ ! -e "$TR_ACTIVE" ] && [ "$tr_drained" -eq 1 ] \
+   && ! lock_holder_alive "$TR_RUNNER_LOCK" && [ -x "$TEST_RUNNER" ]; then
+  echo "$tr_last_sha" > "$TR_RAN_SHA"
+  trlog="$REPO_DIR/logs/test_runner"; mkdir -p "$trlog"
+  nohup bash "$TEST_RUNNER" >>"$trlog/$(date +%Y-%m-%d).log" 2>&1 &
+  dispatched+=("test_runner LAUNCHED")
 fi
 
 if [ ${#dispatched[@]} -eq 0 ] && [ ${#errors[@]} -eq 0 ]; then

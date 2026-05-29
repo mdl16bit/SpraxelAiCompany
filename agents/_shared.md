@@ -71,6 +71,12 @@ Items in `## Todo` can carry tags that control loop behavior + signal kind:
 | `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up the saved branch | yes (high priority) |
 | `[retry]` | Wrapper auto-set after tests/reviewer/merge failed on prior dev attempt. Next dev fire resumes from saved branch with failure feedback in details. **Not a CEO action** — silently retried. | yes (high priority) |
 | `[epic]` | Parent of a decomposed feature (Architect-created via `shape-epic`). Display + completion tracker only. Auto-ships once its last child ships. | **NO** ever (devs never build the parent) |
+| `[test_failure]` | A regression filed by the batch **test runner** (`scripts/test_runner.sh`), queued at the TOP of `## Todo` with a `test-ref: <kind>:<id>` detail naming the one failing test. | yes — but only ONE `[test_failure]` is worked at a time across all workers; others are gated so workers take normal items. The fixing dev MAY run the named test (the sole test allowed in the dev path). |
+
+**Testing model.** Developers run NO tests during feature work — they only WRITE
++ commit tests. The batch test runner sweeps the whole suite serially (no CPU
+contention), and each failure becomes a `[test_failure]` item. Fixing one re-runs
+ONLY its named test as the merge gate. (See OPERATIONS → "Testing".)
 
 **Subtasks (epics).** A complex feature can be split into a parent `[epic]` item
 plus child subtask items that share an `epic-id: E-xxxx` detail and are ordered

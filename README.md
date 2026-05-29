@@ -29,11 +29,24 @@ ANY TIME   continuous_dev.sh  — long-running Developer loop
                                [untriaged-proposal-active]/[epic]; picks up
                                [resume]). Epic subtasks are claimed strictly
                                in seq order (next one only after the prior ships)
-                               branch → claude -p developer → tests →
+                               branch → claude -p developer (NO tests) →
                                reviewer → squash-merge → push
                                sleeps when cap hit (target_per_batch since
                                last CEO signal); resumes on any non-bot
                                commit or `bash scripts/checkin.sh`
+
+─ Testing (batch test runner — NOT a cron) ─────────────────────
+TRIGGERED  test_runner.sh     — devs run NO tests; this runs the WHOLE
+                               suite serially (no CPU contention) and files
+                               each failure as a [test_failure] item at the
+                               top of WORK.md. Dispatched by tick.sh when the
+                               ship cap maxes out + workers drain, or after
+                               test_runner.force_after_engine_hours (100h) of
+                               engine on-time. Runs EXCLUSIVELY (no new workers
+                               spawn; existing ones finish + idle). A worker
+                               fixing a [test_failure] re-runs only that one
+                               named test as its merge gate. (Replaces the old
+                               com.spraxel.localtests 30-min daemon.)
 
 ─ Daily crew agents (all times America/Los_Angeles) ────────────
 04:00      playtester        — actively plays the game; writes bug

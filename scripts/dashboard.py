@@ -38,6 +38,8 @@ REPO_DIR = Path.home() / "SpraxelAiCompany"
 SCHEDULE = REPO_DIR / "schedule.yaml"
 STATE_FILE = REPO_DIR / ".cache" / "continuous-state.json"
 PAUSED = REPO_DIR / ".paused"
+TR_PENDING = REPO_DIR / ".cache" / "test-runner-pending"
+TR_ACTIVE = REPO_DIR / ".cache" / "test-runner-active"
 TICK_LOG_DIR = REPO_DIR / "logs" / "tick"
 CONTINUOUS_LOG_DIR = REPO_DIR / "logs" / "continuous"
 TZ = ZoneInfo("America/Los_Angeles")
@@ -579,6 +581,10 @@ def render(now: datetime, game_dir: Path | None) -> str:
     # System status row
     if PAUSED.exists():
         status = f"{YELLOW}⏸  PAUSED{RESET}"
+    elif TR_ACTIVE.exists():
+        status = f"{BLUE}▶  running — test runner running{RESET}"
+    elif TR_PENDING.exists():
+        status = f"{BLUE}▶  running — test runner scheduled{RESET}"
     else:
         status = f"{GREEN}▶  running{RESET}"
     lines.append(f"  Status         {status}")
