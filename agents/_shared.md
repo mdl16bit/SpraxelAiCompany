@@ -70,6 +70,15 @@ Items in `## Todo` can carry tags that control loop behavior + signal kind:
 | `[escalated]` | Needs real CEO judgment (design/PM gameplay-ruiner, paid-asset block, story decision). RARE — never set automatically; only by triager/designer/PM/CEO manually. Wrapper regenerates `.factory/escalations.md` from these every iter. | **NO** until CEO retags as `[resume]` |
 | `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up the saved branch | yes (high priority) |
 | `[retry]` | Wrapper auto-set after tests/reviewer/merge failed on prior dev attempt. Next dev fire resumes from saved branch with failure feedback in details. **Not a CEO action** — silently retried. | yes (high priority) |
+| `[epic]` | Parent of a decomposed feature (Architect-created via `shape-epic`). Display + completion tracker only. Auto-ships once its last child ships. | **NO** ever (devs never build the parent) |
+
+**Subtasks (epics).** A complex feature can be split into a parent `[epic]` item
+plus child subtask items that share an `epic-id: E-xxxx` detail and are ordered
+by a `seq: N` detail. Each child is a NORMAL item (full `[wip]`/ship/`[retry]`/
+branch lifecycle). A child is eligible only once every lower-`seq` sibling has
+shipped (left `## Todo`) — strictly sequential, so each builds on the prior one's
+merged code, and with parallel workers at most one subtask of a feature is in
+flight at a time. Items with no `epic-id` are shipped whole, exactly as before.
 
 The `MANUAL - ` prefix is the most-used skip marker. Sub-category labels
 after it (`MANUAL - ART - `, `MANUAL - MUSIC - `, etc.) are documentary

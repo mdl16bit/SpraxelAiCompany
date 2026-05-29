@@ -622,7 +622,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
                     wid = it.wip_worker_id
                     # Strip [wip:N] + state/kind tags for display.
                     clean = re.sub(r"^\[wip:\d+\]\s*", "", it.title)
-                    clean = re.sub(r"^\[(retry|resume|escalated|bug|feature|chore|game-feature)\]\s*", "", clean)
+                    clean = re.sub(r"^\[(retry|resume|escalated|bug|feature|chore|game-feature|epic)\]\s*", "", clean)
                     clean = clean[:48] + ("…" if len(clean) > 48 else "")
                     wip_items[wid] = clean
         except Exception:

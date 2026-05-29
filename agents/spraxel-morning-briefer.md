@@ -259,6 +259,10 @@ create it with `mkdir -p .factory/local`.
 ## Overnight result
 <emoji> <N> features shipped, <M> escalated.
 Commits: <first-sha> .. <last-sha> (`git log master --since=yesterday`).
+<!-- If any shipped items are epic subtasks (title "<Feature> — <subtask>", or an
+     epic-id detail), group them under their feature and show progress, e.g.
+     "Hero enemies: 2/3 subtasks shipped (next: unique gadget)". An [epic] parent
+     appearing in Shipped means that whole feature is now complete. -->
 
 ## ▶ Play-test today (20 min)
 Every feature below has a runnable Launch line — copy/paste it from the game repo.

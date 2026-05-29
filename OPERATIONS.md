@@ -1290,6 +1290,28 @@ Tag reference:
 | `[escalated]` | **Manually set** by CEO (or triager/designer/PM agent) for items needing real CEO judgment — gameplay-ruiner design issues, paid-asset blockers, story decisions, items the dev truly can't action. **Never auto-set by the wrapper.** Wrapper regenerates `.factory/escalations.md` from these every iter — clearing that file alone doesn't dismiss the item; only retagging in WORK.md does. | **NO** (skip until CEO retags as `[resume]`) |
 | `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up, checks out saved branch, rebases on master, hands off to dev with the CEO's clarification in details. | **yes** (dev resumes from saved branch with new guidance) |
 | `[concern]` | Designer (or future agents) flagged a game-wide issue (feature bloat, missing fundamentals, philosophical drift). Advisory text, not work to do. CEO triages: delete (dismiss), remove tag (convert into real work item), or leave (defer). | **NO** (skip until tag removed) |
+| `[epic]` | Parent of a decomposed feature (Architect-created). Display + completion tracker; auto-ships once its last subtask ships. | **NO** ever (devs build the subtasks, never the parent) |
+
+### Subtasks & epics
+
+When the Architect shapes a complex feature, it can split it into a parent
+`[epic] <feature>` item plus a sequence of child **subtask** items, instead of
+one big item a developer has to land all at once. Mechanics:
+
+- Children are normal items sharing an `epic-id: E-xxxx` detail, ordered by a
+  `seq: N` detail. They get the full lifecycle (`[wip]`, ship, `[retry]` +
+  branch preservation) like any item.
+- **Strictly sequential:** a child is only claimable once every lower-`seq`
+  sibling has shipped. So work within a feature is serialized (each subtask
+  builds on the prior one's merged code), while the 3 workers stay parallel
+  across *different* features. If subtask 1 is in-flight, a second worker skips
+  the whole feature and takes another mainline item.
+- The `[epic]` parent is never built directly; `reconcile-epics` (run by the
+  loop after each ship) moves it to Shipped once its last subtask lands.
+- The Architect decides single-item vs. epic at finalize time and records the
+  breakdown in `TRIAGE.md` so you can see (and re-shape) the split.
+- **Backward-compatible:** any item with no `epic-id` is built whole, exactly as
+  before. Existing backlog is untouched.
 
 ### Adding new work by hand — the `[untriaged]` rule
 
@@ -1383,7 +1405,7 @@ FUTURE - DLC mission pack
 | **demo-creator** | daily 05:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
 | **pm** | daily 05:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
 | **designer** | Tue + Fri 04:30 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
-| **architect** | daily 09:00 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | sonnet | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), and intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`). Bugs + MANUAL items are exempt. |
+| **architect** | daily 09:00 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | sonnet | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), and intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`). On finalize, decides single item vs. decomposing a complex feature into a parent `[epic]` + sequential subtasks (`shape-epic`). Bugs + MANUAL items are exempt. |
 | **blogger** | weekly Sat 09:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |
 | **asset-librarian** | monthly 1st 07:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
@@ -1462,7 +1484,7 @@ field is missing. So a minimal Philosophy.md just needs `identity` +
 | **`run_agent.sh <name>`** | Wraps one Claude invocation. Reads the agent spec, composes prompt (spec + Philosophy + WORK.md + optional `SPRAXEL_ITEM_BRIEF`), passes `--model` based on spec frontmatter, calls `claude -p`. Per-agent lock prevents double-fire. | `tick.sh` (cron), `continuous_dev.sh` (per item), CEO manually |
 | **`install_daemon.sh`** | Drops `com.spraxel.tick.plist` into `~/Library/LaunchAgents/`. Args: `install` / `stop` / `status` / `restart`. | CEO, one-time |
 | **`new_game.sh <dir>`** | Bootstraps a new game repo with Philosophy.md, Game.md, WORK.md, `.gitignore`, `.factory/`, `test/unit/`, `scripts/scenarios/`, and the local-tests cron installer. | CEO, when starting a new game |
-| **`workmd.py`** | Parser + CLI for WORK.md. Subcommands: `parse / top / append / ship / escalate / resume / promote / drop / bump / clarify / release-cut` + shaping: `shape-list / shape-start / shape-detail / shape-finalize / shape-pass`. Atomic mkdir-locked. | every agent + CEO |
+| **`workmd.py`** | Parser + CLI for WORK.md. Subcommands: `parse / top / append / ship / escalate / resume / promote / drop / bump / clarify / release-cut` + shaping: `shape-list / shape-start / shape-detail / shape-finalize / shape-pass` + epics: `shape-epic / reconcile-epics`. Atomic mkdir-locked. | every agent + CEO |
 | **`cron_match.py`** | Evaluates a 5-field cron expression against `now` in a timezone. Used by `tick.sh` to decide who fires and by `spraxel_report.py` to compute next firings. | `tick.sh`, `spraxel_report.py` |
 | **`slugify.py`** | Title → kebab-case branch slug. | `continuous_dev.sh` for branch names |
 | **`health_check.sh`** | Scans today's `logs/*/<YYYY-MM-DD>*.log` for error patterns (unknown model, rate limit, session expired, fatal, traceback). Outputs a markdown block. | `morning-briefer` agent (step 1), CEO manually |
