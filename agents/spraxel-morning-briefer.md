@@ -178,8 +178,8 @@ create it with `mkdir -p .factory/local`.
    Then per idea:
    ```
    - [idea] <full idea title>
-       ✅ Accept: python3 ~/SpraxelAiCompany/scripts/workmd.py promote ~/GameProjects/<game>/WORK.md "<unique snippet>"
-       ❌ Reject: python3 ~/SpraxelAiCompany/scripts/workmd.py drop    ~/GameProjects/<game>/WORK.md "<unique snippet>"
+       ✅ Accept: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<unique snippet>"
+       ❌ Reject: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<unique snippet>"
        ⏸ Defer:  do nothing — it stays an [idea] and reappears tomorrow.
    ```
    If there are zero `[idea]` items, write exactly:
@@ -204,7 +204,7 @@ create it with `mkdir -p .factory/local`.
    already in WORK.md).
    - ✓ **Accept (default)**: do nothing — it stays queued; the loop fixes it.
    - ❌ **Reject** (false positive / duplicate / intended behavior): drop it
-     `python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<substr>"`
+     `bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"`
    - ⬆ **Prioritize** (fix sooner): bump it
      `python3 ~/SpraxelAiCompany/scripts/workmd.py bump ~/GameProjects/<game>/WORK.md "<substr>" p0`
    If there are zero new `[bug]` items, write exactly:
@@ -258,7 +258,7 @@ create it with `mkdir -p .factory/local`.
            → OPTION B — <what it means>: <exact action …>
            → OPTION C — <what it means>: <exact action …>
            ✓ CLEAR IT (run AFTER you've acted, so it stops reappearing):
-               python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<unique snippet>"
+               bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<unique snippet>"
            ⏸ DEFER = make NO change at all → the conflict stands and this exact
              item is back tomorrow. ⚠️ If a remedy says "update Philosophy.md /
              CLAUDE.md", that is an ACTION (edit the file AND clear the item),
@@ -273,11 +273,11 @@ create it with `mkdir -p .factory/local`.
            → DEFER (do nothing): it reappears here until you act.
            → RETRY VIA THE LOOP (give guidance): edit this item's detail lines
              in WORK.md with your decision, then:
-               python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<unique snippet>"
+               bash ~/SpraxelAiCompany/scripts/with_master_lock.sh resume "<unique snippet>"
            → DO IT YOURSELF: cd ~/GameProjects/<game> && git fetch origin <branch-name> && git checkout <branch-name>
              (when done: commit + `git push origin <branch-name>:master`)
            → DROP IT (decide not to do it):
-               python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<unique snippet>"
+               bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<unique snippet>"
        ```
 
    **Sanity guard:** an `[escalated]` item should NEVER have a reason like
@@ -372,8 +372,8 @@ Run from `~/GameProjects/infiltrators` (or wherever your game repo is).
 
 ## ▶ Decide (5 min)
 "Decide" = accept or reject each Designer idea. For each one below:
-  ✅ Accept: python3 ~/SpraxelAiCompany/scripts/workmd.py promote ~/GameProjects/<game>/WORK.md "<substr>"
-  ❌ Reject: python3 ~/SpraxelAiCompany/scripts/workmd.py drop    ~/GameProjects/<game>/WORK.md "<substr>"
+  ✅ Accept: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<substr>"
+  ❌ Reject: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"
   ⏸ Defer:  do nothing — it stays an [idea] and shows up again tomorrow.
   - <idea 1>
   - <idea 2>
@@ -387,7 +387,7 @@ PM reorder summary (FYI, no action): <one line from PM's last commit>
 "Triage" = for each bug, do ONE of these (you do NOT route bugs through the
 Producer — they're already in the queue):
   ✓ Accept (default): do NOTHING — it stays queued and the loop fixes it.
-  ❌ Reject (false positive / dup / intended): python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<substr>"
+  ❌ Reject (false positive / dup / intended): bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"
   ⬆ Prioritize:       python3 ~/SpraxelAiCompany/scripts/workmd.py bump ~/GameProjects/<game>/WORK.md "<substr>" p0
 
   - [bug] p1 <title>
@@ -442,7 +442,7 @@ tomorrow. To resolve one: act on your choice, THEN run the clear command.
       → OPTION A — <meaning>: <exact action — file + key/line to edit, or workmd.py cmd>
       → OPTION B — <meaning>: <exact action …>
       → OPTION C — <meaning>: <exact action …>
-      ✓ CLEAR IT (after acting): python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<unique snippet>"
+      ✓ CLEAR IT (after acting): bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<unique snippet>"
       ⏸ DEFER = no change → it's back tomorrow. ("Update Philosophy/CLAUDE.md" is an
         ACTION, not a defer — edit the named key AND clear the item.)
 
@@ -452,9 +452,9 @@ tomorrow. To resolve one: act on your choice, THEN run the clear command.
       → DEFER (do nothing): it reappears until you act.
       → RETRY VIA THE LOOP: edit the item's details in WORK.md with your
         guidance, then
-        python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<unique snippet>"
+        bash ~/SpraxelAiCompany/scripts/with_master_lock.sh resume "<unique snippet>"
       → DO IT YOURSELF: cd ~/GameProjects/<game> && git fetch origin <branch-name> && git checkout <branch-name>
-      → DROP IT: python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<unique snippet>"
+      → DROP IT: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<unique snippet>"
   ...
 
 (When empty:) ✓ No escalations — nothing needs your judgment.

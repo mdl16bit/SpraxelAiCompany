@@ -22,6 +22,9 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULE="$REPO_DIR/schedule.yaml"
 WORKMD="$REPO_DIR/scripts/workmd.py"
+LOCKS_DIR="$REPO_DIR/.locks"
+# shellcheck source=lockutils.sh
+. "$REPO_DIR/scripts/lockutils.sh"
 
 if [ $# -lt 2 ]; then
   echo "usage: $0 <slug-or-sha> <feedback>" >&2
@@ -63,6 +66,19 @@ if [ -n "$(git status --porcelain)" ]; then
   git status --short >&2
   exit 1
 fi
+
+# Hold the master-push lock for the whole mutate+commit+push, and sync to the
+# latest origin/master under it, so a concurrent worker's `reset --hard
+# origin/master` can't clobber the WORK.md append before it's pushed. See
+# docs/WORKER_OPERATIONS.md §4.
+mkdir -p "$LOCKS_DIR"
+LOCK="$LOCKS_DIR/master-push.lockdir"
+if ! acquire_lock "$LOCK" 120 0.3; then
+  echo "amend: couldn't get master-push lock in 120s (worker merge running?) — try again." >&2
+  exit 1
+fi
+trap 'release_lock "$LOCK"' EXIT
+git fetch --quiet origin master 2>/dev/null && git reset --hard origin/master --quiet 2>/dev/null
 
 # Resolve target → feat sha.
 feat_sha=""

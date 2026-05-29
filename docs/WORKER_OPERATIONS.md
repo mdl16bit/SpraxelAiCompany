@@ -93,9 +93,9 @@ git -C "$GAME" worktree list | grep worker     # branch per worker
 ```
 If a `[wip:N]` item has no worker on its branch, it's an orphan.
 
-**Reclaim** (under the push lock, then commit + push — see top of this doc):
+**Reclaim** via the safe wrapper (handles lock + sync + commit + push — §4):
 ```bash
-python3 scripts/workmd.py unclaim "$GAME/WORK.md" "[feature] p2 <exact title prefix>"
+bash ~/SpraxelAiCompany/scripts/with_master_lock.sh unclaim "[feature] p2 <exact title prefix>"
 ```
 `unclaim` matches by **prefix of the un-wipped title (incl. the `[tag] pN` prefix)**,
 not substring. Because the item's feature branch is on origin and the claim path
@@ -105,17 +105,29 @@ the manual path above is for when the worker is still running.)
 
 ---
 
-## 4. Never hand-edit the canonical `WORK.md`; never forget the push
+## 4. Mutate the canonical `WORK.md` only via `with_master_lock.sh`
 
-`workmd.py` is the only writer (FileLock-serialised). Any change you make to
-`game_dir/WORK.md` — `promote`, `unclaim`, `ship`, etc. — must be **committed +
-pushed under `.locks/master-push.lockdir`**, because workers routinely
-`git reset --hard origin/master` on it. An uncommitted local edit will vanish.
-Pattern:
+`workmd.py` is the only writer (FileLock-serialised), but a *bare*
+`workmd.py <mutate>` is **unsafe**: it edits `game_dir/WORK.md` locally without
+committing, and the next worker's `reset --hard origin/master` (run before every
+claim/merge) silently eats it. Every operator mutation must be **lock → sync →
+mutate → commit → push, all in ONE live process**. Don't hand-roll that — use
+the wrapper:
 ```bash
-mkdir .locks/master-push.lockdir   # acquire (abort if it exists)
-cd "$GAME"; git checkout master; git fetch -q origin master; git reset --hard origin/master -q
-python3 ~/SpraxelAiCompany/scripts/workmd.py <cmd> "$GAME/WORK.md" …
-git add WORK.md && git commit -m "…" && git push origin master
-rmdir .locks/master-push.lockdir   # release
+bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "Some idea title" --detail "amendment…"
+bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop    "Some idea to reject"
+bash ~/SpraxelAiCompany/scripts/with_master_lock.sh resume  "Escalated item to retry"
+bash ~/SpraxelAiCompany/scripts/with_master_lock.sh unclaim "[feature] p2 <orphan title prefix>"
 ```
+It acquires `master-push.lockdir`, syncs `game_dir` to `origin/master`, runs the
+`workmd.py` subcommand (canonical path injected automatically), commits + pushes
+WORK.md, and releases the lock on exit. `reject.sh` / `amend.sh` hold the same
+lock internally, so they're safe too.
+
+⚠️ **The lock only holds within a single live process.** `acquire_lock` stamps
+the holder PID; when that process exits, the lock becomes reclaimable (by design
+— a dead holder must never deadlock the pool). So you canNOT split
+acquire → edit → commit across separate shell invocations: between them a worker
+sees a stale (dead-holder) lock, correctly reclaims it, and its `reset --hard`
+discards your uncommitted edit. One process, start to finish — which is exactly
+what `with_master_lock.sh` guarantees.

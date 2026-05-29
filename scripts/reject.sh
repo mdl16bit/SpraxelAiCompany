@@ -30,6 +30,9 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULE="$REPO_DIR/schedule.yaml"
 WORKMD="$REPO_DIR/scripts/workmd.py"
+LOCKS_DIR="$REPO_DIR/.locks"
+# shellcheck source=lockutils.sh
+. "$REPO_DIR/scripts/lockutils.sh"
 
 if [ $# -eq 0 ]; then
   echo "usage: $0 <slug-or-sha> | all | '*'  [reason ...]" >&2
@@ -104,6 +107,21 @@ PY
   done
   exit $rc
 fi
+
+# SINGLE-target path. Hold the master-push lock for the whole revert + push +
+# re-queue, and sync to the latest origin/master under it, so a concurrent
+# worker's `reset --hard origin/master` can't clobber the revert before it's
+# pushed. NOT acquired in the bulk path above — that dispatches recursive
+# `bash $0 <sha>` children which each take this lock; holding it here too would
+# deadlock them. See docs/WORKER_OPERATIONS.md §4.
+mkdir -p "$LOCKS_DIR"
+LOCK="$LOCKS_DIR/master-push.lockdir"
+if ! acquire_lock "$LOCK" 120 0.3; then
+  echo "reject: couldn't get master-push lock in 120s (worker merge running?) — try again." >&2
+  exit 1
+fi
+trap 'release_lock "$LOCK"' EXIT
+git fetch --quiet origin master 2>/dev/null && git reset --hard origin/master --quiet 2>/dev/null
 
 # Resolve target → feat sha + work-shipped sha (if paired).
 feat_sha=""
