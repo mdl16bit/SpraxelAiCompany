@@ -88,11 +88,13 @@ done <<< "$agent_entries"
 #   1. NEW [untriaged] items exist → needs intake (fast-pass or a questionnaire).
 #      `^\[untriaged\]` matches the raw tag only (the closing `]` excludes
 #      `[untriaged-proposal-active]`).
-#   2. The CEO ANSWERED questionnaires → TRIAGE.md was edited more recently than
-#      the Architect last ran (it touches the seen-stamp at the END of every
-#      run, so this only fires on the CEO's edits, not the Architect's own
-#      writes) AND there are still proposal-active items to process. This is what
-#      makes "edit TRIAGE.md + save" get picked up within ~60s.
+#   2. The CEO SUBMITTED answers → TRIAGE.md edited more recently than the
+#      Architect last ran (it touches the seen-stamp at the END of every run, so
+#      this fires on the CEO's edits, not the Architect's own writes), there are
+#      proposal-active items, AND the `[Indicate complete]` line has trailing
+#      text (the CEO's explicit "I'm done for now" signal). The submit gate means
+#      saving a half-filled file does NOT wake the Architect — only submitting
+#      does, and then it's picked up within ~60s.
 arch_game_dir=$(python3 - "$SCHEDULE" <<'PY'
 import sys, os, re
 m = re.search(r"game_dir:\s*(\S+)", open(sys.argv[1]).read())
@@ -107,8 +109,12 @@ if [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ]; then
   if grep -qE '^\[untriaged\]' "$arch_work_md"; then
     arch_reason="untriaged present"
   elif [ -f "$arch_triage" ] && grep -qE '^\[untriaged-proposal-active\]' "$arch_work_md" \
-       && { [ ! -e "$arch_stamp" ] || [ "$arch_triage" -nt "$arch_stamp" ]; }; then
-    arch_reason="triage answers"
+       && { [ ! -e "$arch_stamp" ] || [ "$arch_triage" -nt "$arch_stamp" ]; } \
+       && grep -qE '^\[Indicate complete\][[:space:]]*\S' "$arch_triage"; then
+    # CEO answered AND submitted (typed text after [Indicate complete]). Without
+    # the submit text we never wake for answers — the CEO saves repeatedly while
+    # editing and a half-filled file must not be processed.
+    arch_reason="triage submitted"
   fi
 fi
 if [ -x "$RUN_AGENT" ] && [ -n "$arch_reason" ] \

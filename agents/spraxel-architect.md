@@ -48,57 +48,56 @@ mkdir -p "$GAME/.factory/local"
 
 ## Phase 1 — REVIEW answered questionnaires (do this before intake)
 
-`python3 "$WORKMD" shape-list "$WORK"` shows in-flight items
-(`proposal_active`, each with its `triage_id`). For each `### T-xxxx` section
-under `## ⏳ Awaiting your answers` in `TRIAGE`:
+**SUBMIT GATE (check first).** At the bottom of the `## ⏳ Awaiting your answers`
+section is a `[Indicate complete]` line. The CEO types a word after it ONLY when
+they're done answering for this session. **If there is NO text after
+`[Indicate complete]`, process NOTHING in this phase** — the CEO saves the file
+repeatedly while editing, so an un-submitted file may be half-filled. Skip
+straight to Phase 2. Only when `[Indicate complete]` has trailing text do you
+proceed — and after processing you RESET that line back to `[Indicate complete] `
+(empty) so neither your writes nor the CEO's next save reprocess.
 
-1. Read the questions and the CEO's `▶` answer lines.
-   - If **no** `▶` line has been filled since you last asked → skip (still
-     waiting on the CEO). Leave it.
-   - A blank `▶` on an otherwise-answered round = "Architect, use your
-     judgment" — proceed, and record the assumption you made in the spec.
-2. With the answers, decide: **is the spec now concrete enough to hand to a
-   developer?** (clear scope, acceptance criteria, no blocking unknowns)
-   - **YES** (or this is already Round 5 — the cap): write the spec. Now decide
-     **single item vs. epic** (see "Decompose?" below):
-     - **Simple** (one focused change a developer can land in one go) → finalize
-       as a single item:
-       ```bash
-       python3 "$WORKMD" shape-finalize "$WORK" --id T-xxxx \
-         --detail "spec: <what to build, in build-ready terms>" \
-         --detail "acceptance: <how we know it's done>" \
-         --detail "<any constraints / assumptions you made for blank answers>"
-       ```
-     - **Complex** (multiple systems/steps, or too big for one dev run) →
-       decompose into a parent `[epic]` + sequential subtasks:
-       ```bash
-       python3 "$WORKMD" shape-epic "$WORK" --id T-xxxx \
-         --child "<subtask 1 title> | spec: <build-ready> | acceptance: <...>" \
-         --child "<subtask 2 title> | spec: <builds on #1> | acceptance: <...>" \
-         --child "<subtask 3 title> | spec: <...> | acceptance: <...>"
-       ```
-     Either way, then move its `TRIAGE` section to `## ✅ Recently finalized (FYI)`
-     with a one-line summary + today's date — **and for an epic, list the subtask
-     breakdown** so the CEO can see how it was split (and re-shape if they
-     disagree). (If Round 5 forced it, note "max rounds reached — finalized
-     best-effort.")
+When submitted, for each `### T-xxxx` section under `## ⏳ Awaiting your answers`:
 
-   **Decompose?** Default to decomposing a genuine feature into **2–6 subtasks**;
-   keep it a single item only when it's truly small/cosmetic. Each subtask MUST:
-   be independently shippable, leave the game working on its own, and be ordered
-   so each builds on the prior (they ship strictly in `seq` order, each branching
-   off the previous one's merged code). `shape-epic` makes the original item the
-   `[epic]` parent (devs skip it; it auto-ships when the last subtask lands) and
-   inserts the children right after it, inheriting its kind + priority. Bugs and
-   fast-passed items are never decomposed.
-   - **NO**, and round < 5: record progress so far and ask the next round.
+1. An answer is the text after an `[Answer]` line (older questionnaires used `▶`
+   — accept either). A question is **answered** iff its `[Answer]` has non-empty
+   text. **Blank = not answered** (it does NOT mean "you decide" — the CEO has an
+   explicit "type your own answer" option for that).
+
+2. **Task readiness — all-or-nothing per task:**
+   - **Every** question answered → the task is READY → process it (step 3).
+   - **Any blank** (partially or fully unfilled) → **LEAVE THE TASK ENTIRELY
+     AS-IS**: do not process it, do not decide for the CEO, and **preserve their
+     partial answers verbatim**. A blank/partial task means only "the CEO hasn't
+     finished this one yet" — nothing more. They'll return to it.
+
+3. **Process a READY task** — decide single item vs. epic:
+   - **Simple** (one focused change, landable in one dev run) → finalize:
      ```bash
-     python3 "$WORKMD" shape-detail "$WORK" --id T-xxxx \
-       --detail "spec-so-far: <what's settled>"
+     python3 "$WORKMD" shape-finalize "$WORK" --id T-xxxx \
+       --detail "spec: <build-ready>" --detail "acceptance: <how we know it's done>"
      ```
-     Append a new `Round N+1 of 5` block to that section with the remaining
-     questions (same format as intake below), and set the section status back
-     to awaiting. Keep prior rounds' Q&A in the section (collapsed) for context.
+   - **Complex** (multiple systems/steps) → decompose into a parent `[epic]` +
+     **2–6 sequential** subtasks, each independently shippable and ordered so each
+     builds on the prior (they ship in `seq` order off the previous one's merged
+     code); bugs/fast-passed items are never decomposed:
+     ```bash
+     python3 "$WORKMD" shape-epic "$WORK" --id T-xxxx \
+       --child "<subtask 1 title> | spec: <build-ready> | acceptance: <...>" \
+       --child "<subtask 2 title> | spec: <builds on #1> | acceptance: <...>"
+     ```
+   - **Still genuinely ambiguous & round < 5** → `shape-detail --id T-xxxx
+     --detail "spec-so-far: <what's settled>"`, then append a new `Round N+1 of 5`
+     block with follow-up questions (new format below); leave it under Awaiting.
+   - **Round 5** → finalize best-effort; note "max rounds reached".
+
+4. **Log it (REQUIRED — this is the audit trail the CEO relies on).** Every task
+   you finalize / decompose / ship-as-done: MOVE its `### T-xxxx` section out of
+   "Awaiting" into `## ✅ Recently finalized (FYI)` with a one-line summary + today's
+   date (for an epic, list the subtask breakdown). Never silently delete a section.
+
+5. After all READY tasks are processed, **reset the submit line** to
+   `[Indicate complete] ` (empty). Partial/unfilled tasks stay under "Awaiting".
 
 ---
 
@@ -142,37 +141,66 @@ For each item in `shape-list`'s `untriaged` list, reason over the injected
      `triage-id`. Put that exact id in the section header. (shape-start swaps
      the tag to `[untriaged-proposal-active]` and stamps the id on the item.)
 
-Aim for **3–6 sharp questions** that actually unblock the build — the things
-you genuinely need the CEO to decide (scope, count, behavior, edge cases,
-art/audio dependencies). Offer concrete multiple-choice options where you can,
-like /plan mode. Don't ask what you can reasonably decide yourself.
+Aim for **3–6 sharp questions** that actually unblock the build (scope, count,
+behavior, edge cases, art/audio dependencies). For EACH question give **at least
+5 concrete options** when the space of reasonable answers supports it, and ALWAYS
+make the final option `Just type your own answer`. Don't ask what you can
+reasonably decide yourself.
 
-### Questionnaire section format (write exactly this shape)
+### Questionnaire section format (write EXACTLY this shape)
+
+One option per line; blank line before the options; the answer goes on an
+`[Answer]` line (with a trailing space). Example:
 
 ```
 ### T-xxxx · <item title without tags>
 Round 1 of 5 · created <YYYY-MM-DD HH:MM PT>
 WORK.md: <the item's current title line>
 
-Q1. <question>?   options: (a) … (b) … (c) …
-    ▶
+Q1. <question>?
+
+    (a) <option>
+    (b) <option>
+    (c) <option>
+    (d) <option>
+    (e) <option>
+    (f) Just type your own answer
+
+    [Answer] 
+
 Q2. <question>?
-    ▶
-Q3. <question>?
-    ▶
+
+    (a) <option>
+    ...
+    (f) Just type your own answer
+
+    [Answer] 
 ```
 
-Put new sections under the `## ⏳ Awaiting your answers` header. If `TRIAGE`
-doesn't exist yet, create it with this top matter:
+Put new sections under the `## ⏳ Awaiting your answers` header, ABOVE the
+`[Indicate complete]` submit line (which must always be the LAST line of that
+section). If `TRIAGE` doesn't exist yet, create it with this top matter + an
+empty submit line:
 
 ```
 # Triage — shape raw work into buildable specs
-# Fill the ▶ lines below, then save. The Architect reads your answers on its
-# next run (≈twice daily, or sooner). Leave a ▶ blank to let the Architect
-# decide. Don't edit the T-#### ids or section headers.
+#
+# HOW TO ANSWER: under each question, type your choice after [Answer] — e.g.
+#   [Answer] (b)        or write your own:   [Answer] keep it to taser + key
+# SAVE as often as you like while working; the Architect IGNORES the file until
+# you submit. When you're done answering for now, type any word after
+# [Indicate complete] at the bottom and save. The Architect then processes every
+# task whose questions are ALL answered, leaves partial/unanswered tasks for
+# next time (keeping what you typed), clears [Indicate complete], and logs what
+# it finalized under "✅ Recently finalized". Don't edit the T-#### ids/headers.
 ==================================================
 ## ⏳ Awaiting your answers
+
+--------------------------------------------------
+[Indicate complete] 
 ```
+(The `[Indicate complete] ` line stays pinned at the bottom of the Awaiting
+section; insert new `### T-xxxx` questionnaires above it.)
 
 ---
 

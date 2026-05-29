@@ -316,15 +316,19 @@ Producer — they're already in the queue):
 ## ▶ Shape (answer triage questionnaires) (5 min)
 The Architect turns vague new work into buildable specs by asking you questions.
 Until you answer, these items stay BLOCKED (developers never build untriaged work).
-HOW TO ANSWER (this is the whole job — there's nothing to "submit"):
+HOW TO ANSWER:
   1. Open the ONE questionnaire file:  open ~/GameProjects/<game>/.factory/local/TRIAGE.md
-  2. Under "⏳ Awaiting your answers", type your answer after each ▶ , then SAVE.
-     (Only edit the ▶ lines. Don't touch the T-#### ids or the ##/### headers.)
-  3. That's it. Saving = handing it back. Within ~60s the Architect re-reads the
-     file and either (a) finalizes the spec → the item becomes buildable, or
-     (b) asks a follow-up round (up to 5). It also runs on schedule at 09:00 & 21:00 PT.
-  • Leave a ▶ blank to let the Architect decide that point.
-  • Don't want a feature? Leave it unanswered (it just waits) — that's fine.
+  2. Under "⏳ Awaiting your answers", type your choice after each question's
+     [Answer] line — pick a letter or use the "(x) Just type your own answer"
+     option. (Only edit [Answer] lines; don't touch T-#### ids or ##/### headers.)
+  3. SAVE as often as you like — the Architect ignores the file until you submit.
+  4. When done for now, type any word after the [Indicate complete] line at the
+     bottom and SAVE. Within ~60s the Architect processes every task whose
+     questions are ALL answered (finalize → buildable, decompose into an epic, or
+     ask a follow-up round ≤5). It also runs 09:00 & 21:00 PT.
+  • Answer only the tasks you have time for — partially/unanswered tasks are left
+    exactly as-is for next time (a blank answer means "not yet", never "you decide").
+  • Don't want a feature? Leave it (it just waits), or drop it.
 
 Awaiting your answers (<N>) — in .factory/local/TRIAGE.md:
   - <T-xxxx> <item title>  (Round <N> of 5)

@@ -298,10 +298,12 @@ full reference below ("The shaping loop"); the short version of YOUR job:
 $EDITOR ~/GameProjects/<game>/.factory/local/TRIAGE.md   # one file, all questionnaires
 ```
 
-Under `## ⏳ Awaiting your answers`, type your answer after each `▶`, then save.
-**That's the entire action — saving is how you "send it back."** Within ~60s the
-Architect re-reads the file and either finalizes the spec (the item becomes
-buildable) or asks a follow-up round. You don't run anything.
+Under `## ⏳ Awaiting your answers`, type your choice after each question's
+`[Answer]` line (pick a letter or write your own). **Save freely while you work —
+it's ignored until you submit.** When done for now, type any word after the
+**`[Indicate complete]`** line at the bottom and save — within ~60s the Architect
+processes every fully-answered task (finalize / decompose into an epic / ask a
+follow-up) and leaves partial ones for later. You don't run anything.
 
 #### 4. ▶ Bug triage (5 min)
 
@@ -1299,33 +1301,54 @@ On each run it does two things:
 holds every pending questionnaire grouped by item under `## ⏳ Awaiting your
 answers`. Finalized/auto-cleared items move to the `## ✅` sections (auto-pruned).
 
-**Q: How do I answer? Do I just edit the file and save?** Yes. Open it, and under
-each question type your answer after the `▶`, then **save**. Example:
+**Q: How do I answer? Do I just edit the file and save?** Type your choice after
+each question's `[Answer]` line. Options are listed one per line; the last is
+always "Just type your own answer", so you can pick a letter OR write free text:
 
 ```
 ### T-7f3a · Add hero enemies — recurring named adversaries
 Round 1 of 5 · created 2026-05-28 16:40 PDT
-Q1. How many distinct hero enemies at launch?  (a) 1–2  (b) 3–5  (c) 6+
-    ▶ (b) 3-5
+
+Q1. How many distinct hero enemies at launch?
+
+    (a) 1–2
+    (b) 3–5
+    (c) 6+
+    (d) one recurring main villain
+    (e) procedural / scales with progress
+    (f) Just type your own answer
+
+    [Answer] (b)
+
 Q2. Recur across missions, or per-level?
-    ▶ recurring across the whole campaign
+
+    (a) recurring across the whole campaign
+    ... (e) ...
+    (f) Just type your own answer
+
+    [Answer] recurring across the whole campaign
 ```
 
-Rules: only edit the `▶` lines. **Don't** edit the `T-####` ids or the `###`/`##`
-headers (they link your answers back to the WORK.md item). Leave a `▶` **blank**
-to let the Architect decide that point (it records the assumption in the spec).
+Rules: only edit the `[Answer]` lines. **Don't** edit the `T-####` ids or the
+`###`/`##` headers. A **blank `[Answer]` = "not answered yet"** (it does NOT mean
+"you decide" — if you want the Architect to choose, use the "type your own
+answer" option and say so).
 
 **Q: Does it get looked at automatically? How do my answers get back into the
-system?** Saving the file IS the hand-back — there's nothing else to run. `tick.sh`
-notices TRIAGE.md changed and wakes the Architect **within ~60s**; it also runs on
-its 09:00 & 21:00 schedule. On that run it processes your answers (finalize or
-follow-up) and commits the updated WORK.md. If you ever want it *now*, you can also
-run `bash ~/SpraxelAiCompany/scripts/run_agent.sh architect` (only while the system
-is unpaused).
+system?** You can **save as often as you like while editing — the Architect
+ignores the file until you submit.** When you're done answering for now, type any
+word after the **`[Indicate complete]`** line at the bottom of the Awaiting
+section and save. That's the signal: within ~60s `tick.sh` wakes the Architect
+(it also runs 09:00 & 21:00 PT). It processes every task whose questions are ALL
+answered, finalizes/decomposes them, logs them under "✅ Recently finalized",
+then clears `[Indicate complete]`. (Manual nudge anytime the system's running:
+`bash ~/SpraxelAiCompany/scripts/run_agent.sh architect`.)
 
-**Q: What if I don't answer?** The item just waits — untriaged work is never built,
-so an unanswered questionnaire simply parks that feature until you get to it. (To
-kill it instead: `workmd.py drop`.)
+**Q: What if I only fill out some of it?** Fine — answer whole tasks you have time
+for and submit. The Architect processes the **fully-answered** tasks and leaves
+the rest exactly as you left them (partial answers preserved) for next time. A
+partially- or un-answered task means only "didn't get to it yet"; it's never
+built and never guessed at. (To kill an item instead of answering: `workmd.py drop`.)
 
 **Where untriaged items come from:** the Producer tags new feature items
 `[untriaged]`; accepting a Designer `[idea]` (`promote`) converts it to
