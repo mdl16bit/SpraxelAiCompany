@@ -10,6 +10,8 @@
 #   playtested.sh <substr>   mark play-test feature(s) whose title OR slug
 #                            matches <substr> (case-insensitive) as tested
 #   playtested.sh all        mark every current play-test feature tested
+#   playtested.sh '*'        same as 'all' (QUOTE the * so the shell doesn't
+#                            expand it to filenames; bare * won't work)
 #   playtested.sh --list     show what's tested vs still pending today
 #   playtested.sh --reset    clear today's tested list (start the day over)
 set -euo pipefail
@@ -19,7 +21,7 @@ SC="$SPRAXEL/schedule.yaml"
 GAME=$(python3 -c "import re,os;m=re.search(r'game_dir:\s*(\S+)',open(os.path.expanduser('$SC')).read());print(os.path.expanduser(m.group(1)))")
 
 if [ $# -lt 1 ]; then
-  echo "usage: playtested.sh <substr> | all | --list | --reset" >&2
+  echo "usage: playtested.sh <substr> | all | '*' | --list | --reset" >&2
   exit 2
 fi
 
@@ -69,8 +71,8 @@ if arg == "--list":
         print(f"  [{mark}] {t}   ({key})")
     sys.exit(0)
 
-# Mark mode: 'all' or a substring match against title OR slug-key.
-if arg == "all":
+# Mark mode: 'all'/'*' or a substring match against title OR slug-key.
+if arg in ("all", "*"):
     matched = [(k, t) for k, t in pairs]
 else:
     q = arg.lower()

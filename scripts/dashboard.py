@@ -286,8 +286,19 @@ def playtest_texts(game_dir: Path | None, limit: int = 20) -> list[str]:
         except Exception:
             text = ""
         today = datetime.now(TZ).strftime("%Y-%m-%d")
-        first_line = text.splitlines()[0] if text else ""
-        if today in first_line:
+        # Trust MORNING.md as today's if the date appears anywhere in it OR the
+        # file was (re)written today. The briefer overwrites it fresh each
+        # morning, so mtime is a reliable freshness signal even when the agent
+        # forgets the dated `# Morning — <date>` header (gating on line 1 alone
+        # silently dropped us to the git-log fallback, whose slugs don't match
+        # the [bracket] keys the CEO sees). A stale file from a prior day fails
+        # both checks → we fall back to the git-log ship list as before.
+        try:
+            mtime_day = datetime.fromtimestamp(mpath.stat().st_mtime,
+                                               TZ).strftime("%Y-%m-%d")
+        except Exception:
+            mtime_day = ""
+        if today in text or mtime_day == today:
             sec = re.search(r"^##\s*▶?\s*Play-test.*?\n(.*?)(?=^##\s|\Z)",
                             text, re.S | re.M)
             if sec:

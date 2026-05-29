@@ -7,10 +7,14 @@
 #
 # Usage:
 #   bash scripts/reject.sh <slug-or-sha> [reason ...]
+#   bash scripts/reject.sh all   [reason ...]   reject the WHOLE play-test batch
+#   bash scripts/reject.sh '*'   [reason ...]   same as 'all' (QUOTE the *, or
+#                                               the shell expands it to filenames)
 #
 # Examples:
 #   bash scripts/reject.sh cutscene-engine "subtitles cut off the bottom"
 #   bash scripts/reject.sh 6d2d92c "drill bar invisible on dark floors"
+#   bash scripts/reject.sh all "art direction changed — redo the whole batch"
 #
 # Resolves the target by:
 #   1. If it's a valid git ref, use it directly.
@@ -28,7 +32,7 @@ SCHEDULE="$REPO_DIR/schedule.yaml"
 WORKMD="$REPO_DIR/scripts/workmd.py"
 
 if [ $# -eq 0 ]; then
-  echo "usage: $0 <slug-or-sha> [reason ...]" >&2
+  echo "usage: $0 <slug-or-sha> | all | '*'  [reason ...]" >&2
   exit 1
 fi
 
@@ -63,6 +67,42 @@ if [ -n "$(git status --porcelain)" ]; then
   echo "reject: working tree dirty, refusing to revert. Stash or commit first." >&2
   git status --short >&2
   exit 1
+fi
+
+# Bulk mode: reject EVERY current play-test feature (the whole overnight batch).
+# Same feature list as `playtested.sh --list`. Each feature is delegated back to
+# this script BY SHA (so the fuzzy slug-regex path is bypassed); a feature with
+# no matching feat: commit (acceptance scenarios, prior-shipped items) is skipped.
+if [ "$target" = "all" ] || [ "$target" = "*" ]; then
+  mapfile -t titles < <(
+    GAME_DIR="$game_dir" SPRAXEL_SCRIPTS="$HOME/SpraxelAiCompany/scripts" python3 - <<'PY'
+import os, sys, re
+sys.path.insert(0, os.environ["SPRAXEL_SCRIPTS"])
+import dashboard as D
+from pathlib import Path
+for t in D.playtest_texts(Path(os.environ["GAME_DIR"]), limit=50):
+    print(re.sub(r"^\s*\[[^\]]*\]\s*", "", t).strip())  # drop leading [slug]
+PY
+  )
+  if [ "${#titles[@]}" -eq 0 ]; then
+    echo "reject: no current play-test features to reject." >&2
+    exit 0
+  fi
+  echo "reject: rejecting ALL ${#titles[@]} play-test feature(s) — reason: $reason"
+  echo ""
+  rc=0
+  for t in "${titles[@]}"; do
+    [ -z "$t" ] && continue
+    sha=$(git log master --format='%h %s' | grep -iF "feat: $t" | head -1 | awk '{print $1}')
+    if [ -z "$sha" ]; then
+      echo "── skip: no feat: commit for '$t'"
+      continue
+    fi
+    echo "── reject $sha — $t"
+    bash "$0" "$sha" "$reason" || rc=1
+    echo ""
+  done
+  exit $rc
 fi
 
 # Resolve target → feat sha + work-shipped sha (if paired).
