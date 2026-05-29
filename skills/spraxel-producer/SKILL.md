@@ -70,13 +70,26 @@ When the user invokes this skill:
        If you flag a concern, ALSO surface it to the CEO inline in your
        summary at step 6 ("Concerns raised on N items").
 
-   e. **Append** to WORK.md ## Todo:
+   e. **Tag `[untriaged]` (the shaping gate).** Every NEW feature-type item
+      (`[game-feature]` / `[feature]` / `[chore]`) is born `[untriaged]` so the
+      Architect shapes it into a concrete spec before developers build it.
+      Prepend `[untriaged]` to the title. **Exceptions — do NOT add `[untriaged]`:**
+      - `[bug]` items — bugs are concrete; they keep their normal flow.
+      - `MANUAL - …` items — CEO hand-work, never built by the loop.
+
+   f. **Append** to WORK.md ## Todo:
       ```
+      # feature-type → carries [untriaged]:
       python3 ~/SpraxelAiCompany/scripts/workmd.py append \
         ~/GameProjects/<game>/WORK.md --section todo \
-        "[kind] pN <title>" \
+        "[untriaged] [kind] pN <title>" \
         --detail "<detail 1>" \
         --detail "⚠️ concern (balance): <one-line reason>"
+
+      # bug or MANUAL → NO [untriaged]:
+      python3 ~/SpraxelAiCompany/scripts/workmd.py append \
+        ~/GameProjects/<game>/WORK.md --section todo \
+        "[bug] pN <title>"
       ```
 
 3. **For ambiguous items**, ask the CEO one tight question per item (not a

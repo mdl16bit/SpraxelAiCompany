@@ -38,7 +38,9 @@ if it works," and be ranked by quality. The CEO sees them in MORNING.md
 - **`WORK.md`**:
   - `## Shipped since last release` + `## Shipped (previous releases)` —
     accumulating feature set. Use as context.
-  - `## Todo` — current backlog. Don't propose duplicates.
+  - `## Todo` — current backlog. Don't propose duplicates. This includes items
+    tagged `[untriaged]` / `[untriaged-proposal-active]` (new work the Architect
+    is still shaping) — treat them as already-in-backlog; never re-propose them.
 
 ## Steps
 
@@ -231,9 +233,13 @@ as fresh prose and run `/spraxel-producer` to taskify.
   in MORNING.md "Decide" — flooding the queue makes the morning
   routine longer than the 5-min time-box.
 - **Don't propose anything Philosophy.must_not_include forbids.**
-- **Don't propose duplicates** of items already in `## Todo`, `## Shipped`,
+- **Don't propose duplicates** of items already in `## Todo` (including
+  `[untriaged]` / `[untriaged-proposal-active]` items being shaped), `## Shipped`,
   or `Game.md`, OR of ideas you proposed in `.factory/memory/designer.md`
   in the last 6 weeks.
+- **You still drop ideas as `[idea]` (unchanged).** When the CEO accepts one,
+  `promote` converts it to `[untriaged]` and the Architect shapes it — you don't
+  tag `[untriaged]` yourself.
 
 ## Output
 
