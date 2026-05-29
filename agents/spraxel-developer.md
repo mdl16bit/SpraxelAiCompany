@@ -111,7 +111,7 @@ actually stick.
 
    **Deliverable #6 — asset-gap audit — is mandatory whenever your feature
    introduces visible art, audible sound, or human-authored copy.** Before
-   you commit, walk this audit checklist and file a `MANUAL - <CATEGORY>`
+   you commit, walk this audit checklist and file a `[manual] <CATEGORY>`
    item per gap. The "Follow-up CEO tasks" section near the bottom of this
    spec has full examples and the workmd.py command.
 
@@ -313,7 +313,7 @@ actually stick.
      - Cannot use abilities or move (must exit hidden mode first)
 
    Box visual is a 32×40 dark-gray ColorRect for now — needs a real
-   sprite (MANUAL - ART filed under "HideBox sprite + open/closed
+   sprite ([manual] ART filed under "HideBox sprite + open/closed
    animation").
 
    tests: + test_hide_box.gd  (5 assertions covering enter/exit/audio-leak)
@@ -373,30 +373,30 @@ exiting.** Don't ship with placeholder assets and stay silent.
 The rule of thumb: *if a real player would notice this is "fake" or
 "unfinished" without CEO judgment, that's a follow-up task.*
 
-Examples that REQUIRE a follow-up `MANUAL - ` item:
+Examples that REQUIRE a follow-up `[manual] ` item:
 - You added a duck mechanic but used a colored rectangle instead of a sprite.
-  → `MANUAL - ART - Duck sprite + ducked-walk animation for player thieves`
+  → `[manual] ART - Duck sprite + ducked-walk animation for player thieves`
 - You wired a sound trigger but used a placeholder beep.
-  → `MANUAL - SFX - Real footstep-on-water sound (5-10 variants)`
+  → `[manual] SFX - Real footstep-on-water sound (5-10 variants)`
 - You added a new level scene but the layout is just a debug grid.
-  → `MANUAL - LEVEL - Office Hours level design pass (handcrafted layout, item placement)`
+  → `[manual] LEVEL - Office Hours level design pass (handcrafted layout, item placement)`
 - You added a new character archetype but didn't write their flavor text.
-  → `MANUAL - WRITING - Bio + sayings for the "Locksmith" archetype`
+  → `[manual] WRITING - Bio + sayings for the "Locksmith" archetype`
 - You scaffolded a feature but it needs a tuning pass (numbers feel wrong).
-  → `MANUAL - TUNING - Run+slide cooldown + slide distance (feels too far)`
+  → `[manual] TUNING - Run+slide cooldown + slide distance (feels too far)`
 
 How to append:
 
 ```bash
 python3 ~/SpraxelAiCompany/scripts/workmd.py append \
   "$WORK_MD_PATH" --section todo \
-  "MANUAL - ART - Duck sprite + ducked-walk animation" \
+  "[manual] ART - Duck sprite + ducked-walk animation" \
   --detail "Spawned by: <your item title>" \
   --detail "Used: placeholder ColorRect at scripts/characters/duck_stub.gd:42" \
   --detail "Need: 4-frame ducked-walk sprite, side-view, matches existing thief style"
 ```
 
-Use sub-category tags after `MANUAL - ` to make the kind clear:
+Use sub-category tags after `[manual] ` to make the kind clear:
 `ART / MUSIC / SFX / WRITING / LEVEL / TUNING / VOICE / NARRATIVE / DESIGN`.
 
 These tags don't change loop behavior — the `MANUAL` prefix alone causes the
@@ -408,7 +408,7 @@ feat: add duck mechanic
 
 tests: + test_duck.gd
 follow-ups added to WORK.md:
-  - MANUAL - ART - Duck sprite + ducked-walk animation
+  - [manual] ART - Duck sprite + ducked-walk animation
 ```
 
 ## Constraints

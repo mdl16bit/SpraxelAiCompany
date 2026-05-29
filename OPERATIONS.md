@@ -1391,28 +1391,28 @@ So when you (or Claude on your behalf) hand-add feature work and commit WORK.md,
 **prepend `[untriaged]`** — e.g. `[untriaged] [feature] p2 <title>`. The Architect
 then shapes it. **Exempt (never `[untriaged]`):**
 - `[bug]` items — concrete; they keep their normal flow.
-- `MANUAL - …` items — your hand-work, never built by the loop.
+- `[manual] …` items — your hand-work, never built by the loop.
 
 Existing backlog items are left as-is; the gate applies only to new additions.
 
-### `MANUAL - ` sub-category labels
+### `[manual] ` sub-category labels
 
 When the Developer ships a feature that needs CEO follow-up (placeholder
-art, fake SFX, etc.), it appends a `MANUAL - <CATEGORY> - <desc>` item
+art, fake SFX, etc.), it appends a `[manual] <CATEGORY> - <desc>` item
 to `## Todo`. The sub-category is documentary only — doesn't affect the
 loop — but helps you batch-process during morning routine:
 
 | Sub-category | Means |
 |--------------|-------|
-| `MANUAL - ART -` | Sprite / icon / texture / animation work needed |
-| `MANUAL - MUSIC -` | Music track or loop needed |
-| `MANUAL - SFX -` | Sound effect needed |
-| `MANUAL - WRITING -` | Copy, story, dialogue, names, flavor text |
-| `MANUAL - LEVEL -` | Level layout / hand-crafted design |
-| `MANUAL - TUNING -` | Numbers feel wrong; needs balance pass |
-| `MANUAL - VOICE -` | Voice acting / casting |
-| `MANUAL - DESIGN -` | Design decision (mechanic feel, UX call) |
-| `MANUAL - NARRATIVE -` | Story / plot / mission narrative |
+| `[manual] ART -` | Sprite / icon / texture / animation work needed |
+| `[manual] MUSIC -` | Music track or loop needed |
+| `[manual] SFX -` | Sound effect needed |
+| `[manual] WRITING -` | Copy, story, dialogue, names, flavor text |
+| `[manual] LEVEL -` | Level layout / hand-crafted design |
+| `[manual] TUNING -` | Numbers feel wrong; needs balance pass |
+| `[manual] VOICE -` | Voice acting / casting |
+| `[manual] DESIGN -` | Design decision (mechanic feel, UX call) |
+| `[manual] NARRATIVE -` | Story / plot / mission narrative |
 
 Example overnight commit body referencing follow-ups:
 ```
@@ -1420,12 +1420,12 @@ feat: add duck mechanic
 
 tests: + test_duck.gd
 follow-ups added to WORK.md:
-  - MANUAL - ART - Duck sprite + ducked-walk animation
+  - [manual] ART - Duck sprite + ducked-walk animation
 ```
 
-### `FUTURE - ` parked roadmap items
+### `[future] ` parked roadmap items
 
-`FUTURE - <desc>` or `[future] <desc>` marks something you want to do
+`[future] <desc>` or `[future] <desc>` marks something you want to do
 **eventually** but isn't ready to schedule yet. Overnight skips these
 the same way it skips `MANUAL` and `[needs-ceo]` — they sit in `## Todo`
 as a visible roadmap without competing for tonight's batch.
@@ -1439,17 +1439,17 @@ Use it when:
   shipping v0.2 right now.
 
 Difference from neighbors:
-- `MANUAL - ` = human-only forever (art, audio, casting); will never
+- `[manual] ` = human-only forever (art, audio, casting); will never
   become AI-eligible.
-- `FUTURE - ` = AI-eligible later; just not now. Flip to a regular item
+- `[future] ` = AI-eligible later; just not now. Flip to a regular item
   by removing the prefix/tag when ready.
 - `[needs-ceo]` = Developer already tried, got stuck, asked questions —
   CEO answers, removes tag, Developer retries.
 
 Examples:
 ```
-FUTURE - Co-op multiplayer (network layer needs design)
-FUTURE - DLC mission pack
+[future] Co-op multiplayer (network layer needs design)
+[future] DLC mission pack
 [future] [game-feature] p2 Mid-mission gear-swap drone — needs gear-system v2 first
 ```
 

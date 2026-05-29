@@ -1003,12 +1003,14 @@ m = re.findall(r"COMMIT_BODY:\s*\n(.*?)(?:\nEND_COMMIT_BODY|\Z)", log, re.S)
 body = m[-1] if m else ""
 if re.search(r"manual-asset audit:\s*N/?A\b", body, re.I):
     sys.exit(0)  # explicit attestation, accept
-# Check each trigger has corresponding MANUAL - <CATEGORY> mention
+# Check each trigger has a corresponding manual follow-up mention. Accept both
+# the canonical bracket form ("[manual] ART - ...") and the legacy prefix form
+# ("MANUAL - ART - ...") — match a manual marker followed by the category word.
 missing = []
 for kind, path, cats in triggers:
     for cat in cats:
-        if not re.search(rf"MANUAL\s*-\s*{cat}\b", body, re.I):
-            missing.append(f"{path} (new {kind}) missing MANUAL - {cat}")
+        if not re.search(rf"(?:\[manual\]|MANUAL)\b[^\n]*\b{cat}\b", body, re.I):
+            missing.append(f"{path} (new {kind}) missing [manual] {cat}")
 if missing:
     for line in missing:
         print(line)

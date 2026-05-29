@@ -48,8 +48,8 @@ if [ "$DOW" = "6" ]; then
 fi
 
 echo ""; echo "### 📋 TOP-10 MANUAL TASKS (your hand-work backlog) ###"
-grep -nE '^MANUAL' "$WORK" | head -10 || echo "  (none)"
-echo "  (total MANUAL: $(grep -cE '^MANUAL' "$WORK"))"
+grep -nE '^\[manual\]|^MANUAL' "$WORK" | head -10 || echo "  (none)"
+echo "  (total MANUAL: $(grep -cE '^\[manual\]|^MANUAL' "$WORK"))"
 
 echo ""; echo "### 💡 Designer ideas to decide ###"
 grep -nE '^\[idea\]' "$WORK" | head -8 || echo "  (none)"

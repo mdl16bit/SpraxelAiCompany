@@ -80,13 +80,14 @@ shipped (left `## Todo`) — strictly sequential, so each builds on the prior on
 merged code, and with parallel workers at most one subtask of a feature is in
 flight at a time. Items with no `epic-id` are shipped whole, exactly as before.
 
-The `MANUAL - ` prefix is the most-used skip marker. Sub-category labels
-after it (`MANUAL - ART - `, `MANUAL - MUSIC - `, etc.) are documentary
-only — they don't change loop behavior, just help the CEO triage.
+The `[manual]` tag is the most-used skip marker (the legacy `MANUAL -` prefix is
+still recognized for old items, but emit the bracket tag). Sub-category labels
+after it (`[manual] ART - `, `[manual] MUSIC - `, etc.) are documentary only —
+they don't change loop behavior, just help the CEO triage.
 
 **Whenever your work creates a CEO follow-up** (art needed, music needed,
 level needs designing, copy needs writing, gameplay needs tuning), append
-a `MANUAL - <CATEGORY> - <description>` item to WORK.md `## Todo` before
+a `[manual] <CATEGORY> - <description>` item to WORK.md `## Todo` before
 exiting. Don't silently ship with placeholders.
 
 ## HARD RULE: dryrun guard

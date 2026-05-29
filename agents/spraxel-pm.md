@@ -45,7 +45,7 @@ should ship in the current release, in a sensible build order.
 2. **Skip rules** (don't reorder):
    - `[idea]` items — un-promoted Designer drops. Leave them where they are.
    - `[needs-ceo]` items — Developer asked questions. Leave for CEO.
-   - `MANUAL - ` items — CEO-only work. Leave where CEO put them.
+   - `[manual] ` items — CEO-only work. Leave where CEO put them.
    - `[cold]` items — stale-archived. Leave at bottom.
 
 3. **Compute current-release size** from Philosophy:
@@ -112,7 +112,7 @@ If all three are true, ALSO run mode 2 after the reorder.
      - <chore: ...>
      - ...
    FOLLOW-UPS NEEDED (MANUAL items added by Developer)
-     - MANUAL - ART - ... (from WORK.md ## Todo)
+     - [manual] ART - ... (from WORK.md ## Todo)
      - ...
    ```
    Source: `git log <prev-tag>..HEAD --pretty='%h %s' --no-merges`.

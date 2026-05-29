@@ -75,7 +75,7 @@ When the user invokes this skill:
       Architect shapes it into a concrete spec before developers build it.
       Prepend `[untriaged]` to the title. **Exceptions — do NOT add `[untriaged]`:**
       - `[bug]` items — bugs are concrete; they keep their normal flow.
-      - `MANUAL - …` items — CEO hand-work, never built by the loop.
+      - `[manual] …` items — CEO hand-work, never built by the loop.
 
    f. **Append** to WORK.md ## Todo:
       ```
