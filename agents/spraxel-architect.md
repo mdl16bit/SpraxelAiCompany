@@ -96,6 +96,10 @@ When submitted, for each `### T-xxxx` section under `## ⏳ Awaiting your answer
    "Awaiting" into `## ✅ Recently finalized (FYI)` with a one-line summary + today's
    date (for an epic, list the subtask breakdown). Never silently delete a section.
 
+4b. **Process Future-roadmap marks** (same submit gate) — see the
+   "Future roadmap" section below: any `[future]` line the CEO changed from
+   `[triage?]` to `[triage!]` gets `promote`d into shaping.
+
 5. After all READY tasks are processed, **reset the submit line** to
    `[Indicate complete] ` (empty). Partial/unfilled tasks stay under "Awaiting".
 
@@ -227,14 +231,59 @@ empty submit line:
 # task whose questions are ALL answered, leaves partial/unanswered tasks for
 # next time (keeping what you typed), clears [Indicate complete], and logs what
 # it finalized under "✅ Recently finalized". Don't edit the T-#### ids/headers.
+#
+# FUTURE ROADMAP (bottom of file): all [future] items in the PM's suggested
+# order. To pull one into active development, change its [triage?] to [triage!]
+# and submit. Leave [triage?] as-is to keep it deferred — nothing happens.
 ==================================================
 ## ⏳ Awaiting your answers
 
 --------------------------------------------------
 [Indicate complete] 
+
+==================================================
+## 🔮 Future roadmap — deferred, PM-suggested order (review only — never reworded here)
+
+# Change a box to [triage!] to pull that item into shaping on submit; leave
+# [triage?] to keep it deferred. The Architect rewrites this list every run.
+
+(no [future] items yet)
 ```
 (The `[Indicate complete] ` line stays pinned at the bottom of the Awaiting
 section; insert new `### T-xxxx` questionnaires above it.)
+
+---
+
+## Future roadmap — maintain the `## 🔮 Future roadmap` section in TRIAGE.md
+
+Two parts, every run:
+
+**(1) Process marks (in Phase 1, gated by the SAME `[Indicate complete]` submit
+as the questionnaires).** Scan the `## 🔮 Future roadmap` section for any line
+whose box is no longer `[triage?]` — i.e. the CEO changed it (`[triage!]`,
+`[triage x]`, etc.). For each such MARKED line, pull that `[future]` item into
+shaping:
+```bash
+python3 "$WORKMD" promote "$WORK" "<distinctive substring of the line's title>"
+```
+`promote` swaps `[future]`→`[untriaged]`, so it then flows through normal intake
+(you may fast-pass or questionnaire it this same run, per Phase 2). Log each
+under `## ✅ Recently cleared without a questionnaire (FYI)` as
+`<title> → pulled into shaping by CEO ([future]→[untriaged])`. Lines still
+showing `[triage?]` are left untouched — the CEO chose to keep them deferred.
+
+**(2) Regenerate the list (every run, after intake).** Rewrite the
+`## 🔮 Future roadmap` section to list EVERY current `[future]` item, **one line
+each, title only (no detail lines), in WORK.md order** (which the PM keeps sorted
+in suggested-priority order — do NOT re-sort here), each prefixed with a fresh
+`[triage?] ` box:
+```
+[triage?] <future item title, verbatim, minus the leading [future] tag>
+[triage?] <next…>
+```
+This is a VERBATIM listing — copy each title as-is; never reword a `[future]`
+item here (this view is read-only; the items themselves live in WORK.md). If
+there are no `[future]` items, write `(no [future] items)`.
 
 ---
 

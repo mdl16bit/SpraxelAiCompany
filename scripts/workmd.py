@@ -777,11 +777,14 @@ def promote(path: Path, title: str, details: list[str] | None = None,
         item = getattr(wm, section)[idx]
         if item.is_idea:
             new_title = re.sub(r"\[idea\]\s*", "[untriaged] ", item.title, count=1, flags=re.I)
+        elif item.is_future:
+            # CEO pulled a deferred [future] item into the shaping pipeline.
+            new_title = re.sub(r"\[future\]\s*", "[untriaged] ", item.title, count=1, flags=re.I)
         else:
             new_title = re.sub(r"\[cold\]\s*", "", item.title, flags=re.I)
         new_title = re.sub(r"\s{2,}", " ", new_title).strip()
         if new_title == item.title and not details and not retitle:
-            raise ValueError(f"item has no [idea]/[cold] tag: {title!r}")
+            raise ValueError(f"item has no [idea]/[cold]/[future] tag: {title!r}")
         # Optional retitle: swap the descriptive text, keep leading tags + pN.
         if retitle is not None:
             m = re.match(r"^\s*((?:(?:\[[^\]]+\]|p[0-3])\s*)+)", new_title, flags=re.I)
@@ -1418,7 +1421,7 @@ def main(argv: list[str] | None = None) -> int:
     ptf.add_argument("--detail", action="append", default=[], help="indented detail line (repeatable) — e.g. a failure excerpt")
 
     pr = sub.add_parser("promote",
-        help="accept an idea ([idea]→[untriaged]) / resurrect a [cold] item — optionally with edits (--detail / --retitle)")
+        help="accept an idea / pull a [future] in ([idea]/[future]→[untriaged]) / resurrect a [cold] item — optionally with edits (--detail / --retitle)")
     pr.add_argument("path")
     pr.add_argument("title")
     pr.add_argument("--detail", action="append", default=[],
