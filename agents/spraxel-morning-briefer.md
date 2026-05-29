@@ -119,6 +119,21 @@ create it with `mkdir -p .factory/local`.
      MORNING.md and either land in the feature OR see clearly that the
      dev didn't make it testable (and reject it).
 
+   **ONE slug per feature — use it VERBATIM in all five places.** The `<slug>`
+   in the `[bracket]` is the tracking key (`playtested.sh` matches on it). It
+   MUST be byte-for-byte identical to the slug in the `Launch` line's
+   `--demo-feature=<slug>` AND in the three `Done`/`Amend`/`Reject` commands.
+   Pick it once:
+   - If a `--demo-feature=<slug>` hook exists (you verified it in
+     `debug_boot.gd`), that hook name IS the slug — reuse it everywhere.
+   - If there's no demo hook, mint a short kebab slug from the title and use
+     that same string in the bracket and all three commands.
+   Do NOT use a different label in the bracket than in the commands (e.g.
+   `[save-load]` with `playtested.sh save-load-roundtrip` is a BUG — the CEO
+   runs the command and it matches nothing). Self-check before writing: for
+   every item, the bracket text, the `--demo-feature=` value, and the three
+   command args are the same string.
+
    Format per feature:
    ```
    N. [<slug>] <Feature title>  — `<short-sha>`
@@ -131,6 +146,8 @@ create it with `mkdir -p .factory/local`.
       ✏️ Amend:  bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "<feedback>"
       ❌ Reject: bash ~/SpraxelAiCompany/scripts/reject.sh <slug> "<reason>"
    ```
+   (`<slug>` is the SAME string in the bracket, the Launch `--demo-feature=`,
+   and all three commands.)
 
    At the top of the play-test section, include a four-line reminder —
    **lead with Accept so the CEO knows the default is zero work**:
@@ -142,11 +159,29 @@ create it with `mkdir -p .factory/local`.
 
 5. **Decide section** — Designer ideas (`[idea]` tag) the CEO accepts or
    rejects. ALWAYS spell out the actions, even when there are zero ideas
-   (then say there's nothing to do). "Decide" = for each idea, choose:
-   - ✅ ACCEPT (promote to the build queue):
-     `python3 ~/SpraxelAiCompany/scripts/workmd.py promote ~/GameProjects/<game>/WORK.md "<substr>"`
-   - ❌ REJECT (delete it): `python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<substr>"`
-   - ⏸ DEFER: do nothing — it stays tagged `[idea]` and reappears tomorrow.
+   (then say there's nothing to do).
+
+   **Pre-fill the commands per idea — never leave a bare `<substr>` placeholder.**
+   `workmd.py` matches an item by a case-insensitive substring of its title
+   line (first match wins). The CEO shouldn't have to guess what to type, so
+   for EACH idea, pick a SHORT, UNIQUE snippet of that idea's own title (3-5
+   distinctive words — enough to not collide with any other Todo item) and
+   bake it straight into the accept/reject commands. Example: for the idea
+   `[idea] Sound footprint visualizer — show noise radius ring …`, use the
+   snippet `Sound footprint visualizer`, not `<substr>`.
+
+   Lead with a one-line definition so the CEO understands the snippet:
+   `"Decide" = accept or reject each idea. Each command below already has a`
+   `unique snippet of the idea's text filled in — just run it (or edit the`
+   `quoted text to any other substring of the idea's title).`
+
+   Then per idea:
+   ```
+   - [idea] <full idea title>
+       ✅ Accept: python3 ~/SpraxelAiCompany/scripts/workmd.py promote ~/GameProjects/<game>/WORK.md "<unique snippet>"
+       ❌ Reject: python3 ~/SpraxelAiCompany/scripts/workmd.py drop    ~/GameProjects/<game>/WORK.md "<unique snippet>"
+       ⏸ Defer:  do nothing — it stays an [idea] and reappears tomorrow.
+   ```
    If there are zero `[idea]` items, write exactly:
    `✓ Nothing to decide — no designer ideas pending. Skip this section.`
    Then add the PM reorder summary (one line, from PM's commit) as FYI.
@@ -203,26 +238,47 @@ create it with `mkdir -p .factory/local`.
    Auto-retried failures (tests/reviewer/merge) are NOT here; they're in
    `[retry]` items, handled automatically by the next dev run — see step 8a.
 
-   For each `[escalated]` item, list the title, why it's escalated (from
-   the item's detail lines), the saved branch + sha (if present), AND the
-   EXACT commands the CEO runs. Give two choices and make the default
-   obvious:
+   Escalations come in TWO shapes — detect which from the item's details and
+   emit the matching "how to act" block. **The CEO must always be told (a) how
+   to ENACT each option and (b) the ONE command that CLEARS the escalation so
+   it stops re-surfacing. There is no silent resolution: if the CEO changes
+   nothing, the item reappears in tomorrow's briefing — that is the only true
+   "defer."** Pre-fill every command with a short, unique snippet of the
+   item's title (same rule as the Decide section — never leave `<substr>`).
 
-   ```
-   - <title> — why: <reason from item details>
-       Branch: <branch-name> @ <sha>   ← ALWAYS include if the item has a
-                                          branch: detail. The CEO may want
-                                          to inspect/fix it by hand.
-       → DEFER (fine to do nothing): the next dev run keeps re-attempting it;
-         it reappears here until it lands or you intervene.
-       → DO IT VIA THE LOOP (give guidance, retry from the saved branch):
-         edit this item's detail lines in WORK.md with your decision, then:
-            python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<title-substring>"
-       → DO IT YOURSELF (hands-on): check out the branch and work on it:
-            cd ~/GameProjects/<game> && git fetch origin <branch-name> && git checkout <branch-name>
-         (when done: commit + `git push origin <branch-name>:master`, or open it however you like)
-       → DROP IT (decide not to do it): delete the item's line from WORK.md.
-   ```
+   (i) **DECISION escalation** — a design / PM / philosophy conflict whose
+       details enumerate remedy options (e.g. "(A) … (B) … (C) …"); it has
+       NO saved branch. Map each remedy to its CONCRETE mechanic, then show
+       how to clear it:
+       ```
+       - <title> — why: <reason from details>
+           Pick ONE, do the work, THEN clear the escalation:
+           → OPTION A — <what it means>: <exact action — which file + which
+             key/line to edit, or which workmd.py command to queue the work>
+           → OPTION B — <what it means>: <exact action …>
+           → OPTION C — <what it means>: <exact action …>
+           ✓ CLEAR IT (run AFTER you've acted, so it stops reappearing):
+               python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<unique snippet>"
+           ⏸ DEFER = make NO change at all → the conflict stands and this exact
+             item is back tomorrow. ⚠️ If a remedy says "update Philosophy.md /
+             CLAUDE.md", that is an ACTION (edit the file AND clear the item),
+             NOT a defer — name the exact key/line the CEO must change.
+       ```
+
+   (ii) **BRANCH escalation** — a dev/agent preserved a feature branch (the
+        item has a `branch:` detail). This is the resume / checkout / drop case:
+       ```
+       - <title> — why: <reason from details>
+           Branch: <branch-name> @ <sha>
+           → DEFER (do nothing): it reappears here until you act.
+           → RETRY VIA THE LOOP (give guidance): edit this item's detail lines
+             in WORK.md with your decision, then:
+               python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<unique snippet>"
+           → DO IT YOURSELF: cd ~/GameProjects/<game> && git fetch origin <branch-name> && git checkout <branch-name>
+             (when done: commit + `git push origin <branch-name>:master`)
+           → DROP IT (decide not to do it):
+               python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<unique snippet>"
+       ```
 
    **Sanity guard:** an `[escalated]` item should NEVER have a reason like
    "tests failed" / "reviewer rejected" / "merge conflict" — those are
@@ -377,15 +433,28 @@ WORK.md (replace the questions with concrete details), then remove the
 ## ▶ Escalations (1-3 min)
 **Only `[escalated]` items** — real CEO judgment calls. Test/reviewer/merge
 failures are NEVER here (those auto-retry — see Retry queue below).
+Doing NOTHING is the only true defer — an untouched escalation reappears here
+tomorrow. To resolve one: act on your choice, THEN run the clear command.
 
-  - <title> — why: <reason from item details>
+<!-- DECISION escalation (design/PM/philosophy conflict; remedies in details, no branch): -->
+  - <title> — why: <reason from details>
+      Pick ONE, do the work, THEN clear it:
+      → OPTION A — <meaning>: <exact action — file + key/line to edit, or workmd.py cmd>
+      → OPTION B — <meaning>: <exact action …>
+      → OPTION C — <meaning>: <exact action …>
+      ✓ CLEAR IT (after acting): python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<unique snippet>"
+      ⏸ DEFER = no change → it's back tomorrow. ("Update Philosophy/CLAUDE.md" is an
+        ACTION, not a defer — edit the named key AND clear the item.)
+
+<!-- BRANCH escalation (dev/agent saved a feature branch; has a branch: detail): -->
+  - <title> — why: <reason from details>
       Branch: <branch-name> @ <sha>
-      → DEFER (fine to do nothing): the loop keeps re-attempting it.
-      → DO IT VIA THE LOOP: edit the item's details in WORK.md with your
+      → DEFER (do nothing): it reappears until you act.
+      → RETRY VIA THE LOOP: edit the item's details in WORK.md with your
         guidance, then
-        python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<substr>"
+        python3 ~/SpraxelAiCompany/scripts/workmd.py resume ~/GameProjects/<game>/WORK.md "<unique snippet>"
       → DO IT YOURSELF: cd ~/GameProjects/<game> && git fetch origin <branch-name> && git checkout <branch-name>
-      → DROP IT: delete the item's line from WORK.md
+      → DROP IT: python3 ~/SpraxelAiCompany/scripts/workmd.py drop ~/GameProjects/<game>/WORK.md "<unique snippet>"
   ...
 
 (When empty:) ✓ No escalations — nothing needs your judgment.
