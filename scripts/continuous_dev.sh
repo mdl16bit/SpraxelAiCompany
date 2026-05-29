@@ -1195,6 +1195,10 @@ print(t)
       # branches indefinitely. Best to clean up at ship time so origin
       # stays tidy.
       git push --quiet origin --delete "$branch" 2>/dev/null || true
+      # Ship report → MORNING.md news digest (reports for Developer+Reviewer,
+      # who don't self-report; one line per shipped item).
+      printf '%s\n' "- Shipped: $short_title" \
+        | bash "$REPO_DIR/scripts/report.sh" continuous >/dev/null 2>&1 || true
       outcome=ok
       break
     else

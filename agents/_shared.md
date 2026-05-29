@@ -164,6 +164,35 @@ A zero-output run is the worst outcome — it gives the system no signal. Always
 - Don't load the whole WORK.md if you only need the top — `workmd.py top -n N` returns just what you need.
 - Don't redundantly summarize. One concise status line is enough.
 
+## DEFAULT: leave a dated report when you finish
+
+As your LAST step, write ONE short report of what you did + any news the CEO
+should know, by piping markdown bullets to `report.sh`:
+
+```bash
+printf '%s\n' \
+  "- <concrete change / news bullet>" \
+  "- <another>" \
+  | bash ~/SpraxelAiCompany/scripts/report.sh <your-role>
+```
+
+`<your-role>` is your `schedule.yaml` agent name (pm, designer, architect,
+triager, playtester, janitor, blogger, asset_librarian, producer, demo_creator).
+Keep it **scannable bullets of concrete changes** — "decomposed 4 features into
+epics (8 subtasks)", "added 3 [bug] candidates", "reordered Todo: moved X above
+Y" — not prose, not a re-dump of your whole run. The **Morning Briefer reads
+every report written since the last briefing and distills them into MORNING.md's
+"📰 News" section** — this is how your work reaches the CEO, so make it count.
+
+It writes to `.factory/local/reports/` (gitignored, CEO-local; the Janitor
+prunes old ones) — so reporting is NOT a commit and never needs a push.
+
+Exceptions:
+- **Developer + Reviewer do NOT report** — they run per-item under
+  `continuous_dev.sh`, which writes one ship report per shipped item for them.
+- **The Morning Briefer does NOT report** — it's the consumer of reports.
+- Nothing to do? A one-line "nothing to do" report is fine, or skip it.
+
 ## DEFAULT: silence > noise
 
 If you have nothing to do (Janitor with no stale items, PM with no reorder

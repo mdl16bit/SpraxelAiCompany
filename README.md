@@ -41,7 +41,9 @@ ANY TIME   continuous_dev.sh  — long-running Developer loop
 05:00      triager           — consolidates playtest + test failures into
                                [bug] items in WORK.md
 06:00      morning-briefer   — writes .factory/local/MORNING.md (gitignored;
-                               CEO-only file — the morning routine entry)
+                               CEO-only file — the morning routine entry). Leads
+                               with a 📰 News digest distilled from every agent's
+                               dated report since the last briefing.
 06:30      demo-creator      — writes .factory/demos/<date>/recipe.md
                                (always) + best-effort Godot --write-movie
                                capture (when Mac is awake)
@@ -141,6 +143,9 @@ SpraxelAiCompany/
 │   ├── new_game.sh          ← bootstraps a new game repo into the framework
 │   ├── checkin.sh           ← explicit CEO signal (touches .cache/ceo-checkin.ts);
 │   │                          resets the ship-counter
+│   ├── report.sh            ← agents pipe a dated activity report here at end of
+│   │                          run → .factory/local/reports/; Morning Briefer
+│   │                          distills them into MORNING.md's 📰 News section
 │   ├── amend.sh             ← CEO refines a shipped feature → [amend] item
 │   │                          (master untouched; dev modifies in place next run)
 │   ├── reject.sh            ← CEO reverts a shipped feature → [reject] item

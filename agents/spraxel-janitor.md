@@ -170,6 +170,13 @@ find ~/SpraxelAiCompany/logs -type f -mtime +${N} -delete
 find ~/SpraxelAiCompany/logs -type d -empty -delete
 ```
 
+Also prune **agent reports** (the Morning Briefer has already digested them into
+past MORNING.md files). Delete `.factory/local/reports/*.md` older than **14
+days** (keep the `.briefed.ts` marker):
+```bash
+find .factory/local/reports -name '*.md' -mtime +14 -delete 2>/dev/null || true
+```
+
 ## Commit + report
 
 - Commit WORK.md (only if cold-archives happened) with the janitor bot

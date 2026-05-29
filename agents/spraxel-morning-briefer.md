@@ -46,6 +46,22 @@ create it with `mkdir -p .factory/local`.
 
 2. **Read overnight commits.** `git log master --since="yesterday 22:00 PT" --pretty=format:"%h %s" | head -20`. Note the count of `feat:` and `fix:` commits.
 
+2b. **Read agent reports (for the 📰 News section).** Every agent drops a dated
+   report in `.factory/local/reports/`. Read all reports written **since the last
+   briefing**:
+   ```bash
+   MARK=.factory/local/reports/.briefed.ts
+   if [ -e "$MARK" ]; then find .factory/local/reports -name '*.md' -newer "$MARK" | sort;
+   else find .factory/local/reports -name '*.md' | sort; fi
+   ```
+   `cat` those files and distill them into the `## 📰 News` section of the template:
+   group by agent, lead with the highest-signal items (what the Architect shaped,
+   what shipped, new bugs, what the PM/Designer/Janitor changed). Bullets, not
+   prose; dedupe against the ship list you already have. **After** you've written
+   MORNING.md (step 10), `touch .factory/local/reports/.briefed.ts` so the same
+   reports aren't re-summarized tomorrow. If there are no new reports, write the
+   one-line empty case in that section.
+
 3. **Pick N features to play-test today** — where N =
    `Philosophy.md#morning_briefer.playtest_count` (default 10 if missing).
    Read it via:
@@ -242,7 +258,9 @@ create it with `mkdir -p .factory/local`.
 9. **Time box** — fixed template, total ~38 min (see template below).
 
 10. **Write `.factory/local/MORNING.md`** in the game repo (mkdir -p the
-    directory if missing). Overwrite the previous day's.
+    directory if missing). Overwrite the previous day's. Then **mark the reports
+    as briefed** so tomorrow's 📰 News only shows newer activity:
+    `touch .factory/local/reports/.briefed.ts`
 
 11. **Do NOT commit.** `.factory/local/` is gitignored — MORNING.md stays
     local-only. The CEO reads it directly off disk.
@@ -265,6 +283,16 @@ Commits: <first-sha> .. <last-sha> (`git log master --since=yesterday`).
      epic-id detail), group them under their feature and show progress, e.g.
      "Hero enemies: 2/3 subtasks shipped (next: unique gadget)". An [epic] parent
      appearing in Shipped means that whole feature is now complete. -->
+
+## 📰 News since your last briefing
+<!-- Distilled from .factory/local/reports/*.md written since the last briefing
+     (step 2b). Group by agent; lead with highest-signal. Bullets, not prose. -->
+- **Architect:** <e.g. shaped 7 items — 4 epics (8 subtasks), 1 finalized, 1 follow-up>
+- **Developer (shipped):** <e.g. 12 features incl. X, Y, Z>
+- **Triager:** <e.g. 3 new [bug] candidates>
+- **PM / Designer / Janitor / …:** <only the ones that actually ran>
+<!-- If no new reports since last briefing, replace the list with: -->
+✓ No agent activity since your last briefing.
 
 ## ▶ Play-test today (20 min)
 Every feature below has a runnable Launch line — copy/paste it from the game repo.
