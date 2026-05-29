@@ -578,6 +578,34 @@ def read_philosophy_int(game_dir: Path | None, dotted_key: str, default: int) ->
     return default
 
 
+def queue_composition(game_dir: Path | None) -> dict:
+    """Composition of WORK.md ## Todo: total item count, eligible (buildable)
+    count, and a count by primary tag. eligible == 0 means the buildable queue
+    is EXHAUSTED — workers idle for the right reason, not a bug."""
+    out = {"total": 0, "eligible": -1, "by_tag": {}}
+    if not game_dir:
+        return out
+    wm_path = game_dir / "WORK.md"
+    try:
+        from workmd import parse as parse_wm, top_n
+        wm = parse_wm(wm_path)
+    except Exception:
+        return out
+    todo = wm.todo
+    out["total"] = len(todo)
+    counts: dict[str, int] = {}
+    for it in todo:
+        m = re.match(r"\[([a-z0-9-]+)(?::\d+)?\]", it.title.strip().lower())
+        tag = m.group(1) if m else "(untagged)"
+        counts[tag] = counts.get(tag, 0) + 1
+    out["by_tag"] = counts
+    try:
+        out["eligible"] = len(top_n(wm_path, n=999))
+    except Exception:
+        out["eligible"] = -1
+    return out
+
+
 def render(now: datetime, game_dir: Path | None) -> str:
     lines = []
     # Read configurable dashboard counts from Philosophy.md (with defaults).
@@ -704,6 +732,23 @@ def render(now: datetime, game_dir: Path | None) -> str:
                 plural = "commit" if n == 1 else "commits"
                 cdisp = f"  {ccol}{n} {plural}, last {fmt_etime(cage)} ago{RESET}"
             lines.append(f"    {DIM}w{wid}{RESET}  {tag} {age_col}  {title_disp}{cdisp}")
+    lines.append("")
+
+    # Work queue composition + exhaustion indicator
+    qc = queue_composition(game_dir)
+    lines.append(f"  {BOLD}▸ Work queue{RESET}  {DIM}({qc['total']} items in Todo){RESET}")
+    elig = qc["eligible"]
+    if elig == 0:
+        lines.append(f"    {YELLOW}⚠ buildable queue EXHAUSTED{RESET} — {DIM}0 eligible; workers idle by design (not a bug){RESET}")
+        lines.append(f"    {DIM}refill: accept [idea]s / triage [needs-ceo] / answer TRIAGE; Designer auto-runs when dry{RESET}")
+    elif elig > 0:
+        lines.append(f"    {GREEN}{elig}{RESET} eligible to build now")
+    else:
+        lines.append(f"    {DIM}(eligible count unavailable){RESET}")
+    if qc["by_tag"]:
+        order = sorted(qc["by_tag"].items(), key=lambda kv: (-kv[1], kv[0]))
+        breakdown = "  ".join(f"{n}×[{t}]" for t, n in order)
+        lines.append(f"    {DIM}{breakdown}{RESET}")
     lines.append("")
 
     # Throughput — git-log derived, no state file race

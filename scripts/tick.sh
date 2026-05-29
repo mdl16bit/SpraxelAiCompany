@@ -159,16 +159,17 @@ if [ -x "$RUN_AGENT" ] && [ -n "$arch_reason" ] \
   dispatched+=("architect (reactive: $arch_reason)")
 fi
 
-# Designer DAILY when the buildable queue is DRY. The Designer normally runs
-# Tue+Fri (cron), but when developers have NOTHING to build — `top` returns no
-# eligible items (only [manual]/[future]/untriaged/epic-gated left, and ignoring
-# the permanent pinned dashboard chore) — bump it to run today too, to refill
-# the idea pipeline. Date-stamped (fires ≤1×/day) and skipped on the Tue/Fri
-# cron days so it never double-fires with the scheduled run.
+# Designer when the buildable queue is DRY. The Designer normally runs Tue+Fri
+# (cron), but when developers have NOTHING to build — `top` returns no eligible
+# items (only [manual]/[future]/untriaged/epic-gated left, ignoring the permanent
+# pinned dashboard chore) — fire it to refill the idea pipeline. Fires on ANY day,
+# INCLUDING Tue/Fri: if the scheduled morning batch is already exhausted by
+# mid-day, this tops it up (previously the Tue/Fri skip left the queue dry until
+# the next day — exactly the "queue exhausted, no designer planned" gap). Date-
+# stamped to ≤1 dry-run/day so it can't spam; on Tue/Fri it may add one run on
+# top of the scheduled one when genuinely dry — which is the point.
 dz_stamp="$REPO_DIR/.cache/designer-dry-ran.date"
-dow=$(date +%u)
 if [ -x "$RUN_AGENT" ] && [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ] \
-   && [ "$dow" != 2 ] && [ "$dow" != 5 ] \
    && [ "$(cat "$dz_stamp" 2>/dev/null)" != "$(date +%F)" ] \
    && ! lock_holder_alive "$LOCKS_DIR/designer.lockdir"; then
   buildable=$(python3 "$REPO_DIR/scripts/workmd.py" top "$arch_work_md" -n 25 2>/dev/null \
