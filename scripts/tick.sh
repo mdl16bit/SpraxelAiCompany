@@ -125,6 +125,31 @@ if [ -x "$RUN_AGENT" ] && [ -n "$arch_reason" ] \
   dispatched+=("architect (reactive: $arch_reason)")
 fi
 
+# Designer DAILY when the buildable queue is DRY. The Designer normally runs
+# Tue+Fri (cron), but when developers have NOTHING to build — `top` returns no
+# eligible items (only [manual]/[future]/untriaged/epic-gated left, and ignoring
+# the permanent pinned dashboard chore) — bump it to run today too, to refill
+# the idea pipeline. Date-stamped (fires ≤1×/day) and skipped on the Tue/Fri
+# cron days so it never double-fires with the scheduled run.
+dz_stamp="$REPO_DIR/.cache/designer-dry-ran.date"
+dow=$(date +%u)
+if [ -x "$RUN_AGENT" ] && [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ] \
+   && [ "$dow" != 2 ] && [ "$dow" != 5 ] \
+   && [ "$(cat "$dz_stamp" 2>/dev/null)" != "$(date +%F)" ] \
+   && ! lock_holder_alive "$LOCKS_DIR/designer.lockdir"; then
+  buildable=$(python3 "$REPO_DIR/scripts/workmd.py" top "$arch_work_md" -n 25 2>/dev/null \
+    | python3 -c 'import sys,json,re
+try: d=json.load(sys.stdin)
+except Exception: d=[]
+print(sum(1 for i in d if not re.search(r"PERMANENT|do not close", i["title"], re.I)))' 2>/dev/null || echo 1)
+  if [ "$buildable" = "0" ]; then
+    date +%F > "$dz_stamp"
+    dlog="$REPO_DIR/logs/designer"; mkdir -p "$dlog"
+    nohup bash "$RUN_AGENT" designer >>"$dlog/dry-$(date +%Y-%m-%d).log" 2>&1 &
+    dispatched+=("designer (reactive: queue dry → daily)")
+  fi
+fi
+
 # Continuous Developer loop — N parallel workers, self-paced against the
 # shared CEO-checkin counter (cap = continuous.target_per_batch across
 # all workers combined). Each worker has its own lockdir + worktree.

@@ -58,11 +58,13 @@ reactive                       /plan-style questionnaire to .factory/local/
                                work or save TRIAGE.md answers.
 
 ─ Weekly ───────────────────────────────────────────────────────
-Tue+Fri 07:00  designer      — drops 4-6 [idea] items + 0-3 [concern] items;
-                               audits implemented + planned work vs Philosophy.md
-                               and escalates any conflict to the CEO
+Tue+Fri 04:30  designer      — drops 4-6 [idea] items + 0-3 [concern] items;
+(+ daily                       audits implemented + planned work vs Philosophy.md
+ when dry)                     and escalates any conflict to the CEO
                                in WORK.md (the [concern]s flag game-wide
-                               issues — feature bloat, philosophical drift)
+                               issues — feature bloat, philosophical drift).
+                               ALSO auto-runs on other days when the
+                               buildable queue is dry (devs out of work).
 Sat 10:00      blogger       — drafts blog/content/posts/draft-<date>-<slug>.md
                                from the week's feat: commits; pushes
                                blog/<date> branch for CEO humanization

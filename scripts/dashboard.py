@@ -695,7 +695,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
     lines.append(f"    Today:        {GREEN}{tput['today']:>3}{RESET} {DIM}(continuous-bot ships){RESET}")
     lines.append(f"    7-day:        {GREEN}{tput['seven_day']:>3}{RESET} {DIM}avg {tput['avg_per_day']}/day{RESET}")
     lines.append(f"    Lifetime:     {DIM}{tput['lifetime']:>3}{RESET}")
-    lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir)}{RESET} {DIM}(today, CEO-bound){RESET}")
+    lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir):>3}{RESET} {DIM}(today, CEO-bound){RESET}")
     lines.append("")
 
     # Next 10 scheduled runs
@@ -732,15 +732,34 @@ def render(now: datetime, game_dir: Path | None) -> str:
             "manual":    CYAN,
             "dictation": CYAN,
         }
-        for kind, title in actions:
+        def _ceo_cell(kind: str, title: str, cap: int) -> tuple[str, int]:
+            # Returns (colored cell text, visible width). Strips any leading
+            # workflow tag + MANUAL prefix + pN — the category prefix conveys it.
             tag_color = color_map.get(kind, RESET)
             tag = f"{tag_color}[{kind}]{RESET}"
-            # Strip any leading workflow tag + MANUAL prefix + pN from the
-            # display text (the category prefix already conveys it).
             clean = re.sub(r"^\s*(\[[^\]]+\]|p[0-3]|MANUAL\s*-\s*)\s*", "", title, flags=re.I)
             clean = re.sub(r"^\s*(\[[^\]]+\]|p[0-3])\s*", "", clean, flags=re.I)
-            clean = clean[:54] + ("…" if len(clean) > 54 else "")
-            lines.append(f"    {tag} {clean}")
+            clean = clean[:cap] + ("…" if len(clean) > cap else "")
+            return f"{tag} {clean}", len(f"[{kind}] ") + len(clean)
+
+        if len(actions) <= 5:
+            # One column — unchanged look, wide titles.
+            for kind, title in actions:
+                cell, _ = _ceo_cell(kind, title, 54)
+                lines.append(f"    {cell}")
+        else:
+            # Two columns of five (column-major) so >5 items don't overflow
+            # the window. Left col = first 5, right col = next 5.
+            ROWS, CAP, CELL_W = 5, 22, 36
+            left, right = actions[:ROWS], actions[ROWS:]
+            for i in range(len(left)):
+                lcell, lvis = _ceo_cell(left[i][0], left[i][1], CAP)
+                if i < len(right):
+                    rcell, _ = _ceo_cell(right[i][0], right[i][1], CAP)
+                    pad = " " * max(1, CELL_W - lvis)
+                    lines.append(f"    {lcell}{pad}{rcell}")
+                else:
+                    lines.append(f"    {lcell}")
     lines.append("")
 
     # Last N things shipped

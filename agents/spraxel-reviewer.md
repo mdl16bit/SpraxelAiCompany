@@ -85,18 +85,18 @@ a schedule.
       (Reason: GAME.md feeds the future tutorial system; gaps now mean
       un-tutorialable features later.)
    6. **Asset-gap audit + MANUAL follow-ups** — check the diff for any of
-      these triggers and require a matching `[manual] <CATEGORY> - <thing>`
+      these triggers and require a matching `[manual] [<category>] <thing>`
       item appended to `WORK.md ## Todo` in the same diff:
 
       | Trigger in diff                                           | Required MANUAL items                         |
       |-----------------------------------------------------------|-----------------------------------------------|
-      | New `scenes/enemies/*.tscn` or new `scripts/ai/*.gd` for an entity | `[manual] ART`, `[manual] SFX` (vocalization) |
-      | New entry in `MissionRunner.ROSTER`                       | `[manual] ART` (portrait + sprite), `[manual] WRITING` (bio + lines) |
-      | New ability/skill in `skill_db.gd`                        | `[manual] SFX` (cast sound), `[manual] ART` (icon)             |
-      | New `scenes/levels/sample/*.tscn`                         | `[manual] LEVEL` (handcrafted layout pass)    |
-      | New cutscene id (`assets/cutscenes/<id>.json`)            | `[manual] WRITING` (dialog polish), `[manual] VOICE` (if planning VO) |
-      | Reuses an existing SFX with non-trivial `pitch_scale` or `volume_db` for a NEW context (e.g., `play("suspicion", -8, 1.2)` to fake a dog bark) | `[manual] SFX` (real source clip)             |
-      | Raw `Polygon2D` / `ColorRect` / single-color shape used as the visible body of a new entity | `[manual] ART`                                |
+      | New `scenes/enemies/*.tscn` or new `scripts/ai/*.gd` for an entity | `[manual] [art]`, `[manual] [sfx]` (vocalization) |
+      | New entry in `MissionRunner.ROSTER`                       | `[manual] [art]` (portrait + sprite), `[manual] [writing]` (bio + lines) |
+      | New ability/skill in `skill_db.gd`                        | `[manual] [sfx]` (cast sound), `[manual] [art]` (icon)             |
+      | New `scenes/levels/sample/*.tscn`                         | `[manual] [level]` (handcrafted layout pass)    |
+      | New cutscene id (`assets/cutscenes/<id>.json`)            | `[manual] [writing]` (dialog polish), `[manual] [voice]` (if planning VO) |
+      | Reuses an existing SFX with non-trivial `pitch_scale` or `volume_db` for a NEW context (e.g., `play("suspicion", -8, 1.2)` to fake a dog bark) | `[manual] [sfx]` (real source clip)             |
+      | Raw `Polygon2D` / `ColorRect` / single-color shape used as the visible body of a new entity | `[manual] [art]`                                |
 
       **How to verify**: run `grep -iE '\[manual\]|^MANUAL' WORK.md | tail -20` and
       check whether the new items reference the spawning item (look for

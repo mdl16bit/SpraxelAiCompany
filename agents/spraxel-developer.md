@@ -132,7 +132,7 @@ actually stick.
 
    **Deliverable #6 — asset-gap audit — is mandatory whenever your feature
    introduces visible art, audible sound, or human-authored copy.** Before
-   you commit, walk this audit checklist and file a `[manual] <CATEGORY>`
+   you commit, walk this audit checklist and file a `[manual] [<category>]`
    item per gap. The "Follow-up CEO tasks" section near the bottom of this
    spec has full examples and the workmd.py command.
 
@@ -339,7 +339,7 @@ actually stick.
      - Cannot use abilities or move (must exit hidden mode first)
 
    Box visual is a 32×40 dark-gray ColorRect for now — needs a real
-   sprite ([manual] ART filed under "HideBox sprite + open/closed
+   sprite ([manual] [art] filed under "HideBox sprite + open/closed
    animation").
 
    tests: + test_hide_box.gd  (5 assertions covering enter/exit/audio-leak)
@@ -401,22 +401,22 @@ The rule of thumb: *if a real player would notice this is "fake" or
 
 Examples that REQUIRE a follow-up `[manual] ` item:
 - You added a duck mechanic but used a colored rectangle instead of a sprite.
-  → `[manual] ART - Duck sprite + ducked-walk animation for player thieves`
+  → `[manual] [art] Duck sprite + ducked-walk animation for player thieves`
 - You wired a sound trigger but used a placeholder beep.
-  → `[manual] SFX - Real footstep-on-water sound (5-10 variants)`
+  → `[manual] [sfx] Real footstep-on-water sound (5-10 variants)`
 - You added a new level scene but the layout is just a debug grid.
-  → `[manual] LEVEL - Office Hours level design pass (handcrafted layout, item placement)`
+  → `[manual] [level] Office Hours level design pass (handcrafted layout, item placement)`
 - You added a new character archetype but didn't write their flavor text.
-  → `[manual] WRITING - Bio + sayings for the "Locksmith" archetype`
+  → `[manual] [writing] Bio + sayings for the "Locksmith" archetype`
 - You scaffolded a feature but it needs a tuning pass (numbers feel wrong).
-  → `[manual] TUNING - Run+slide cooldown + slide distance (feels too far)`
+  → `[manual] [tuning] Run+slide cooldown + slide distance (feels too far)`
 
 How to append:
 
 ```bash
 python3 ~/SpraxelAiCompany/scripts/workmd.py append \
   "$WORK_MD_PATH" --section todo \
-  "[manual] ART - Duck sprite + ducked-walk animation" \
+  "[manual] [art] Duck sprite + ducked-walk animation" \
   --detail "Spawned by: <your item title>" \
   --detail "Used: placeholder ColorRect at scripts/characters/duck_stub.gd:42" \
   --detail "Need: 4-frame ducked-walk sprite, side-view, matches existing thief style"
@@ -434,7 +434,7 @@ feat: add duck mechanic
 
 tests: + test_duck.gd
 follow-ups added to WORK.md:
-  - [manual] ART - Duck sprite + ducked-walk animation
+  - [manual] [art] Duck sprite + ducked-walk animation
 ```
 
 ## Constraints

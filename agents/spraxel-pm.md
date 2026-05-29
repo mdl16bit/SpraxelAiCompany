@@ -112,7 +112,7 @@ If all three are true, ALSO run mode 2 after the reorder.
      - <chore: ...>
      - ...
    FOLLOW-UPS NEEDED (MANUAL items added by Developer)
-     - [manual] ART - ... (from WORK.md ## Todo)
+     - [manual] [art] ... (from WORK.md ## Todo)
      - ...
    ```
    Source: `git log <prev-tag>..HEAD --pretty='%h %s' --no-merges`.

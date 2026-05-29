@@ -1404,21 +1404,21 @@ Existing backlog items are left as-is; the gate applies only to new additions.
 ### `[manual] ` sub-category labels
 
 When the Developer ships a feature that needs CEO follow-up (placeholder
-art, fake SFX, etc.), it appends a `[manual] <CATEGORY> - <desc>` item
+art, fake SFX, etc.), it appends a `[manual] [<category>] <desc>` item
 to `## Todo`. The sub-category is documentary only — doesn't affect the
 loop — but helps you batch-process during morning routine:
 
 | Sub-category | Means |
 |--------------|-------|
-| `[manual] ART -` | Sprite / icon / texture / animation work needed |
-| `[manual] MUSIC -` | Music track or loop needed |
-| `[manual] SFX -` | Sound effect needed |
-| `[manual] WRITING -` | Copy, story, dialogue, names, flavor text |
-| `[manual] LEVEL -` | Level layout / hand-crafted design |
-| `[manual] TUNING -` | Numbers feel wrong; needs balance pass |
-| `[manual] VOICE -` | Voice acting / casting |
-| `[manual] DESIGN -` | Design decision (mechanic feel, UX call) |
-| `[manual] NARRATIVE -` | Story / plot / mission narrative |
+| `[manual] [art]` | Sprite / icon / texture / animation work needed |
+| `[manual] [music]` | Music track or loop needed |
+| `[manual] [sfx]` | Sound effect needed |
+| `[manual] [writing]` | Copy, story, dialogue, names, flavor text |
+| `[manual] [level]` | Level layout / hand-crafted design |
+| `[manual] [tuning]` | Numbers feel wrong; needs balance pass |
+| `[manual] [voice]` | Voice acting / casting |
+| `[manual] [design]` | Design decision (mechanic feel, UX call) |
+| `[manual] [narrative]` | Story / plot / mission narrative |
 
 Example overnight commit body referencing follow-ups:
 ```
@@ -1426,7 +1426,7 @@ feat: add duck mechanic
 
 tests: + test_duck.gd
 follow-ups added to WORK.md:
-  - [manual] ART - Duck sprite + ducked-walk animation
+  - [manual] [art] Duck sprite + ducked-walk animation
 ```
 
 ### `[future] ` parked roadmap items
@@ -1473,7 +1473,7 @@ Examples:
 | **morning-briefer** | daily 04:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, real `[escalated]` items needing CEO judgment (usually 0 — auto-retries are silent and not surfaced). Shows a one-line `[retry]` queue count FYI but no action required. Runs `health_check.sh` first to surface agent failures. |
 | **demo-creator** | daily 05:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
 | **pm** | daily 05:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
-| **designer** | Tue + Fri 04:30 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). **Audits all implemented + planned work against Philosophy.md and escalates ANY conflict (even slight, severity-tagged) to the CEO.** |
+| **designer** | Tue + Fri 04:30 PT (+ daily when dry) | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). **Audits all implemented + planned work against Philosophy.md and escalates ANY conflict (even slight, severity-tagged) to the CEO.** **Cadence:** scheduled Tue+Fri; `tick.sh` ALSO dispatches it on any other day when the buildable queue is dry (developers have no eligible items left — only `[manual]`/`[future]`/`[untriaged]`/epic-gated, ignoring the pinned dashboard chore), at most once/day, to refill the idea pipeline. |
 | **architect** | daily 09:00 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | sonnet | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), and intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`). On finalize, decides single item vs. decomposing a complex feature into a parent `[epic]` + sequential subtasks (`shape-epic`). Bugs + MANUAL items are exempt. |
 | **blogger** | weekly Sat 09:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |

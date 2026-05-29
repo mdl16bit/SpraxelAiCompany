@@ -82,12 +82,12 @@ flight at a time. Items with no `epic-id` are shipped whole, exactly as before.
 
 The `[manual]` tag is the most-used skip marker (the legacy `MANUAL -` prefix is
 still recognized for old items, but emit the bracket tag). Sub-category labels
-after it (`[manual] ART - `, `[manual] MUSIC - `, etc.) are documentary only —
+after it (`[manual] [art] `, `[manual] [music] `, etc.) are documentary only —
 they don't change loop behavior, just help the CEO triage.
 
 **Whenever your work creates a CEO follow-up** (art needed, music needed,
 level needs designing, copy needs writing, gameplay needs tuning), append
-a `[manual] <CATEGORY> - <description>` item to WORK.md `## Todo` before
+a `[manual] [<category>] <description>` item to WORK.md `## Todo` before
 exiting. Don't silently ship with placeholders.
 
 ## HARD RULE: dryrun guard
