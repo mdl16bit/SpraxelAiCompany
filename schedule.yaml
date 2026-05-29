@@ -20,6 +20,7 @@ agents:
   demo_creator:    { cron: "30 5 * * *", description: "05:30 PT daily — capture video+still of newly-shipped features (Mac-awake req)" }
   pm:              { cron: "0 6 * * *",  description: "06:00 PT daily — reorder ## Todo; release-cut on biweekly Mondays" }
   designer:        { cron: "30 4 * * 2,5",description: "Tue+Fri 04:30 PT — drop ranked ideas as [idea] items (runs BEFORE morning_briefer so ideas surface in today's MORNING.md instead of tomorrow's; was 06:00 = pm collision)" }
+  architect:       { cron: "0 9,21 * * *", description: "09:00 & 21:00 PT — shape [untriaged] work: process answered TRIAGE.md questionnaires (finalize or follow-up), then write questionnaires for new untriaged items. ALSO dispatched reactively by tick.sh within ~60s of a new [untriaged] item." }
   blogger:         { cron: "0 9 * * 6",  description: "Sat 09:00 PT — draft weekly devlog (uses demo assets + release notes)" }
   janitor:         { cron: "0 1 * * 0",  description: "Sun 01:00 PT — cold-archive stale, prune branches + logs" }
   asset_librarian: { cron: "0 7 1 * *",  description: "1st of month 07:00 PT — scan assets/ for orphans + license gaps" }
@@ -34,7 +35,7 @@ ceo_routine:
   timezone: "America/Los_Angeles"
   morning:
     around: "06:15"
-    purpose: "Full triage — play-test overnight ships, decide Designer ideas, triage new bugs, clear escalations, dictate fixes."
+    purpose: "Full triage — play-test overnight ships, decide Designer ideas, triage new bugs, clear escalations, answer Architect triage questionnaires (.factory/local/TRIAGE.md), dictate fixes."
   afternoon:
     around: "13:00"
     purpose: "Quick unblock — clear any [needs-ceo]/[escalated] so the loop never stalls waiting on you; dump new ideas to the inbox."

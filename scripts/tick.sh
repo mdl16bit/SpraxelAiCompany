@@ -82,6 +82,28 @@ while IFS='|' read -r name cron; do
   fi
 done <<< "$agent_entries"
 
+# Reactive Architect trigger — shape newly-added [untriaged] items promptly
+# instead of waiting for the Architect's twice-daily cron. Cheap grep; only
+# fires when raw [untriaged] items exist AND the Architect isn't already
+# running (lock check avoids re-dispatch spam while it works). The regex
+# `^\[untriaged\]` matches the raw tag only — the closing `]` excludes
+# `[untriaged-proposal-active]` items (questionnaire already in flight).
+arch_game_dir=$(python3 - "$SCHEDULE" <<'PY'
+import sys, os, re
+m = re.search(r"game_dir:\s*(\S+)", open(sys.argv[1]).read())
+print(os.path.expanduser(m.group(1)) if m else "")
+PY
+)
+arch_work_md="$arch_game_dir/WORK.md"
+if [ -x "$RUN_AGENT" ] && [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ] \
+   && grep -qE '^\[untriaged\]' "$arch_work_md" \
+   && ! lock_holder_alive "$LOCKS_DIR/architect.lockdir"; then
+  dlog="$REPO_DIR/logs/architect"
+  mkdir -p "$dlog"
+  nohup bash "$RUN_AGENT" architect >>"$dlog/reactive-$(date +%Y-%m-%d).log" 2>&1 &
+  dispatched+=("architect (reactive: untriaged present)")
+fi
+
 # Continuous Developer loop — N parallel workers, self-paced against the
 # shared CEO-checkin counter (cap = continuous.target_per_batch across
 # all workers combined). Each worker has its own lockdir + worktree.
