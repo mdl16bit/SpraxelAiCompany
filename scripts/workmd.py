@@ -473,8 +473,11 @@ def ship(path: Path, title: str) -> WorkItem:
     """Move an item from Todo → Shipped-since-last-release.
 
     Appends to the end of `current` so the section stays in chronological
-    completion order. Strips any [wip:N] tag (a shipping item is by
-    definition no longer claimed). Raises ValueError if not found.
+    completion order. Strips any [wip:N] tag (a shipping item is by definition
+    no longer claimed) and any [untriaged]/[untriaged-proposal-active] tag (a
+    shipped item is by definition no longer awaiting shaping — e.g. the
+    Architect ships an item it recognizes as already-done). Raises ValueError
+    if not found.
     """
     with FileLock(path):
         wm = parse(path)
@@ -482,7 +485,9 @@ def ship(path: Path, title: str) -> WorkItem:
         if idx < 0:
             raise ValueError(f"item not found in todo: {title!r}")
         item = wm.todo.pop(idx)
-        item.title = WIP_TAG_RE.sub("", item.title).strip()
+        item.title = WIP_TAG_RE.sub("", item.title)
+        item.title = re.sub(r"\[(untriaged-proposal-active|untriaged)\]\s*", "",
+                            item.title, flags=re.I).strip()
         item.raw_lines = [item.title] + [f"  {d}" for d in item.details]
         wm.current.append(item)
         path.write_text(serialize(wm))
