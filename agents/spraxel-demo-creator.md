@@ -106,6 +106,10 @@ recipe to launch it, see it, and record it by hand in <60s. Open a
 terminal, follow the recipe, save the clip wherever the Blogger looks
 (`.factory/demos/<date>/<slug>.mov`) or to your Desktop.
 
+⚠️ Run each scenario via its **`--demo-feature=<slug>`** Launch line below — NOT
+`godot -s <scenario>.gd`. The scenarios `extend Node` (the game instances them),
+so `-s` errors with "doesn't inherit from SceneTree or MainLoop".
+
 Auto-capture status: <"all <N> captured cleanly" | "X of <N> captured;
 rest need hand recording" | "auto-capture skipped (Mac asleep / perms
 missing)">
