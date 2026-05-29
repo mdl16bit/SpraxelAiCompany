@@ -321,6 +321,12 @@ python3 $WORKMD drop $WORK "duplicate-bug-title-substring"
 
 #### 5. ▶ Escalations (1-3 min, usually 0)
 
+Escalations are rare CEO-judgment calls. Most come from the dev loop; the
+**Designer** also escalates here when implemented or planned work conflicts with
+`Philosophy.md` (tagged with a severity — minor/moderate/major). Triage each the
+same way: `resume` after editing (do via loop), do it yourself on the branch,
+amend/reject the offending feature, or drop the flag to dismiss.
+
 **Important distinction (post 2026-05-27 redesign):** the wrapper has two
 different "the item didn't land" outcomes, and only ONE of them lands in
 your morning routine:
@@ -1467,7 +1473,7 @@ Examples:
 | **morning-briefer** | daily 04:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, real `[escalated]` items needing CEO judgment (usually 0 — auto-retries are silent and not surfaced). Shows a one-line `[retry]` queue count FYI but no action required. Runs `health_check.sh` first to surface agent failures. |
 | **demo-creator** | daily 05:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
 | **pm** | daily 05:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
-| **designer** | Tue + Fri 04:30 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). |
+| **designer** | Tue + Fri 04:30 PT | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). **Audits all implemented + planned work against Philosophy.md and escalates ANY conflict (even slight, severity-tagged) to the CEO.** |
 | **architect** | daily 09:00 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | sonnet | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), and intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`). On finalize, decides single item vs. decomposing a complex feature into a parent `[epic]` + sequential subtasks (`shape-epic`). Bugs + MANUAL items are exempt. |
 | **blogger** | weekly Sat 09:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |

@@ -58,7 +58,9 @@ reactive                       /plan-style questionnaire to .factory/local/
                                work or save TRIAGE.md answers.
 
 ─ Weekly ───────────────────────────────────────────────────────
-Tue+Fri 07:00  designer      — drops 4-6 [idea] items + 0-3 [concern] items
+Tue+Fri 07:00  designer      — drops 4-6 [idea] items + 0-3 [concern] items;
+                               audits implemented + planned work vs Philosophy.md
+                               and escalates any conflict to the CEO
                                in WORK.md (the [concern]s flag game-wide
                                issues — feature bloat, philosophical drift)
 Sat 10:00      blogger       — drafts blog/content/posts/draft-<date>-<slug>.md
