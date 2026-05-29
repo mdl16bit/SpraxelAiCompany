@@ -793,11 +793,14 @@ folds everything into one squash-merge to master at the end."
         if [ $((now - last_progress)) -ge "$stall_secs" ]; then
           echo "continuous: dev STALLED — no file writes for ${DEV_STALL_MINUTES}m — killing tree (PID $dev_pid)" >> "$item_log"
           kill_tree "$dev_pid" KILL
+          # Reclaim any locks the just-killed tree held (its test lock, dev lock).
+          sweep_dead_locks "$LOCKS_DIR" "$game_dir/.factory" >> "$item_log" 2>&1
           break
         fi
         if [ $((now - started)) -ge "$abs_secs" ]; then
           echo "continuous: dev hit absolute cap ${MAX_DEV_MINUTES}m (still making progress, but capping) — killing tree (PID $dev_pid)" >> "$item_log"
           kill_tree "$dev_pid" KILL
+          sweep_dead_locks "$LOCKS_DIR" "$game_dir/.factory" >> "$item_log" 2>&1
           break
         fi
       done

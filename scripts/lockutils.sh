@@ -131,3 +131,39 @@ kill_tree() {
   done
   kill -"$sig" "$pid" 2>/dev/null
 }
+
+# Release every lockdir under the given directories whose holder PID is dead
+# (or whose holder.pid is missing AND the lockdir is stale >30s — i.e. not a
+# microsecond acquire race). This is the systematic orphan-lock reaper: a lock
+# is PID-stamped, so once its holder dies — gracefully, SIGKILL'd, crashed, or
+# orphaned-then-dead — this releases it, no matter the lock's location.
+#
+# Call it (a) periodically (tick.sh, every cycle) and (b) right after any
+# kill_tree, so a process we kill has its locks reclaimed immediately. Globs
+# BOTH `*.lockdir` (e.g. .locks/continuous-w1.lockdir) AND `.*.lockdir`
+# (e.g. game .factory/.test-running-w1.lockdir — dot-prefixed, missed by a
+# plain glob). Only ever touches dead/stale locks; live locks are left alone.
+#
+# Usage: sweep_dead_locks <dir> [<dir> ...]   (prints each released lock)
+sweep_dead_locks() {
+  local d ld pid age
+  for d in "$@"; do
+    [ -d "$d" ] || continue
+    # `find` (not a shell glob) so this is shell-agnostic (no zsh "no matches"
+    # error on an empty dir) AND catches dot-prefixed lockdirs like
+    # `.test-running-w1.lockdir` that a plain `*.lockdir` glob would skip.
+    while IFS= read -r ld; do
+      [ -d "$ld" ] || continue
+      pid=$(cat "$ld/holder.pid" 2>/dev/null)
+      if [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+        kill -0 "$pid" 2>/dev/null && continue   # holder alive — leave it
+      else
+        # No holder PID: could be a live acquire mid-write. Only sweep if stale.
+        age=$(( $(date +%s) - $(stat -f%m "$ld" 2>/dev/null || date +%s) ))
+        [ "$age" -gt 30 ] || continue
+      fi
+      release_lock "$ld" && echo "sweep_dead_locks: released $ld"
+    done < <(find "$d" -maxdepth 1 -type d -name '*.lockdir' 2>/dev/null)
+  done
+  return 0
+}

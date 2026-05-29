@@ -25,6 +25,7 @@ PAUSED_FLAG="$REPO_DIR/.paused"
 CACHE_DIR="$REPO_DIR/.cache"
 STATE_FILE="$CACHE_DIR/last-interrupt.txt"
 LOCKS_DIR="$REPO_DIR/.locks"
+. "$REPO_DIR/scripts/lockutils.sh"   # sweep_dead_locks / kill_tree
 
 mkdir -p "$CACHE_DIR"
 
@@ -54,7 +55,7 @@ echo "  ✓ daemon paused (.paused flag set)"
 #    Just killing continuous_dev orphans the run_agent + claude children, and
 #    those orphans hold the developer.lockdir, blocking any future Developer.
 killed=0
-for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p"; do
+for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p" "run_local_tests.sh" "Godot --headless"; do
   pids=$(pgrep -f "$pat" 2>/dev/null | tr '\n' ' ')
   if [ -n "$pids" ]; then
     # shellcheck disable=SC2086
@@ -63,15 +64,15 @@ for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model
 done
 sleep 2
 # SIGKILL any survivors (claude -p in a syscall can ignore SIGTERM briefly).
-for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p"; do
+for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p" "run_local_tests.sh" "Godot --headless"; do
   pgrep -f "$pat" 2>/dev/null | xargs kill -KILL 2>/dev/null || true
 done
 echo "  ✓ killed $killed agent process(es)"
 
-# Clear stale lockdirs left by killed processes.
-for ld in "$LOCKS_DIR"/*.lockdir; do
-  [ -e "$ld" ] && rmdir "$ld" 2>/dev/null
-done
+# Release every lock the just-killed processes held — agent + continuous locks
+# in .locks AND the game repo's test locks (.factory/.test-running*) — via the
+# PID-aware sweeper (the killed holders are now dead, so they all reclaim).
+sweep_dead_locks "$LOCKS_DIR" "$game_dir/.factory"
 
 # 3. Stash in-flight Developer work (if any) on whatever branch we're on.
 cd "$game_dir" || exit 1

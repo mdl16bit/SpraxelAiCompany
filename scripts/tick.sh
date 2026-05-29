@@ -197,6 +197,12 @@ for lock in "$LOCKS_DIR"/*.lockdir; do
   fi
 done
 
+# Also reap dead-holder TEST locks in the game repo's .factory (e.g. a
+# SIGKILL'd / orphaned run_local_tests left `.test-running*.lockdir` behind).
+# These live OUTSIDE .locks and were previously only self-healed lazily by the
+# next test waiter; sweeping them every tick keeps them from wedging a worker.
+[ -n "$arch_game_dir" ] && sweep_dead_locks "$arch_game_dir/.factory" >/dev/null 2>&1
+
 # Spawn missing workers (1..dev_concurrency).
 #
 # Lockdir check is sufficient on its own: continuous_dev.sh's `mkdir
