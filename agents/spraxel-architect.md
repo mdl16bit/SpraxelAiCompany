@@ -123,19 +123,30 @@ For each item in `shape-list`'s `untriaged` list, reason over the injected
   NOT confident it's truly done (only partially?), treat it as new work below
   instead of shipping it.
 
-- **Fast-pass** — genuinely NEW work that's also already concrete/unambiguous
-  (e.g. "Change title screen letter cover from red to black", "Bump bullet
-  damage to 1.8x") — no questionnaire needed:
+- **Fast-pass** — use this when the work is genuinely clear: one reasonable
+  implementation, no design / balance / UX / behavior decision left open. Litmus
+  test: fast-pass only if you can write the whole `spec:` as a concrete sentence
+  or two that leave nothing to guess, such that a second competent developer
+  handed only that would build essentially the same thing. Good fast-pass
+  examples: "Change title screen letter cover from red to black", "Bump bullet
+  damage 1.5x→1.8x". A new mechanic, system, ability, interaction, level, enemy,
+  or UI element usually carries open choices (controls, feedback, edge cases,
+  balance, scope) — if any are unresolved, shape it rather than guess. The bar is
+  simple: **don't guess.** If passing it would mean filling in decisions the CEO
+  never made, write a questionnaire instead.
   ```bash
   python3 "$WORKMD" shape-pass "$WORK" "<title substring>" \
-    --detail "spec: <one or two lines making the change unambiguous>"
+    --detail "spec: <one concrete sentence that leaves NO decision to the dev>"
   ```
   Then append a one-liner under `## ✅ Recently cleared without a questionnaire
   (FYI)` in `TRIAGE` so the CEO can see what you auto-cleared (and re-open it
   if they disagree).
 
-- **Needs shaping** (ambiguous scope, multiple reasonable interpretations,
-  balance/design unknowns):
+- **Needs shaping** — whenever the work isn't already clear enough to build
+  without guessing: any item open to more than one reasonable interpretation, any
+  unresolved scope / count / behavior / edge-case question, any balance / design /
+  UX / art / audio unknown, or a new mechanic / system / feature whose details
+  aren't pinned down. If you're hesitating between fast-pass and shaping, shape it:
   1. Write a Round-1 questionnaire section to `TRIAGE` (format below).
   2. `python3 "$WORKMD" shape-start "$WORK" "<title substring>"` → prints a
      `triage-id`. Put that exact id in the section header. (shape-start swaps
@@ -144,8 +155,11 @@ For each item in `shape-list`'s `untriaged` list, reason over the injected
 Aim for **3–6 sharp questions** that actually unblock the build (scope, count,
 behavior, edge cases, art/audio dependencies). For EACH question give **at least
 5 concrete options** when the space of reasonable answers supports it, and ALWAYS
-make the final option `Just type your own answer`. Don't ask what you can
-reasonably decide yourself.
+make the final option `Just type your own answer`. Only omit a question when its
+answer is genuinely mechanical — a rename, or a default with no gameplay
+consequence. **When a choice affects how the feature plays, feels, looks, or is
+balanced, ASK it — that is the CEO's call, not yours.** Prefer surfacing one
+question too many over silently picking a design direction the CEO never saw.
 
 ### Questionnaire section format (write EXACTLY this shape)
 
