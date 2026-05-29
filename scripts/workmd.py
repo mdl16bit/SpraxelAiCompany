@@ -60,6 +60,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
@@ -69,8 +70,12 @@ DIVIDER_RE = re.compile(r"^[-=]{10,}\s*$")
 SECTION_HEADING_RE = re.compile(r"^##\s+")   # H2 only — section boundaries
 ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")    # any-depth — skip when scanning for items
 PRIORITY_RE = re.compile(r"\bp[0-3]\b", re.I)
-KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern|wip:\d+)\]", re.I)
+KIND_TAG_RE = re.compile(r"\[(bug|feature|chore|idea|game-feature|cold|manual|needs-ceo|future|escalated|resume|retry|concern|untriaged-proposal-active|untriaged|wip:\d+)\]", re.I)
 WIP_TAG_RE = re.compile(r"\[wip:(\d+)\]", re.I)
+# A new work item's first state: shaping not yet done. Devs + Designer skip it.
+# `[untriaged]` = raw, awaiting Architect intake (fast-pass or first questionnaire);
+# `[untriaged-proposal-active]` = a questionnaire is in flight in .factory/local/TRIAGE.md.
+TRIAGE_ID_RE = re.compile(r"^\s*triage-id:\s*(\S+)\s*$", re.I)
 # Manual-item prefix: "MANUAL - foo", "MANUAL: foo", "MANUAL foo" — overnight skips these.
 MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 # Future-item prefix: "FUTURE - foo", "FUTURE: foo", "FUTURE foo" — overnight
@@ -182,12 +187,38 @@ class WorkItem:
         real work), or leave alone (defer)."""
         return "concern" in self.tags
 
+    @property
+    def is_untriaged(self) -> bool:
+        """True if this is a freshly-added item awaiting the Architect's first
+        pass (fast-pass or questionnaire). Devs + Designer skip it. Set at the
+        intake sources (producer/designer-promote/manual feature items)."""
+        return "untriaged" in self.tags
+
+    @property
+    def is_untriaged_proposal_active(self) -> bool:
+        """True while a shaping questionnaire is in flight for this item (its
+        Q&A lives in .factory/local/TRIAGE.md, keyed by the item's triage-id
+        detail line). Devs + Designer skip it until the Architect finalizes
+        the spec and removes the tag."""
+        return "untriaged-proposal-active" in self.tags
+
+    @property
+    def triage_id(self) -> str | None:
+        """The stable id linking this item to its TRIAGE.md section, stored as
+        a `triage-id: T-xxxx` detail line (added by shape-start)."""
+        for d in self.details:
+            m = TRIAGE_ID_RE.match(d)
+            if m:
+                return m.group(1)
+        return None
+
     def to_dict(self) -> dict:
         return {
             "title": self.title,
             "details": self.details,
             "priority": self.priority,
             "tags": self.tags,
+            "triage_id": self.triage_id,
             "lineno": self.lineno,
         }
 
@@ -621,9 +652,14 @@ def _find_in_all(wm: WorkMd, title: str) -> tuple[str, int]:
 
 
 def promote(path: Path, title: str) -> WorkItem:
-    """Remove [idea] and [cold] tags from the named item — 'accept' an idea
-    or 'resurrect' a cold-archived item. Item becomes eligible for the
-    overnight loop again.
+    """'Accept' a Designer idea or 'resurrect' a cold-archived item.
+
+    - `[idea]` → `[untriaged]`: accepting a designer idea sends it INTO the
+      shaping pipeline (the Architect will fast-pass it or write a
+      questionnaire), NOT straight to the build queue. This is the gate that
+      keeps the CEO from greenlighting vague ideas.
+    - `[cold]` → removed: a janitor-archived item was already real, shaped
+      work; resurrecting it makes it directly eligible again.
     """
     with FileLock(path):
         wm = parse(path)
@@ -631,13 +667,128 @@ def promote(path: Path, title: str) -> WorkItem:
         if idx < 0:
             raise ValueError(f"item not found: {title!r}")
         item = getattr(wm, section)[idx]
-        new_title = re.sub(r"\[(idea|cold)\]\s*", "", item.title, flags=re.I).strip()
+        if item.is_idea:
+            new_title = re.sub(r"\[idea\]\s*", "[untriaged] ", item.title, count=1, flags=re.I)
+        else:
+            new_title = re.sub(r"\[cold\]\s*", "", item.title, flags=re.I)
+        new_title = re.sub(r"\s{2,}", " ", new_title).strip()
         if new_title == item.title:
             raise ValueError(f"item has no [idea]/[cold] tag: {title!r}")
         item.title = new_title
         # If the item carried its raw_lines from parse, rewrite the title line too.
         if item.raw_lines:
             item.raw_lines[0] = new_title
+        path.write_text(serialize(wm))
+        return item
+
+
+def find_item_by_triage_id(wm: WorkMd, triage_id: str) -> tuple[str, int]:
+    """Find an item across all sections by its `triage-id` detail line.
+    Returns (section_name, index) or ('', -1). Used by the Architect to map a
+    TRIAGE.md questionnaire back to its WORK.md item without title matching."""
+    tid = triage_id.strip().lower()
+    for section in ("todo", "current", "shipped"):
+        for idx, it in enumerate(getattr(wm, section)):
+            cur = it.triage_id
+            if cur and cur.lower() == tid:
+                return section, idx
+    return "", -1
+
+
+def _rewrite_item_lines(item: WorkItem) -> None:
+    item.raw_lines = [item.title] + [f"  {d}" for d in item.details]
+
+
+def shape_list(path: Path) -> dict:
+    """JSON-able view of the shaping pipeline: Todo items tagged `[untriaged]`
+    (need intake) and `[untriaged-proposal-active]` (questionnaire in flight)."""
+    wm = parse(path)
+    untriaged = [it.to_dict() for it in wm.todo if it.is_untriaged]
+    in_flight = [it.to_dict() for it in wm.todo if it.is_untriaged_proposal_active]
+    return {"untriaged": untriaged, "proposal_active": in_flight}
+
+
+def shape_start(path: Path, title: str, triage_id: str | None = None) -> tuple[WorkItem, str]:
+    """Intake: swap `[untriaged]`→`[untriaged-proposal-active]` and attach a
+    stable `triage-id` detail line (auto `T-xxxx` if not supplied). Returns
+    (item, triage_id). The Architect calls this once it has written the item's
+    Round-1 questionnaire to TRIAGE.md."""
+    with FileLock(path):
+        wm = parse(path)
+        section, idx = _find_in_all(wm, title)
+        if idx < 0:
+            raise ValueError(f"item not found: {title!r}")
+        item = getattr(wm, section)[idx]
+        if not item.is_untriaged:
+            raise ValueError(f"item is not [untriaged]: {item.title!r}")
+        tid = (triage_id or f"T-{uuid.uuid4().hex[:4]}").strip()
+        new_title = re.sub(r"\[untriaged\]\s*", "[untriaged-proposal-active] ",
+                           item.title, count=1, flags=re.I)
+        item.title = re.sub(r"\s{2,}", " ", new_title).strip()
+        if item.triage_id is None:
+            item.details.append(f"triage-id: {tid}")
+        else:
+            tid = item.triage_id
+        _rewrite_item_lines(item)
+        path.write_text(serialize(wm))
+        return item, tid
+
+
+def shape_detail(path: Path, triage_id: str, details: list[str]) -> WorkItem:
+    """Append spec detail lines to the proposal-active item with this triage-id
+    WITHOUT finalizing it (records 'spec so far' between follow-up rounds)."""
+    with FileLock(path):
+        wm = parse(path)
+        section, idx = find_item_by_triage_id(wm, triage_id)
+        if idx < 0:
+            raise ValueError(f"no item with triage-id: {triage_id!r}")
+        item = getattr(wm, section)[idx]
+        item.details.extend(details)
+        _rewrite_item_lines(item)
+        path.write_text(serialize(wm))
+        return item
+
+
+def shape_finalize(path: Path, triage_id: str, details: list[str] | None = None) -> WorkItem:
+    """Finalize: append any final spec detail lines, then strip
+    `[untriaged-proposal-active]` so the item becomes eligible for developers.
+    Matched by triage-id."""
+    with FileLock(path):
+        wm = parse(path)
+        section, idx = find_item_by_triage_id(wm, triage_id)
+        if idx < 0:
+            raise ValueError(f"no item with triage-id: {triage_id!r}")
+        item = getattr(wm, section)[idx]
+        if details:
+            item.details.extend(details)
+        new_title = re.sub(r"\[untriaged-proposal-active\]\s*", "", item.title,
+                           count=1, flags=re.I)
+        item.title = re.sub(r"\s{2,}", " ", new_title).strip()
+        _rewrite_item_lines(item)
+        path.write_text(serialize(wm))
+        return item
+
+
+def shape_pass(path: Path, title: str, details: list[str] | None = None) -> WorkItem:
+    """Fast-pass: strip `[untriaged]` (and, defensively,
+    `[untriaged-proposal-active]`) directly — the Architect judged the item
+    already concrete enough to build, so no questionnaire is needed. Optionally
+    append a clarifying detail. Matched by title substring."""
+    with FileLock(path):
+        wm = parse(path)
+        section, idx = _find_in_all(wm, title)
+        if idx < 0:
+            raise ValueError(f"item not found: {title!r}")
+        item = getattr(wm, section)[idx]
+        new_title = re.sub(r"\[(untriaged-proposal-active|untriaged)\]\s*", "",
+                           item.title, flags=re.I)
+        new_title = re.sub(r"\s{2,}", " ", new_title).strip()
+        if new_title == item.title:
+            raise ValueError(f"item has no [untriaged] tag: {title!r}")
+        item.title = new_title
+        if details:
+            item.details.extend(details)
+        _rewrite_item_lines(item)
         path.write_text(serialize(wm))
         return item
 
@@ -731,7 +882,8 @@ def top_n(path: Path, n: int = 10, skip_attempted: list[str] | None = None) -> l
     """
 def _is_skipped(it: WorkItem) -> bool:
     return (it.is_idea or it.is_cold or it.is_manual or it.is_needs_ceo
-            or it.is_future or it.is_escalated or it.is_concern or it.is_wip)
+            or it.is_future or it.is_escalated or it.is_concern or it.is_wip
+            or it.is_untriaged or it.is_untriaged_proposal_active)
 
 
 def _is_resumable(it: WorkItem) -> bool:
@@ -984,6 +1136,37 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--question", action="append", required=True,
         help="clarifying question (repeatable)")
 
+    psl = sub.add_parser("shape-list",
+        help="JSON of [untriaged] (need intake) + [untriaged-proposal-active] (in-flight) Todo items")
+    psl.add_argument("path")
+
+    pss = sub.add_parser("shape-start",
+        help="Architect intake: swap [untriaged]→[untriaged-proposal-active], attach + print a triage-id")
+    pss.add_argument("path")
+    pss.add_argument("title")
+    pss.add_argument("--id", default=None, help="triage id to use (default: auto T-xxxx)")
+
+    psd = sub.add_parser("shape-detail",
+        help="append spec detail lines to the item with this triage-id (interim spec / follow-up rounds)")
+    psd.add_argument("path")
+    psd.add_argument("--id", required=True)
+    psd.add_argument("--detail", action="append", required=True,
+        help="indented detail line (repeatable)")
+
+    psf = sub.add_parser("shape-finalize",
+        help="append final spec detail lines + remove [untriaged-proposal-active] → item becomes eligible")
+    psf.add_argument("path")
+    psf.add_argument("--id", required=True)
+    psf.add_argument("--detail", action="append", default=[],
+        help="indented spec detail line (repeatable)")
+
+    psp = sub.add_parser("shape-pass",
+        help="fast-pass: strip [untriaged] directly (already-concrete item, no questionnaire) → eligible")
+    psp.add_argument("path")
+    psp.add_argument("title")
+    psp.add_argument("--detail", action="append", default=[],
+        help="optional clarifying detail line (repeatable)")
+
     args = p.parse_args(argv)
     path = Path(os.path.expanduser(args.path))
 
@@ -1095,6 +1278,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "clarify":
         item = clarify(path, args.title, args.question)
         print(f"clarified ({len(args.question)} questions): {item.title}")
+        return 0
+
+    if args.cmd == "shape-list":
+        print(json.dumps(shape_list(path), indent=2))
+        return 0
+
+    if args.cmd == "shape-start":
+        item, tid = shape_start(path, args.title, args.id)
+        print(tid)
+        return 0
+
+    if args.cmd == "shape-detail":
+        item = shape_detail(path, args.id, args.detail)
+        print(f"shape-detail: +{len(args.detail)} line(s) → {item.title}")
+        return 0
+
+    if args.cmd == "shape-finalize":
+        item = shape_finalize(path, args.id, args.detail)
+        print(f"shape-finalize: {item.title}")
+        return 0
+
+    if args.cmd == "shape-pass":
+        item = shape_pass(path, args.title, args.detail)
+        print(f"shape-pass: {item.title}")
         return 0
 
     return 1
