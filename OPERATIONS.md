@@ -574,9 +574,16 @@ git fetch origin
 # List recent blogger branches if you've lost the date:
 git branch -a | grep '^[ *]*\(remotes/origin/\)\?blog/'
 
-# Peek without switching branches (fastest):
-git show blog/$(date +%Y-%m-%d):blog/content/posts/draft-$(date +%Y-%m-%d)-*.md
+# Resolve the exact draft path (git show does NOT expand globs, so you need the
+# real filename — the slug varies per post):
+DRAFT=$(git ls-tree -r --name-only origin/blog/$(date +%F) | grep '^blog/content/posts/draft-')
+
+# Peek without switching branches (fastest) — exact-path form, always works:
+git -C ~/GameProjects/<game> show origin/blog/$(date +%F):"$DRAFT"
 ```
+
+> On blog weeks, MORNING.md prints this exact `git ... show origin/blog/<date>:<path>`
+> line for you under **📝 Blog draft to read** — copy it straight from there.
 
 #### 2. Humanize on the branch
 

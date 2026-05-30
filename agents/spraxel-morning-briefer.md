@@ -356,6 +356,27 @@ create it with `mkdir -p .factory/local`.
     done
     ```
 
+8c. **Blog draft to read (FYI — Saturdays, or any day a draft is waiting).** The
+    blogger (Sat 09:00) pushes a `blog/<YYYY-MM-DD>` branch with a draft post that
+    is NOT on master — the CEO humanizes + merges it by hand. Surface it with the
+    EXACT, copy-pasteable read command (git show does NOT expand globs, so resolve
+    the real filename first). Check the most recent blog branch, not just today's
+    (a draft pushed on a prior Saturday may still be un-merged):
+    ```bash
+    br=$(git -C "$game_dir" ls-remote --heads origin 'blog/*' 2>/dev/null \
+         | sed -E 's@.*refs/heads/@@' | sort | tail -1)
+    if [ -n "$br" ]; then
+      git -C "$game_dir" fetch -q origin "$br" 2>/dev/null
+      draft=$(git -C "$game_dir" ls-tree -r --name-only "origin/$br" \
+              | grep '^blog/content/posts/draft-' | head -1)
+      echo "- Branch \`$br\` · draft \`$draft\`"
+      echo "  read:  git -C $game_dir show origin/$br:$draft"
+    fi
+    ```
+    Emit the branch, the draft path, and the ready-to-run `git ... show` line so
+    the CEO can read it inline; point them at OPERATIONS → Saturday for the
+    humanize + merge flow. If no `blog/*` branch exists, write the zero-case line.
+
 9. **Time box** — fixed template, total ~38 min (see template below).
 
 10. **Write `.factory/local/MORNING.md`** in the game repo (mkdir -p the
@@ -540,6 +561,13 @@ so you can spot something that keeps getting rejected.
     • <the [block] finding, one line>
   ...
 (When none:) ✓ No new reviewer rejections.
+
+## 📝 Blog draft to read (FYI — humanize + merge by hand)
+The blogger pushed a draft post on a branch (NOT on master). Read it inline with
+the exact command below, then see OPERATIONS → Saturday to humanize + merge.
+  - Branch `<blog/YYYY-MM-DD>` · draft `<blog/content/posts/draft-...md>`
+    read:  git -C ~/GameProjects/<game> show origin/<blog/YYYY-MM-DD>:<draft-path>
+(When no blog branch:) ✓ No blog draft waiting.
 
 ## ▶ Time box
 - 20 min play-test
