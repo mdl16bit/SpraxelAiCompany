@@ -44,6 +44,12 @@ TICK_LOG_DIR = REPO_DIR / "logs" / "tick"
 CONTINUOUS_LOG_DIR = REPO_DIR / "logs" / "continuous"
 TZ = ZoneInfo("America/Los_Angeles")
 
+# Target render width. The two-column sections and title truncation caps derive
+# from this so the dashboard fills a wide terminal instead of an ~80-col box.
+WIDTH = 160
+_INDENT = 4                       # leading "    " on every content row
+_COL_W = (WIDTH - _INDENT) // 2   # width of the left column in 2-col sections
+
 # ANSI color codes (stdlib-only "rich")
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -447,7 +453,7 @@ def last_log_line(game_dir: Path | None) -> tuple[str, str]:
         for ln in reversed(lines):
             ln = ln.strip()
             if ln.startswith("continuous:"):
-                return (wid, ln[:80])
+                return (wid, ln[:WIDTH - 10])
     return ("—", "(empty)")
 
 
@@ -687,7 +693,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
                     # Strip [wip:N] + state/kind tags for display.
                     clean = re.sub(r"^\[wip:\d+\]\s*", "", it.title)
                     clean = re.sub(r"^\[(retry|resume|escalated|bug|feature|chore|game-feature|epic)\]\s*", "", clean)
-                    clean = clean[:48] + ("…" if len(clean) > 48 else "")
+                    clean = clean[:120] + ("…" if len(clean) > 120 else "")
                     wip_items[wid] = clean
         except Exception:
             pass
@@ -779,10 +785,11 @@ def render(now: datetime, game_dir: Path | None) -> str:
 
         if len(fires) <= 5:
             for ts, name in fires:
-                cell, _ = _fire_cell(ts, name, 40)
+                cell, _ = _fire_cell(ts, name, WIDTH - 24)
                 lines.append(f"    {cell}")
         else:
-            ROWS, CAP, CELL_W = 5, 18, 40
+            # prefix ("today 14:30 PT  ") is ~16 cols; fill the rest of the column.
+            ROWS, CAP, CELL_W = 5, _COL_W - 18, _COL_W
             left, right = fires[:ROWS], fires[ROWS:]
             for i in range(len(left)):
                 lcell, lvis = _fire_cell(left[i][0], left[i][1], CAP)
@@ -825,12 +832,13 @@ def render(now: datetime, game_dir: Path | None) -> str:
         if len(actions) <= 5:
             # One column — unchanged look, wide titles.
             for kind, title in actions:
-                cell, _ = _ceo_cell(kind, title, 54)
+                cell, _ = _ceo_cell(kind, title, WIDTH - 20)
                 lines.append(f"    {cell}")
         else:
             # Two columns of five (column-major) so >5 items don't overflow
             # the window. Left col = first 5, right col = next 5.
-            ROWS, CAP, CELL_W = 5, 22, 36
+            # "[kind] " prefix is ~12 cols; fill the rest of the column.
+            ROWS, CAP, CELL_W = 5, _COL_W - 14, _COL_W
             left, right = actions[:ROWS], actions[ROWS:]
             for i in range(len(left)):
                 lcell, lvis = _ceo_cell(left[i][0], left[i][1], CAP)
@@ -851,7 +859,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
         for sha, age, subject in ships:
             # Pad age to 4 chars right-aligned so columns align; truncate subject
             age_col = f"{age:>4s}"
-            subj = subject[:54] + ("…" if len(subject) > 54 else "")
+            subj = subject[:WIDTH - 20] + ("…" if len(subject) > WIDTH - 20 else "")
             lines.append(f"    {DIM}{sha} {age_col}{RESET}  {subj}")
     lines.append("")
 
