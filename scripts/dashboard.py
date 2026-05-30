@@ -770,7 +770,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
             if ts.date() == now.date():
                 day = "today"
             elif ts.date() == (now + timedelta(days=1)).date():
-                day = "tom."
+                day = "tmr"
             else:
                 day = ts.strftime("%a")
             prefix = f"{day:5s} {ts:%H:%M PT}"
