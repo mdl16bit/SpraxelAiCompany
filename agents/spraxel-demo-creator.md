@@ -178,11 +178,18 @@ Auto-capture: <"yes — <N> .mov + .png pairs" | "skipped — Mac asleep at
 ### 6. Commit + push
 
 ```bash
-git -c user.email=demo-bot@spraxel.ai -c user.name='Spraxel Demo Creator' \
-    add .factory/demos/$(date +%Y-%m-%d)/ .factory/memory/demo-creator.md
-git -c user.email=demo-bot@spraxel.ai -c user.name='Spraxel Demo Creator' \
-    commit -m "demo: recipe for <N> feature(s) on $(date +%Y-%m-%d)"
-git push origin master
+git add .factory/demos/$(date +%Y-%m-%d)/ .factory/memory/demo-creator.md
+# Commit + push UNDER THE MASTER-PUSH LOCK + rebase (a bare push gets rejected
+# non-fast-forward when a worker pushed first, silently dropping the recipe).
+. ~/SpraxelAiCompany/scripts/lockutils.sh
+LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+if acquire_lock "$LOCK" 60 0.3; then
+  git -c user.email=demo-bot@spraxel.ai -c user.name='Spraxel Demo Creator' \
+      commit -m "demo: recipe for <N> feature(s) on $(date +%Y-%m-%d)" \
+    && git pull --rebase --quiet origin master \
+    && git push --quiet origin master
+  release_lock "$LOCK"
+fi
 ```
 
 (Recipe.md is small markdown — always safe to commit. .mov files can be

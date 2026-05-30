@@ -239,9 +239,17 @@ Context: shipped since last run = N features (notable: <feature>).
 ### 7. Commit
 
 ```bash
-git -c user.email=designer-bot@spraxel.ai -c user.name='Spraxel Designer' \
-  commit -am "designer: <N> new ideas"
-git push origin master
+# Commit + push UNDER THE MASTER-PUSH LOCK (WORK.md is high-contention; a bare
+# commit+push loses your [idea]/[concern] adds to a concurrent worker's push).
+. ~/SpraxelAiCompany/scripts/lockutils.sh
+LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+if acquire_lock "$LOCK" 60 0.3; then
+  git -c user.email=designer-bot@spraxel.ai -c user.name='Spraxel Designer' \
+      commit WORK.md -m "designer: <N> new ideas" \
+    && git pull --rebase --quiet origin master \
+    && git push --quiet origin master
+  release_lock "$LOCK"
+fi
 ```
 
 ## CEO accept / reject / amend flow
