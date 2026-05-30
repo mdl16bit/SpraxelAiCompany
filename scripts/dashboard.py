@@ -760,20 +760,38 @@ def render(now: datetime, game_dir: Path | None) -> str:
     lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir):>3}{RESET} {DIM}(today, CEO-bound){RESET}")
     lines.append("")
 
-    # Next 10 scheduled runs
+    # Next 10 scheduled runs (two columns of 5, column-major — left = first 5)
     lines.append(f"  {BOLD}▸ Next 10 agents to execute{RESET}")
     fires = next_n_fires(now, 10)
     if not fires:
         lines.append(f"    {DIM}(no upcoming runs found){RESET}")
     else:
-        for ts, name in fires:
+        def _fire_cell(ts, name, cap: int) -> tuple[str, int]:
             if ts.date() == now.date():
                 day = "today"
             elif ts.date() == (now + timedelta(days=1)).date():
                 day = "tom."
             else:
                 day = ts.strftime("%a")
-            lines.append(f"    {DIM}{day:5s} {ts:%H:%M PT}{RESET}  {name}")
+            prefix = f"{day:5s} {ts:%H:%M PT}"
+            nm = name[:cap] + ("…" if len(name) > cap else "")
+            return f"{DIM}{prefix}{RESET}  {nm}", len(prefix) + 2 + len(nm)
+
+        if len(fires) <= 5:
+            for ts, name in fires:
+                cell, _ = _fire_cell(ts, name, 40)
+                lines.append(f"    {cell}")
+        else:
+            ROWS, CAP, CELL_W = 5, 18, 40
+            left, right = fires[:ROWS], fires[ROWS:]
+            for i in range(len(left)):
+                lcell, lvis = _fire_cell(left[i][0], left[i][1], CAP)
+                if i < len(right):
+                    rcell, _ = _fire_cell(right[i][0], right[i][1], CAP)
+                    pad = " " * max(1, CELL_W - lvis)
+                    lines.append(f"    {lcell}{pad}{rcell}")
+                else:
+                    lines.append(f"    {lcell}")
     lines.append("")
 
     # Next N CEO action items (things blocking on you)
