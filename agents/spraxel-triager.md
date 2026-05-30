@@ -114,12 +114,23 @@ Skipped (dupes of existing items): <K>.
 All candidates tagged [needs-ceo] for CEO validation in MORNING.md.
 ```
 
-### 6. Commit
+### 6. Commit + push — UNDER THE MASTER-PUSH LOCK
 
+WORK.md is high-contention (the workers, Architect, and PM all commit to it). A
+bare `git commit` + `git push` here silently LOSES your `[needs-ceo]` bugs to a
+concurrent worker's push (2026-05-30: 3 candidate bugs vanished exactly this way).
+Commit + push under the lock with a rebase, like the Architect:
 ```bash
-git -c user.email=triager-bot@spraxel.ai -c user.name='Spraxel Triager' \
-  commit -am "triager: <N> candidate bugs added as [needs-ceo] for CEO validation"
-git push origin master
+. ~/SpraxelAiCompany/scripts/lockutils.sh
+LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+if acquire_lock "$LOCK" 60 0.3; then
+  ( cd "$(dirname "$WORK")" \
+    && git -c user.email=triager-bot@spraxel.ai -c user.name='Spraxel Triager' \
+         commit WORK.md -m "triager: <N> candidate bugs added as [needs-ceo] for CEO validation" \
+    && git pull --rebase --quiet origin master \
+    && git push --quiet origin master )
+  release_lock "$LOCK"
+fi
 ```
 
 ## CEO validation flow
