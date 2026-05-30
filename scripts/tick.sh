@@ -125,8 +125,9 @@ done <<< "$agent_entries"
 #   2. The CEO SUBMITTED answers → TRIAGE.md edited more recently than the
 #      Architect last ran (it touches the seen-stamp at the END of every run, so
 #      this fires on the CEO's edits, not the Architect's own writes), there are
-#      proposal-active items, AND the `[Indicate complete]` line has trailing
-#      text (the CEO's explicit "I'm done for now" signal). The submit gate means
+#      proposal-active items, AND the `[Indicate complete]` token is followed by
+#      non-space text — either trailing on the same line OR on any line below it
+#      (the CEO's explicit "I'm done for now" signal). The submit gate means
 #      saving a half-filled file does NOT wake the Architect — only submitting
 #      does, and then it's picked up within ~60s.
 arch_game_dir=$(python3 - "$SCHEDULE" <<'PY'
@@ -144,10 +145,22 @@ if [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ]; then
     arch_reason="untriaged present"
   elif [ -f "$arch_triage" ] && grep -qE '^\[untriaged-proposal-active\]' "$arch_work_md" \
        && { [ ! -e "$arch_stamp" ] || [ "$arch_triage" -nt "$arch_stamp" ]; } \
-       && grep -qE '^\[Indicate complete\][[:space:]]*\S' "$arch_triage"; then
-    # CEO answered AND submitted (typed text after [Indicate complete]). Without
-    # the submit text we never wake for answers — the CEO saves repeatedly while
-    # editing and a half-filled file must not be processed.
+       && awk '
+            # Submitted = any non-space text after the [Indicate complete] token,
+            # whether on the SAME line (trailing) or on ANY line BELOW it (the CEO
+            # often hits Enter and types "done" on the next line). Comment lines
+            # (leading #) below the token do NOT count.
+            /^\[Indicate complete\]/ {
+              r=$0; sub(/^\[Indicate complete\][[:space:]]*/, "", r)
+              if (r ~ /[^[:space:]]/) { ok=1; exit }   # trailing same-line text
+              seen=1; next
+            }
+            seen && $0 !~ /^[[:space:]]*#/ && $0 ~ /[^[:space:]]/ { ok=1; exit }
+            END { exit(ok?0:1) }
+          ' "$arch_triage"; then
+    # CEO answered AND submitted (typed text on/after the [Indicate complete]
+    # line). Without the submit text we never wake for answers — the CEO saves
+    # repeatedly while editing and a half-filled file must not be processed.
     arch_reason="triage submitted"
   fi
 fi
