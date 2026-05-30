@@ -48,8 +48,9 @@ mkdir -p "$GAME/.factory/local"
 
 ## Phase 1 — REVIEW answered questionnaires (do this before intake)
 
-**SUBMIT GATE (check first).** At the bottom of the `## ⏳ Awaiting your answers`
-section is a `[Indicate complete]` line. The CEO types a word after it ONLY when
+**SUBMIT GATE (check first).** At the VERY BOTTOM of the file is a
+`[Indicate complete]` line — the single submit gate for the whole doc
+(questionnaire answers AND Future-roadmap marks). The CEO types a word after it ONLY when
 they're done answering for this session. **If there is NO text after
 `[Indicate complete]`, process NOTHING in this phase** — the CEO saves the file
 repeatedly while editing, so an un-submitted file may be half-filled. Skip
@@ -97,8 +98,8 @@ When submitted, for each `### T-xxxx` section under `## ⏳ Awaiting your answer
    date (for an epic, list the subtask breakdown). Never silently delete a section.
 
 4b. **Process Future-roadmap marks** (same submit gate) — see the
-   "Future roadmap" section below: any `[future]` line the CEO changed from
-   `[triage?]` to `[triage!]` gets `promote`d into shaping.
+   "Future roadmap" section below: any item whose `[triage?]` box the CEO typed
+   text after gets `promote`d into shaping.
 
 5. After all READY tasks are processed, **reset the submit line** to
    `[Indicate complete] ` (empty). Partial/unfilled tasks stay under "Awaiting".
@@ -215,10 +216,11 @@ Q2. <question>?
     [Answer] 
 ```
 
-Put new sections under the `## ⏳ Awaiting your answers` header, ABOVE the
-`[Indicate complete]` submit line (which must always be the LAST line of that
-section). If `TRIAGE` doesn't exist yet, create it with this top matter + an
-empty submit line:
+Insert new `### T-xxxx` questionnaires under the `## ⏳ Awaiting your answers`
+header. The `[Indicate complete]` submit line lives at the **VERY BOTTOM of the
+file** (below the Future roadmap) — it is the single submit gate for the whole
+doc, and must always be the last line. If `TRIAGE` doesn't exist yet, create it
+with this exact layout:
 
 ```
 # Triage — shape raw work into buildable specs
@@ -227,30 +229,33 @@ empty submit line:
 #   [Answer] (b)        or write your own:   [Answer] keep it to taser + key
 # SAVE as often as you like while working; the Architect IGNORES the file until
 # you submit. When you're done answering for now, type any word after
-# [Indicate complete] at the bottom and save. The Architect then processes every
-# task whose questions are ALL answered, leaves partial/unanswered tasks for
-# next time (keeping what you typed), clears [Indicate complete], and logs what
-# it finalized under "✅ Recently finalized". Don't edit the T-#### ids/headers.
+# [Indicate complete] at the VERY BOTTOM and save. The Architect then processes
+# every task whose questions are ALL answered, leaves partial/unanswered tasks
+# for next time (keeping what you typed), clears [Indicate complete], and logs
+# what it finalized under "✅ Recently finalized". Don't edit the T-#### headers.
 #
-# FUTURE ROADMAP (bottom of file): all [future] items in the PM's suggested
-# order. To pull one into active development, change its [triage?] to [triage!]
-# and submit. Leave [triage?] as-is to keep it deferred — nothing happens.
+# FUTURE ROADMAP (near the bottom): all [future] items in the PM's suggested
+# order. Each item's title is on its own line, with a [triage?] box on the line
+# below it. To pull one into shaping, type ANYTHING after its [triage?] box and
+# submit. Leave the box blank to keep the item deferred — nothing happens.
 ==================================================
 ## ⏳ Awaiting your answers
-
---------------------------------------------------
-[Indicate complete] 
 
 ==================================================
 ## 🔮 Future roadmap — deferred, PM-suggested order (review only — never reworded here)
 
-# Change a box to [triage!] to pull that item into shaping on submit; leave
-# [triage?] to keep it deferred. The Architect rewrites this list every run.
+# Type anything after a [triage?] box (it's on the line below each item's title)
+# to pull that item into shaping on submit; leave it blank to keep it deferred.
+# The Architect rewrites this list every run.
 
 (no [future] items yet)
+
+--------------------------------------------------
+[Indicate complete] 
 ```
-(The `[Indicate complete] ` line stays pinned at the bottom of the Awaiting
-section; insert new `### T-xxxx` questionnaires above it.)
+Section order is: Awaiting → (Recently cleared / Recently finalized FYI) →
+Future roadmap → `[Indicate complete]` as the final line. Insert new `### T-xxxx`
+questionnaires under the Awaiting header (NOT next to the submit line).
 
 ---
 
@@ -259,27 +264,30 @@ section; insert new `### T-xxxx` questionnaires above it.)
 Two parts, every run:
 
 **(1) Process marks (in Phase 1, gated by the SAME `[Indicate complete]` submit
-as the questionnaires).** Scan the `## 🔮 Future roadmap` section for any line
-whose box is no longer `[triage?]` — i.e. the CEO changed it (`[triage!]`,
-`[triage x]`, etc.). For each such MARKED line, pull that `[future]` item into
-shaping:
+as the questionnaires).** Each item is two lines — its title, then a `[triage?] `
+box on the next line. Scan for any `[triage?]` line with **text typed after the
+box** (anything non-blank — `Y`, `x`, `do it`, …); the item to pull in is the
+title on the line IMMEDIATELY ABOVE that box. For each marked item:
 ```bash
-python3 "$WORKMD" promote "$WORK" "<distinctive substring of the line's title>"
+python3 "$WORKMD" promote "$WORK" "<distinctive substring of the title above the box>"
 ```
 `promote` swaps `[future]`→`[untriaged]`, so it then flows through normal intake
 (you may fast-pass or questionnaire it this same run, per Phase 2). Log each
 under `## ✅ Recently cleared without a questionnaire (FYI)` as
-`<title> → pulled into shaping by CEO ([future]→[untriaged])`. Lines still
-showing `[triage?]` are left untouched — the CEO chose to keep them deferred.
+`<title> → pulled into shaping by CEO ([future]→[untriaged])`. Boxes left blank
+(`[triage?] ` with nothing after) are untouched — the CEO kept them deferred.
 
 **(2) Regenerate the list (every run, after intake).** Rewrite the
-`## 🔮 Future roadmap` section to list EVERY current `[future]` item, **one line
-each, title only (no detail lines), in WORK.md order** (which the PM keeps sorted
-in suggested-priority order — do NOT re-sort here), each prefixed with a fresh
-`[triage?] ` box:
+`## 🔮 Future roadmap` section to list EVERY current `[future]` item in WORK.md
+order (which the PM keeps sorted in suggested-priority order — do NOT re-sort
+here). For each: the title on its OWN line (verbatim, minus the leading
+`[future]` tag, no detail lines), then a fresh `[triage?] ` box (trailing space)
+on the line below — exactly like the `[Answer]` convention:
 ```
-[triage?] <future item title, verbatim, minus the leading [future] tag>
-[triage?] <next…>
+<future item title 1>
+[triage?] 
+<future item title 2>
+[triage?] 
 ```
 This is a VERBATIM listing — copy each title as-is; never reword a `[future]`
 item here (this view is read-only; the items themselves live in WORK.md). If
