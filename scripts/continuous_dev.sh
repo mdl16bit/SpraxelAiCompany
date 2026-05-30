@@ -1129,6 +1129,29 @@ print(t)
         # impossible: the canonical WORK.md (game_dir, owned by the
         # wrapper via workmd.py + FileLock) is the only source of truth.
         git checkout HEAD -- WORK.md 2>/dev/null || true
+        # ── Game.md survival gate ────────────────────────────────────────
+        # The Reviewer verifies the dev WROTE a Game.md block on the branch,
+        # but a block can be absent from the FINAL squash — lost to conflict
+        # resolution, or never re-added on a resume/retry rebuild (2026-05-29:
+        # CeilingDropTrap shipped doc-less via the reclaim/resume path). Re-check
+        # the SQUASHED result: if it has no Game.md change but one is REQUIRED —
+        # a [game-feature] always needs a block; the branch changed Game.md so it
+        # must survive; or the squash adds a `--demo-feature` debug hook (the
+        # deterministic "player-facing" signal that even [feature] items carry) —
+        # bounce to the retry path so the dev (re)adds the block.
+        if git diff --cached --quiet -- Game.md 2>/dev/null; then
+          _need_gm=0
+          echo "$next_title" | grep -qiE '\[game-feature\]' && _need_gm=1
+          git diff --quiet origin/master..."$branch" -- Game.md 2>/dev/null || _need_gm=1
+          git diff --cached -- scripts/systems/debug_boot.gd 2>/dev/null \
+            | grep -qE '^\+[[:space:]]*func _demo_|--demo-feature=' && _need_gm=1
+          if [ "$_need_gm" -eq 1 ]; then
+            echo "continuous: MERGE GATE — player-facing change but Game.md NOT updated in the squash; bouncing to [retry] so the dev (re)adds the Game.md block." >> "$item_log"
+            git reset --hard origin/master --quiet 2>/dev/null || true
+            git clean -fd --quiet 2>/dev/null || true
+            exit 1
+          fi
+        fi
         if git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
                 commit --quiet -m "$commit_message" \
            && git push --quiet origin master; then
