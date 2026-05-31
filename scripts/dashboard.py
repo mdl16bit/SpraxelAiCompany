@@ -44,11 +44,15 @@ TICK_LOG_DIR = REPO_DIR / "logs" / "tick"
 CONTINUOUS_LOG_DIR = REPO_DIR / "logs" / "continuous"
 TZ = ZoneInfo("America/Los_Angeles")
 
-# Target render width. The two-column sections and title truncation caps derive
-# from this so the dashboard fills a wide terminal instead of an ~80-col box.
-WIDTH = 160
-_INDENT = 4                       # leading "    " on every content row
-_COL_W = (WIDTH - _INDENT) // 2   # width of the left column in 2-col sections
+# Target render width. The layout is two top-level columns: a LEFT column with
+# the status/queue/throughput/agenda panels, and a RIGHT column with recent
+# tick activity + ships + last log line. Truncation caps derive from these.
+WIDTH = 200
+_INDENT = 4                            # leading "    " on every content row
+GUTTER = 4                             # blank columns between left and right
+LEFT_W = 122                           # left-column content width (incl its indent)
+RIGHT_W = WIDTH - LEFT_W - GUTTER      # right-column content width (= 74)
+_COL_W = (LEFT_W - _INDENT) // 2       # internal 2-col cell width for LEFT panels
 
 # ANSI color codes (stdlib-only "rich")
 RESET = "\033[0m"
@@ -73,6 +77,79 @@ def sh(cmd: str, cwd: Path | None = None) -> str:
         return r.stdout.strip()
     except Exception:
         return ""
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _vis_len(s: str) -> int:
+    """Visible length of a string, ignoring ANSI color escapes."""
+    return len(_ANSI_RE.sub("", s))
+
+
+def _fit_vis(s: str, w: int) -> str:
+    """Truncate/pad `s` to EXACTLY `w` visible columns, preserving ANSI codes
+    (so a long left-column line can never push the right column out of place)."""
+    out = []
+    vis = 0
+    i = 0
+    saw_ansi = False
+    while i < len(s) and vis < w:
+        if s[i] == "\x1b":
+            m = _ANSI_RE.match(s, i)
+            if m:
+                out.append(m.group(0)); i = m.end(); saw_ansi = True; continue
+        out.append(s[i]); vis += 1; i += 1
+    res = "".join(out)
+    if saw_ansi:
+        res += RESET
+    if vis < w:
+        res += " " * (w - vis)
+    return res
+
+
+def _compose_columns(left: list, right: list, left_w: int, gutter: int,
+                     right_w: int) -> list:
+    """Lay two lists of pre-rendered lines side by side. Left lines are fit to
+    `left_w` and right lines to `right_w` visible cols (so no row can exceed
+    left_w+gutter+right_w), then trailing pad is stripped. Rows past the end of
+    either column fall back to blanks on that side."""
+    n = max(len(left), len(right))
+    out = []
+    for i in range(n):
+        l = left[i] if i < len(left) else ""
+        r = right[i] if i < len(right) else ""
+        if r:
+            out.append((_fit_vis(l, left_w) + (" " * gutter) + _fit_vis(r, right_w)).rstrip())
+        else:
+            out.append(l.rstrip())
+    return out
+
+
+def recent_tick_dispatches(n: int = 10) -> list:
+    """The last N tick runs that actually dispatched an agent (idle
+    'dispatched=[] errors=[]' ticks are skipped). Newest first.
+    Returns [(hh:mm:ss, what_dispatched, errors)]."""
+    try:
+        files = sorted(TICK_LOG_DIR.glob("*.log"))
+    except Exception:
+        return []
+    rows: list = []
+    for f in reversed(files):              # newest day first
+        try:
+            for ln in reversed(f.read_text().splitlines()):
+                m = re.search(r"(\d{2}:\d{2}:\d{2}).*tick dispatched=\[(.*?)\]\s*errors=\[(.*?)\]", ln)
+                if not m:
+                    continue
+                disp = m.group(2).strip()
+                if not disp:
+                    continue               # idle tick — nothing dispatched
+                rows.append((m.group(1), disp, m.group(3).strip()))
+                if len(rows) >= n:
+                    return rows
+        except Exception:
+            continue
+    return rows
 
 
 def fmt_etime(seconds: int) -> str:
@@ -613,15 +690,16 @@ def queue_composition(game_dir: Path | None) -> dict:
 
 
 def render(now: datetime, game_dir: Path | None) -> str:
+    # `lines` is the LEFT column body; the header spans the full width and the
+    # RIGHT column (tick activity, ships, last log line) is composed in at the end.
     lines = []
     # Read configurable dashboard counts from Philosophy.md (with defaults).
     recent_ships_n = read_philosophy_int(game_dir, "dashboard.recent_ships", 15)
     ceo_actions_n  = read_philosophy_int(game_dir, "dashboard.ceo_actions", 10)
+    tick_dispatch_n = read_philosophy_int(game_dir, "dashboard.tick_dispatches", 10)
     title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
-    bar = "─" * len(title)
-    lines.append(f"{BOLD}{CYAN}{title}{RESET}")
-    lines.append(f"{DIM}{bar}{RESET}")
-    lines.append("")
+    bar = "─" * (WIDTH)
+    head = [f"{BOLD}{CYAN}{title}{RESET}", f"{DIM}{bar}{RESET}", ""]
 
     # System status row
     if PAUSED.exists():
@@ -693,7 +771,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
                     # Strip [wip:N] + state/kind tags for display.
                     clean = re.sub(r"^\[wip:\d+\]\s*", "", it.title)
                     clean = re.sub(r"^\[(retry|resume|escalated|bug|feature|chore|game-feature|epic)\]\s*", "", clean)
-                    clean = clean[:120] + ("…" if len(clean) > 120 else "")
+                    clean = clean[:60] + ("…" if len(clean) > 60 else "")
                     wip_items[wid] = clean
         except Exception:
             pass
@@ -785,7 +863,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
 
         if len(fires) <= 5:
             for ts, name in fires:
-                cell, _ = _fire_cell(ts, name, WIDTH - 24)
+                cell, _ = _fire_cell(ts, name, LEFT_W - 24)
                 lines.append(f"    {cell}")
         else:
             # prefix ("today 14:30 PT  ") is ~16 cols; fill the rest of the column.
@@ -832,7 +910,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
         if len(actions) <= 5:
             # One column — unchanged look, wide titles.
             for kind, title in actions:
-                cell, _ = _ceo_cell(kind, title, WIDTH - 20)
+                cell, _ = _ceo_cell(kind, title, LEFT_W - 20)
                 lines.append(f"    {cell}")
         else:
             # Two columns of five (column-major) so >5 items don't overflow
@@ -850,26 +928,45 @@ def render(now: datetime, game_dir: Path | None) -> str:
                     lines.append(f"    {lcell}")
     lines.append("")
 
+    # ===== RIGHT COLUMN — recent tick activity + ships + last log line =====
+    right: list = []
+
+    # Recent tick dispatches (NEW) — what the scheduler actually fired, newest
+    # first. Idle ticks (dispatched=[]) are filtered out so this shows signal.
+    right.append(f"  {BOLD}▸ Recent tick dispatches (last {tick_dispatch_n}){RESET}")
+    tdisp = recent_tick_dispatches(tick_dispatch_n)
+    if not tdisp:
+        right.append(f"    {DIM}(no agent dispatches in recent ticks){RESET}")
+    else:
+        for t, what, errs in tdisp:
+            col = RED if errs else GREEN
+            mark = "✗" if errs else "▸"
+            what_s = what[:RIGHT_W - 16] + ("…" if len(what) > RIGHT_W - 16 else "")
+            right.append(f"    {DIM}{t}{RESET} {col}{mark}{RESET} {what_s}")
+    right.append("")
+
     # Last N things shipped
-    lines.append(f"  {BOLD}▸ Last {recent_ships_n} shipped{RESET}")
+    right.append(f"  {BOLD}▸ Last {recent_ships_n} shipped{RESET}")
     ships = last_n_ships(game_dir, recent_ships_n)
     if not ships:
-        lines.append(f"    {DIM}(no ships found in git log){RESET}")
+        right.append(f"    {DIM}(no ships found in git log){RESET}")
     else:
         for sha, age, subject in ships:
-            # Pad age to 4 chars right-aligned so columns align; truncate subject
             age_col = f"{age:>4s}"
-            subj = subject[:WIDTH - 20] + ("…" if len(subject) > WIDTH - 20 else "")
-            lines.append(f"    {DIM}{sha} {age_col}{RESET}  {subj}")
-    lines.append("")
+            subj = subject[:RIGHT_W - 18] + ("…" if len(subject) > RIGHT_W - 18 else "")
+            right.append(f"    {DIM}{sha} {age_col}{RESET}  {subj}")
+    right.append("")
 
     # Most recent log line — across all per-worker continuous logs.
-    lines.append(f"  {BOLD}▸ Last log line{RESET}")
+    right.append(f"  {BOLD}▸ Last log line{RESET}")
     wid, last = last_log_line(game_dir)
-    lines.append(f"    {DIM}{wid:>3s}  {last}{RESET}")
-    lines.append("")
+    last_s = last[:RIGHT_W - 8] + ("…" if len(last) > RIGHT_W - 8 else "")
+    right.append(f"    {DIM}{wid:>3s}  {last_s}{RESET}")
+    right.append("")
 
-    return "\n".join(lines)
+    # Lay the two columns side by side under the full-width header.
+    body = _compose_columns(lines, right, LEFT_W, GUTTER, RIGHT_W)
+    return "\n".join(head + body)
 
 
 def _sleep_or_quit(interval: float) -> bool:
