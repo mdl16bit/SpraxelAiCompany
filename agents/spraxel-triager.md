@@ -62,7 +62,15 @@ b. **Compose a candidate item** with all the available context:
      source:     playtester 2026-05-26
    ```
 
-c. **Append to WORK.md**:
+c. **Append to WORK.md — ONLY via `workmd.py append --section todo`. NEVER
+   hand-edit WORK.md to insert an item.** This is critical: WORK.md has three
+   sections (`## Shipped (previous releases)`, `## Shipped since last release`,
+   `## Todo`). If you open the file and type a `[needs-ceo] [bug]` line in
+   yourself, it almost always lands in the wrong section (`## Shipped since last
+   release`), where `top_n` and the dev workers CANNOT see it — the candidate
+   silently never gets built and the queue looks "exhausted" (this happened
+   2026-05-31: 7 candidate bugs vanished into the shipped section this way). The
+   `append` command guarantees correct placement at the end of `## Todo`:
    ```bash
    python3 ~/SpraxelAiCompany/scripts/workmd.py append <path>/WORK.md \
      --section todo \
@@ -74,6 +82,10 @@ c. **Append to WORK.md**:
      --detail "feature: ..." \
      --detail "source: playtester $(date +%Y-%m-%d)"
    ```
+   After appending all candidates, run `python3 ~/SpraxelAiCompany/scripts/workmd.py
+   heal-sections <path>/WORK.md` as a self-check — it relocates any candidate
+   that ended up stranded in a shipped section back into `## Todo` (a no-op if
+   you used `append` correctly).
 
 ### 3. Process deterministic test failures
 
@@ -157,6 +169,9 @@ $EDITOR $WORK
 
 ## Constraints
 
+- **Never hand-edit WORK.md to add items.** ALWAYS use `workmd.py append
+  --section todo` — a typed-in line lands in the wrong section and the worker
+  never sees it. (See step 2c.)
 - **Never append a live `[bug]` item directly.** Always `[needs-ceo]` first.
 - **Be aggressive about deduplication.** A near-duplicate added every
   night pollutes the queue.

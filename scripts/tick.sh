@@ -172,6 +172,25 @@ if [ -x "$RUN_AGENT" ] && [ -n "$arch_reason" ] \
   dispatched+=("architect (reactive: $arch_reason)")
 fi
 
+# Self-heal stranded work: an agent that hand-edits WORK.md (instead of
+# `workmd.py append --section todo`) can drop a buildable candidate into a
+# shipped section (## Shipped since last release), where top_n/the workers can't
+# see it — the queue then looks "exhausted" while real work sits invisible
+# (2026-05-31: 7 candidate bugs the Triager mis-filed). heal-sections moves any
+# [needs-ceo] item + any open-candidate [bug] back to ## Todo. Idempotent + a
+# no-op commit-wise when nothing's stranded; debounced to ~once/10min so it
+# doesn't hammer the master-push lock.
+heal_stamp="$REPO_DIR/.cache/heal-sections.min"
+now_min=$(( $(date +%s) / 600 ))
+if [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ] \
+   && [ "$(cat "$heal_stamp" 2>/dev/null)" != "$now_min" ]; then
+  echo "$now_min" > "$heal_stamp"
+  moved=$(bash "$REPO_DIR/scripts/with_master_lock.sh" \
+            -m "chore(work): heal-sections — relocate stranded buildable work to Todo" \
+            heal-sections 2>/dev/null | grep -c '^  - ' || true)
+  [ "${moved:-0}" -gt 0 ] && dispatched+=("heal-sections: $moved stranded item(s) → Todo")
+fi
+
 # Designer when the buildable queue is DRY. The Designer normally runs Tue+Fri
 # (cron), but when developers have NOTHING to build — `top` returns no eligible
 # items (only [manual]/[future]/untriaged/epic-gated left, ignoring the permanent
