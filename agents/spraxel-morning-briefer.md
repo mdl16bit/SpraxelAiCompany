@@ -171,9 +171,9 @@ create it with `mkdir -p .factory/local`.
     auto-captured clips are pending the "Demo-playthrough scenario mode" work
     item — and that a fresh batch lands ~05:30.
 
-5. **Decide section** — Designer ideas (`[idea]` tag) the CEO accepts or
-   rejects. ALWAYS spell out the actions, even when there are zero ideas
-   (then say there's nothing to do).
+5. **Decide section** — Designer ideas (`[idea]` tag) the CEO accepts,
+   accepts-with-changes, or rejects. ALWAYS spell out the actions, even when
+   there are zero ideas (then say there's nothing to do).
 
    **Pre-fill the commands per idea — never leave a bare `<substr>` placeholder.**
    `workmd.py` matches an item by a case-insensitive substring of its title
@@ -185,17 +185,25 @@ create it with `mkdir -p .factory/local`.
    snippet `Sound footprint visualizer`, not `<substr>`.
 
    Lead with a one-line definition so the CEO understands the snippet:
-   `"Decide" = accept or reject each idea. Each command below already has a`
-   `unique snippet of the idea's text filled in — just run it (or edit the`
-   `quoted text to any other substring of the idea's title).`
+   `"Decide" = accept, accept-with-changes, or reject each idea. Each command`
+   `below already has a unique snippet of the idea's text filled in — just run`
+   `it (or edit the quoted text to any other substring of the idea's title).`
 
-   Then per idea:
+   Then per idea — ALWAYS include the "Accept with changes" line (it's the
+   accept path that lets the CEO rename the idea or bolt on a spec note as it
+   enters shaping; `promote` takes `--retitle "<new title>"` and/or repeatable
+   `--detail "<note>"`):
    ```
    - [idea] <full idea title>
-       ✅ Accept: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<unique snippet>"
-       ❌ Reject: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<unique snippet>"
-       ⏸ Defer:  do nothing — it stays an [idea] and reappears tomorrow.
+       ✅ Accept:          bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<unique snippet>"
+       ✏️ Accept + change: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<unique snippet>" --retitle "<new title>"
+                           (or add a spec note instead/as well: ... promote "<unique snippet>" --detail "<note>")
+       ❌ Reject:          bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<unique snippet>"
+       ⏸ Defer:           do nothing — it stays an [idea] and reappears tomorrow.
    ```
+   Above the per-idea list, also offer the bulk accept (mirrors `approve all`
+   for bugs) so the CEO can greenlight the whole batch into shaping in one shot:
+   `✅✅ Accept ALL ideas at once: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote all`
    If there are zero `[idea]` items, write exactly:
    `✓ Nothing to decide — no designer ideas pending. Skip this section.`
    Then add the PM reorder summary (one line, from PM's commit) as FYI.
@@ -217,6 +225,10 @@ create it with `mkdir -p .factory/local`.
    - ✅ **Accept** (it's real → queue it): clears `[needs-ceo]`, leaving a live
      `[bug]` the overnight loop fixes like any other item.
      `bash ~/SpraxelAiCompany/scripts/with_master_lock.sh approve "<substr>"`
+   - ✅✅ **Accept ALL** (validate every candidate bug at once): clears
+     `[needs-ceo]` from all `[needs-ceo] [bug]` items in one command (Developer
+     questions tagged `[needs-ceo]` are left untouched).
+     `bash ~/SpraxelAiCompany/scripts/with_master_lock.sh approve all`
    - ❌ **Reject** (false positive / duplicate / intended behavior): delete it.
      `bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"`
    - ⬆ **Prioritize** (real AND urgent): approve, then bump to p0.
@@ -443,10 +455,13 @@ Auto-captured clips are pending; a fresh batch lands ~05:30.
 (When none yet:) ✓ No demo recipes yet.
 
 ## ▶ Decide (5 min)
-"Decide" = accept or reject each Designer idea. For each one below:
-  ✅ Accept: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<substr>"
-  ❌ Reject: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"
-  ⏸ Defer:  do nothing — it stays an [idea] and shows up again tomorrow.
+"Decide" = accept, accept-with-changes, or reject each Designer idea. For each below:
+  ✅ Accept:          bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<substr>"
+  ✅✅ Accept ALL:     bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote all
+  ✏️ Accept + change: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<substr>" --retitle "<new title>"
+                      (or annotate as it enters shaping: ... promote "<substr>" --detail "<spec note>")
+  ❌ Reject:          bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"
+  ⏸ Defer:           do nothing — it stays an [idea] and shows up again tomorrow.
   - <idea 1>
   - <idea 2>
   ...
@@ -460,6 +475,7 @@ These are `[needs-ceo] [bug]` candidates — workers SKIP them until you validat
 so doing nothing leaves them unfixed (just deferred to tomorrow).
 "Triage" = for each, do ONE of:
   ✅ Accept (it's real → queue it):  bash ~/SpraxelAiCompany/scripts/with_master_lock.sh approve "<substr>"
+  ✅✅ Accept ALL at once:            bash ~/SpraxelAiCompany/scripts/with_master_lock.sh approve all
   ❌ Reject (false positive/dup/intended): bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"
   ⬆ Prioritize (real + urgent):     …approve "<substr>"  then  …with_master_lock.sh bump "<substr>" p0
   ⏸ Defer: do nothing — stays [needs-ceo], reappears next briefing.

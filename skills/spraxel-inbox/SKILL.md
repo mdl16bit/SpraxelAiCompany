@@ -126,7 +126,9 @@ commits + pushes atomically (see docs/WORKER_OPERATIONS.md §4). Define once:
 | Verb | Command | Use |
 |---|---|---|
 | **approve** | `bash $WML approve "<substr>"` | validate a `[needs-ceo]` candidate bug / answered question → live, dev-claimable |
+| **approve all** | `bash $WML approve all` | validate EVERY `[needs-ceo] [bug]` candidate at once (Developer questions left untouched) |
 | **promote** | `bash $WML promote "<substr>" [--detail … / --retitle …]` | accept an `[idea]` (→ shaping) / resurrect `[cold]`, optionally with edits |
+| **promote all** | `bash $WML promote all` | accept EVERY `[idea]` at once → all into shaping ([cold]/[future] untouched) |
 | **drop** | `bash $WML drop "<substr>"` | reject an idea / delete a duplicate or false-positive bug |
 | **bump** | `bash $WML bump "<substr>" p0` | change priority |
 | **resume** | `bash $WML resume "<substr>"` | un-block an `[escalated]` item AFTER editing its detail lines with guidance |
