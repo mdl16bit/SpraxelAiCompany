@@ -879,6 +879,65 @@ def promote_all(path: Path) -> list[WorkItem]:
         return promoted
 
 
+_OPEN_BUG_SIGNALS = ("repro:", "source:", "test-ref:", "failure:",
+                     "actual:", "confidence:", "scenario:")
+
+
+def heal_sections(path: Path) -> list[WorkItem]:
+    """Relocate buildable work that got stranded in a SHIPPED section (current /
+    shipped) back into ## Todo, where top_n/the workers can see it.
+
+    An agent that hand-edits WORK.md (instead of `append --section todo`) can
+    drop a candidate into the wrong section; this self-heals that. Moves:
+      • any [needs-ceo] item — a CEO-validation candidate can NEVER legitimately
+        live in a shipped section; and
+      • any [bug] whose details carry open-candidate signals (repro:/source:/
+        test-ref:/failure:/actual:/confidence:/scenario:) — an unfixed
+        candidate or test-failure, as opposed to a FIXED bug that shipped.
+    Leaves [feature]/[game-feature] and detail-less bugs alone (genuinely
+    shipped). Returns the moved items (now appended to Todo)."""
+    with FileLock(path):
+        wm = parse(path)
+        moved: list[WorkItem] = []
+        for sec in ("current", "shipped"):
+            keep: list[WorkItem] = []
+            for it in getattr(wm, sec):
+                t = it.title.lower()
+                is_needs_ceo = "[needs-ceo]" in t
+                is_open_bug = "[bug]" in t and any(
+                    sig in d.lower() for d in it.details for sig in _OPEN_BUG_SIGNALS)
+                if is_needs_ceo or is_open_bug:
+                    moved.append(it)
+                else:
+                    keep.append(it)
+            setattr(wm, sec, keep)
+        if moved:
+            wm.todo.extend(moved)
+            path.write_text(serialize(wm))
+        return moved
+
+
+def defer(path: Path, title: str) -> WorkItem:
+    """Send an item to the [future] backlog: strip [untriaged]/[untriaged-
+    proposal-active]/[idea]/[needs-ceo] and ensure a leading [future] tag.
+    Inverse of `promote` — e.g. to undo an accidental idea/future promotion."""
+    with FileLock(path):
+        wm = parse(path)
+        section, idx = _find_in_all(wm, title)
+        if idx < 0:
+            raise ValueError(f"item not found: {title!r}")
+        item = getattr(wm, section)[idx]
+        new = re.sub(r"\[(untriaged-proposal-active|untriaged|idea|needs-ceo)\]\s*",
+                     "", item.title, flags=re.I)
+        new = re.sub(r"\s{2,}", " ", new).strip()
+        if not re.search(r"\[future\]", new, flags=re.I):
+            new = "[future] " + new
+        item.title = new
+        _rewrite_item_lines(item)
+        path.write_text(serialize(wm))
+        return item
+
+
 def find_item_by_triage_id(wm: WorkMd, triage_id: str) -> tuple[str, int]:
     """Find an item across all sections by its `triage-id` detail line.
     Returns (section_name, index) or ('', -1). Used by the Architect to map a
@@ -1489,6 +1548,15 @@ def main(argv: list[str] | None = None) -> int:
     pd.add_argument("path")
     pd.add_argument("title")
 
+    phs = sub.add_parser("heal-sections",
+        help="move buildable work stranded in a shipped section (current/shipped) back into ## Todo: any [needs-ceo] item + any [bug] with open-candidate details. Safe — leaves shipped [feature]s alone.")
+    phs.add_argument("path")
+
+    pdf = sub.add_parser("defer",
+        help="send an item to the [future] backlog (strip [untriaged]/[idea]/[needs-ceo], add [future]) — inverse of promote; undoes an accidental promotion")
+    pdf.add_argument("path")
+    pdf.add_argument("title")
+
     pb = sub.add_parser("bump", help="change priority tag (p0..p3) on an item")
     pb.add_argument("path")
     pb.add_argument("title")
@@ -1686,6 +1754,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         item = approve(path, args.title)
         print(f"approved: {item.title}")
+        return 0
+
+    if args.cmd == "heal-sections":
+        moved = heal_sections(path)
+        if not moved:
+            print("heal-sections: nothing stranded — all buildable work is in Todo")
+        else:
+            print(f"heal-sections: moved {len(moved)} stranded item(s) → Todo:")
+            for it in moved:
+                print(f"  - {it.title}")
+        return 0
+
+    if args.cmd == "defer":
+        item = defer(path, args.title)
+        print(f"deferred → {item.title}")
         return 0
 
     if args.cmd == "drop":
