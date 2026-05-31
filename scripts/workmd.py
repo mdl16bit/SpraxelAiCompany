@@ -831,6 +831,54 @@ def approve(path: Path, title: str) -> WorkItem:
         return item
 
 
+def approve_all(path: Path) -> tuple[list[WorkItem], list[WorkItem]]:
+    """Bulk-approve every candidate BUG: clear [needs-ceo] from all Todo/Current
+    items that are BOTH [needs-ceo] AND [bug] (the Triager/Playtester-filed
+    candidates). Items tagged [needs-ceo] WITHOUT [bug] — Developer questions —
+    are deliberately LEFT UNTOUCHED: they need a real answer, not a blanket
+    approve. Returns (approved, skipped_non_bug)."""
+    with FileLock(path):
+        wm = parse(path)
+        approved: list[WorkItem] = []
+        skipped: list[WorkItem] = []
+        for section in ("todo", "current"):
+            for item in getattr(wm, section):
+                if not re.search(r"\[needs-ceo\]", item.title, flags=re.I):
+                    continue
+                if not re.search(r"\[bug\]", item.title, flags=re.I):
+                    skipped.append(item)
+                    continue
+                item.title = re.sub(r"\[needs-ceo\]\s*", "", item.title, count=1, flags=re.I)
+                item.title = re.sub(r"\s{2,}", " ", item.title).strip()
+                _rewrite_item_lines(item)
+                approved.append(item)
+        if approved:
+            path.write_text(serialize(wm))
+        return approved, skipped
+
+
+def promote_all(path: Path) -> list[WorkItem]:
+    """Bulk-accept every Designer idea: swap [idea]→[untriaged] on ALL [idea]
+    items in Todo/Current, sending each into the Architect's shaping pipeline
+    (same as accepting them one by one). Mirrors `approve all` for bugs. Does
+    NOT touch [cold]/[future] (those are resurrect/pull-in, not "accept ideas").
+    Returns the promoted items."""
+    with FileLock(path):
+        wm = parse(path)
+        promoted: list[WorkItem] = []
+        for section in ("todo", "current"):
+            for item in getattr(wm, section):
+                if not item.is_idea:
+                    continue
+                item.title = re.sub(r"\[idea\]\s*", "[untriaged] ", item.title, count=1, flags=re.I)
+                item.title = re.sub(r"\s{2,}", " ", item.title).strip()
+                _rewrite_item_lines(item)
+                promoted.append(item)
+        if promoted:
+            path.write_text(serialize(wm))
+        return promoted
+
+
 def find_item_by_triage_id(wm: WorkMd, triage_id: str) -> tuple[str, int]:
     """Find an item across all sections by its `triage-id` detail line.
     Returns (section_name, index) or ('', -1). Used by the Architect to map a
@@ -1424,18 +1472,18 @@ def main(argv: list[str] | None = None) -> int:
     ptf.add_argument("--detail", action="append", default=[], help="indented detail line (repeatable) — e.g. a failure excerpt")
 
     pr = sub.add_parser("promote",
-        help="accept an idea / pull a [future] in ([idea]/[future]→[untriaged]) / resurrect a [cold] item — optionally with edits (--detail / --retitle)")
+        help="accept an idea / pull a [future] in ([idea]/[future]→[untriaged]) / resurrect a [cold] item — optionally with edits (--detail / --retitle). Pass title 'all' to accept EVERY [idea] at once (no --detail/--retitle in that mode).")
     pr.add_argument("path")
-    pr.add_argument("title")
+    pr.add_argument("title", help="substring of the item title, or 'all' to accept every [idea]")
     pr.add_argument("--detail", action="append", default=[],
         help="spec/constraint line to append under the item at accept time (repeatable)")
     pr.add_argument("--retitle", default=None,
         help="replace the item's descriptive text (tags + priority are preserved); pass just the new description")
 
     pap = sub.add_parser("approve",
-        help="clear [needs-ceo] from an item — CEO validates a candidate ([bug]/question) → live, dev-claimable")
+        help="clear [needs-ceo] from an item — CEO validates a candidate ([bug]/question) → live, dev-claimable. Pass title 'all' to approve every [needs-ceo] [bug] candidate at once (Developer questions are left untouched).")
     pap.add_argument("path")
-    pap.add_argument("title")
+    pap.add_argument("title", help="substring of the item title, or 'all' to approve every candidate bug")
 
     pd = sub.add_parser("drop", help="delete an item entirely from any section (reject idea / dedupe bug)")
     pd.add_argument("path")
@@ -1608,11 +1656,34 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "promote":
+        if args.title.strip().lower() == "all" and not args.detail and not args.retitle:
+            promoted = promote_all(path)
+            if not promoted:
+                print("promote all: no [idea] items to accept")
+            else:
+                print(f"accepted {len(promoted)} idea(s) → shaping ([untriaged]):")
+                for it in promoted:
+                    print(f"  - {it.title}")
+            return 0
         item = promote(path, args.title, details=args.detail, retitle=args.retitle)
         print(f"promoted: {item.title}")
         return 0
 
     if args.cmd == "approve":
+        if args.title.strip().lower() == "all":
+            approved, skipped = approve_all(path)
+            if not approved:
+                print("approve all: no [needs-ceo] [bug] candidates to approve")
+            else:
+                print(f"approved {len(approved)} candidate bug(s):")
+                for it in approved:
+                    print(f"  - {it.title}")
+            if skipped:
+                print(f"left {len(skipped)} non-bug [needs-ceo] item(s) untouched "
+                      f"(Developer questions — answer + clear each manually):")
+                for it in skipped:
+                    print(f"  · {it.title[:80]}")
+            return 0
         item = approve(path, args.title)
         print(f"approved: {item.title}")
         return 0
