@@ -65,6 +65,7 @@ BLUE = "\033[34m"
 MAGENTA = "\033[35m"
 CYAN = "\033[36m"
 GRAY = "\033[90m"
+ORANGE = "\033[38;5;208m"   # 256-color orange (for "tomorrow" in the schedule)
 CLEAR_SCREEN = "\033[2J\033[H"
 
 
@@ -851,23 +852,24 @@ def render(now: datetime, game_dir: Path | None) -> str:
         lines.append(f"    {DIM}(no upcoming runs found){RESET}")
     else:
         def _fire_cell(ts, name, cap: int) -> tuple[str, int]:
-            if ts.date() == now.date():
-                day = "today"
-            elif ts.date() == (now + timedelta(days=1)).date():
-                day = "tmr"
-            else:
-                day = ts.strftime("%a")
-            prefix = f"{day:5s} {ts:%H:%M PT}"
+            # Absolute date+time, 24h, e.g. "20260602 13:00 PST". Whole cell is
+            # colored by proximity: today=yellow, tomorrow=orange, later=dim date.
+            prefix = f"{ts:%Y%m%d %H:%M} PST"
             nm = name[:cap] + ("…" if len(name) > cap else "")
-            return f"{DIM}{prefix}{RESET}  {nm}", len(prefix) + 2 + len(nm)
+            vis = len(prefix) + 2 + len(nm)
+            if ts.date() == now.date():
+                return f"{YELLOW}{prefix}  {nm}{RESET}", vis          # today
+            if ts.date() == (now + timedelta(days=1)).date():
+                return f"{ORANGE}{prefix}  {nm}{RESET}", vis          # tomorrow
+            return f"{DIM}{prefix}{RESET}  {nm}", vis                 # later days
 
         if len(fires) <= 5:
             for ts, name in fires:
-                cell, _ = _fire_cell(ts, name, LEFT_W - 24)
+                cell, _ = _fire_cell(ts, name, LEFT_W - 28)
                 lines.append(f"    {cell}")
         else:
-            # prefix ("today 14:30 PT  ") is ~16 cols; fill the rest of the column.
-            ROWS, CAP, CELL_W = 5, _COL_W - 18, _COL_W
+            # prefix ("20260602 13:00 PST  ") is 20 cols; fill the rest of the column.
+            ROWS, CAP, CELL_W = 5, _COL_W - 22, _COL_W
             left, right = fires[:ROWS], fires[ROWS:]
             for i in range(len(left)):
                 lcell, lvis = _fire_cell(left[i][0], left[i][1], CAP)
