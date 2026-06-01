@@ -517,6 +517,10 @@ def ship(path: Path, title: str) -> WorkItem:
         # ([feature]/[bug]/...) is meaningful in the Shipped record.
         item.title = re.sub(r"\[(untriaged-proposal-active|untriaged|retry|resume)\]\s*", "",
                             item.title, flags=re.I).strip()
+        # Strip open-bug signal lines so heal_sections never revives a shipped
+        # [bug] item just because its details carried diagnostic context.
+        item.details = [d for d in item.details
+                        if not any(s in d.lower() for s in _OPEN_BUG_SIGNALS)]
         item.raw_lines = [item.title] + [f"  {d}" for d in item.details]
         wm.current.append(item)
         path.write_text(serialize(wm))
