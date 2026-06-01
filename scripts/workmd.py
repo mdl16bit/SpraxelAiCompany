@@ -908,8 +908,16 @@ def heal_sections(path: Path) -> list[WorkItem]:
             for it in getattr(wm, sec):
                 t = it.title.lower()
                 is_needs_ceo = "[needs-ceo]" in t
-                is_open_bug = "[bug]" in t and any(
-                    sig in d.lower() for d in it.details for sig in _OPEN_BUG_SIGNALS)
+                # A bug that went through the dev loop carries a branch:/last-commit:
+                # detail — it legitimately SHIPPED to this section, so never re-pull
+                # it (else a fixed bug that kept its repro: line would loop back into
+                # Todo every heal sweep). Only an UNBUILT mis-filed candidate
+                # (open-signal details, no dev-loop markers) is truly stranded.
+                went_through_loop = any(
+                    m in d.lower() for d in it.details
+                    for m in ("branch:", "last-commit:"))
+                is_open_bug = ("[bug]" in t and not went_through_loop and any(
+                    sig in d.lower() for d in it.details for sig in _OPEN_BUG_SIGNALS))
                 if is_needs_ceo or is_open_bug:
                     moved.append(it)
                 else:
