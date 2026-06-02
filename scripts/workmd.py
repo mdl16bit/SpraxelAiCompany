@@ -1157,6 +1157,28 @@ def drop(path: Path, title: str) -> WorkItem:
         return item
 
 
+def drop_all(path: Path) -> list[WorkItem]:
+    """Bulk-reject every Designer idea: delete ALL [idea] items. Mirrors
+    `promote all` (which accepts them) — 'reject all the pending ideas'. Scoped
+    to [idea] ONLY: it deliberately does NOT touch [future]/[manual]/[bug]/etc.,
+    so `drop all` can never wipe real work (the substring-match footgun that let
+    `drop all` delete a [future] item — 2026-06-01). Returns the dropped items."""
+    with FileLock(path):
+        wm = parse(path)
+        dropped: list[WorkItem] = []
+        for sec in ("todo", "current"):
+            keep = []
+            for it in getattr(wm, sec):
+                if it.is_idea:
+                    dropped.append(it)
+                else:
+                    keep.append(it)
+            setattr(wm, sec, keep)
+        if dropped:
+            path.write_text(serialize(wm))
+        return dropped
+
+
 def release_cut(path: Path, version: str) -> int:
     """Roll WORK.md sections on a release cut.
 
@@ -1556,7 +1578,7 @@ def main(argv: list[str] | None = None) -> int:
     pap.add_argument("path")
     pap.add_argument("title", help="substring of the item title, or 'all' to approve every candidate bug")
 
-    pd = sub.add_parser("drop", help="delete an item entirely from any section (reject idea / dedupe bug)")
+    pd = sub.add_parser("drop", help="delete an item entirely from any section (reject idea / dedupe bug). Pass title 'all' to reject EVERY [idea] at once (scoped to ideas — never touches [future]/[manual]/[bug]).")
     pd.add_argument("path")
     pd.add_argument("title")
 
@@ -1784,6 +1806,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "drop":
+        if args.title.strip().lower() == "all":
+            dropped = drop_all(path)
+            if not dropped:
+                print("drop all: no [idea] items to reject")
+            else:
+                print(f"rejected {len(dropped)} idea(s):")
+                for it in dropped:
+                    print(f"  - {it.title}")
+            return 0
         item = drop(path, args.title)
         print(f"dropped: {item.title}")
         return 0
