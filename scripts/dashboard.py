@@ -40,8 +40,10 @@ STATE_FILE = REPO_DIR / ".cache" / "continuous-state.json"
 PAUSED = REPO_DIR / ".paused"
 TR_PENDING = REPO_DIR / ".cache" / "test-runner-pending"
 TR_ACTIVE = REPO_DIR / ".cache" / "test-runner-active"
+TR_PROGRESS = REPO_DIR / ".cache" / "test-runner-progress.json"
 TICK_LOG_DIR = REPO_DIR / "logs" / "tick"
 CONTINUOUS_LOG_DIR = REPO_DIR / "logs" / "continuous"
+TEST_RUNNER_LOG_DIR = REPO_DIR / "logs" / "test_runner"
 TZ = ZoneInfo("America/Los_Angeles")
 
 # Target render width. The layout is two top-level columns: a LEFT column with
@@ -151,6 +153,60 @@ def recent_tick_dispatches(n: int = 10) -> list:
         except Exception:
             continue
     return rows
+
+
+def _schedule_int(key: str, default: int) -> int:
+    """Read an integer `key: N` out of schedule.yaml (e.g. max_minutes)."""
+    try:
+        m = re.search(rf"^\s*{key}:\s*(\d+)", SCHEDULE.read_text(), re.M)
+        return int(m.group(1)) if m else default
+    except Exception:
+        return default
+
+
+def test_runner_status(now: datetime) -> dict | None:
+    """Status of the batch test runner, or None when idle. All reads are cheap
+    (flag mtime, progress.json, today's log) — never invokes the suite.
+    Keys: state ('running'|'pending'), elapsed_s, budget_min, ran, total,
+    fail_count, fails (recent test names)."""
+    if TR_ACTIVE.exists():
+        state = "running"
+    elif TR_PENDING.exists():
+        state = "pending"
+    else:
+        return None
+    out = {"state": state, "elapsed_s": None, "budget_min": _schedule_int("max_minutes", 120),
+           "ran": None, "total": None, "fail_count": 0, "fails": []}
+    if state == "running":
+        try:
+            start = datetime.fromtimestamp(TR_ACTIVE.stat().st_mtime, TZ)
+            out["elapsed_s"] = int((now - start).total_seconds())
+        except Exception:
+            pass
+    try:
+        out["ran"] = len(json.loads(TR_PROGRESS.read_text()).get("ran", []))
+    except Exception:
+        pass
+    try:
+        lines = (TEST_RUNNER_LOG_DIR / f"{now:%Y-%m-%d}.log").read_text().splitlines()
+    except Exception:
+        lines = []
+    for ln in reversed(lines):                      # total = last "suite: N tests"
+        m = re.search(r"suite:\s*(\d+)\s*tests", ln)
+        if m:
+            out["total"] = int(m.group(1)); break
+    start_idx = 0                                   # only count fails since the last run start
+    for i in range(len(lines) - 1, -1, -1):
+        if "] start " in lines[i] or "start —" in lines[i]:
+            start_idx = i; break
+    fails = []
+    for ln in lines[start_idx:]:
+        m = re.search(r"\bFAIL\s+(\S+)", ln)
+        if m:
+            fails.append(m.group(1).split("/")[-1].replace(".gd", ""))
+    out["fail_count"] = len(fails)
+    out["fails"] = fails[-3:]
+    return out
 
 
 def fmt_etime(seconds: int) -> str:
@@ -753,6 +809,33 @@ def render(now: datetime, game_dir: Path | None) -> str:
             pass
     lines.append(f"  Cap counter    {cap_line}")
     lines.append("")
+
+    # Test runner — only while active/pending (it runs exclusively, pausing the
+    # dev workers, so it explains an otherwise-idle "Current items" below).
+    trs = test_runner_status(now)
+    if trs:
+        if trs["state"] == "running":
+            el = fmt_etime(trs["elapsed_s"]) if trs["elapsed_s"] is not None else "?"
+            bm = trs["budget_min"]
+            bud = f"{bm // 60}h" if bm and bm % 60 == 0 else (f"{bm}m" if bm else "∞")
+            if trs["ran"] is not None and trs["total"]:
+                pct = int(100 * trs["ran"] / trs["total"]) if trs["total"] else 0
+                prog = f"  ·  {GREEN}{trs['ran']}/{trs['total']}{RESET} tests ({pct}%)"
+            elif trs["ran"] is not None:
+                prog = f"  ·  {GREEN}{trs['ran']}{RESET} tests run"
+            else:
+                prog = ""
+            fc = trs["fail_count"]
+            fcol = RED if fc else GREEN
+            lines.append(f"  {BOLD}▸ Test runner{RESET}  {BLUE}▶ running{RESET} "
+                         f"{DIM}{el} / {bud}{RESET}{prog}  ·  {fcol}{fc} fail{'' if fc == 1 else 's'}{RESET}")
+            lines.append(f"    {DIM}runs exclusively — dev workers paused until it finishes{RESET}")
+            for f in trs["fails"]:
+                lines.append(f"    {RED}✗{RESET} {f}")
+        else:  # pending
+            lines.append(f"  {BOLD}▸ Test runner{RESET}  {YELLOW}⏳ scheduled{RESET} "
+                         f"{DIM}— will run exclusively on the next tick{RESET}")
+        lines.append("")
 
     # Current items — one row per worker. Combines two sources:
     #  - WORK.md [wip:N] tags → which item each worker claimed
