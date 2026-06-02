@@ -204,6 +204,7 @@ create it with `mkdir -p .factory/local`.
    Above the per-idea list, also offer the bulk accept (mirrors `approve all`
    for bugs) so the CEO can greenlight the whole batch into shaping in one shot:
    `✅✅ Accept ALL ideas at once: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote all`
+   `❌❌ Reject ALL ideas at once: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop all`
    If there are zero `[idea]` items, write exactly:
    `✓ Nothing to decide — no designer ideas pending. Skip this section.`
    Then add the PM reorder summary (one line, from PM's commit) as FYI.
@@ -461,6 +462,7 @@ Auto-captured clips are pending; a fresh batch lands ~05:30.
   ✏️ Accept + change: bash ~/SpraxelAiCompany/scripts/with_master_lock.sh promote "<substr>" --retitle "<new title>"
                       (or annotate as it enters shaping: ... promote "<substr>" --detail "<spec note>")
   ❌ Reject:          bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop "<substr>"
+  ❌❌ Reject ALL:     bash ~/SpraxelAiCompany/scripts/with_master_lock.sh drop all
   ⏸ Defer:           do nothing — it stays an [idea] and shows up again tomorrow.
   - <idea 1>
   - <idea 2>

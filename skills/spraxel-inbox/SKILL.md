@@ -130,6 +130,7 @@ commits + pushes atomically (see docs/WORKER_OPERATIONS.md §4). Define once:
 | **promote** | `bash $WML promote "<substr>" [--detail … / --retitle …]` | accept an `[idea]` (→ shaping) / resurrect `[cold]`, optionally with edits |
 | **promote all** | `bash $WML promote all` | accept EVERY `[idea]` at once → all into shaping ([cold]/[future] untouched) |
 | **drop** | `bash $WML drop "<substr>"` | reject an idea / delete a duplicate or false-positive bug |
+| **drop all** | `bash $WML drop all` | reject EVERY [idea] at once (scoped to ideas — never touches [future]/[manual]/[bug]) |
 | **bump** | `bash $WML bump "<substr>" p0` | change priority |
 | **resume** | `bash $WML resume "<substr>"` | un-block an `[escalated]` item AFTER editing its detail lines with guidance |
 | **amend** | `bash ~/SpraxelAiCompany/scripts/amend.sh <slug> "feedback"` | keep a shipped feature but queue a refinement |
