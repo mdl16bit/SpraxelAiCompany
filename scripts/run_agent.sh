@@ -285,6 +285,13 @@ while :; do
   rc=$?
   if [ "$rc" -eq 0 ] && [ -s "$log" ]; then
     echo "run_agent: $agent ok (attempt $attempt)" >&2
+    # Reliable "ran ok" stamp (per agent, NORMALIZED slug so it matches whether
+    # the caller used the schedule key "morning_briefer" or the slug
+    # "morning-briefer"). catch_up.sh reads this to know an agent already produced
+    # today's output — far more robust than grepping the session log (the "ok
+    # (attempt" line only goes to the wrapper's stderr).
+    mkdir -p "$REPO_DIR/.cache/agent-last-ok"
+    : > "$REPO_DIR/.cache/agent-last-ok/$agent_slug.ts"
     if [ "$self_reports" -eq 1 ] && [ "$(count_reports)" = "$reports_before" ]; then
       tailmsg=$( { grep -vE '^[[:space:]]*$' "$log" 2>/dev/null || true; } | tail -1 | cut -c1-160)
       printf '%s\n' \
