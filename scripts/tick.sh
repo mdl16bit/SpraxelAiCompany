@@ -43,7 +43,23 @@ ymd=$(date +%Y-%m-%d)
 log="$TICK_LOGS/$ymd.log"
 now=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
-# Bail if paused.
+# Wake-gap detector: wall-clock seconds since the previous tick. Updated on
+# EVERY tick (even when paused, below) so an UNPAUSE never looks like a gap —
+# only a real machine-off/asleep stretch (no ticks ran at all) leaves it stale.
+WALL_STAMP="$REPO_DIR/.cache/last-tick-wall.ts"
+gap=$(python3 - "$WALL_STAMP" <<'PY' 2>/dev/null || echo 0
+import sys, time
+f = sys.argv[1]
+now = int(time.time())
+try: last = int(open(f).read().strip())
+except Exception: last = now
+open(f, "w").write(str(now))
+print(now - last)
+PY
+)
+
+# Bail if paused (but the wall stamp above is already refreshed, so unpausing
+# doesn't trigger a spurious wake-gap catch-up).
 if [ -e "$PAUSED_FLAG" ]; then
   echo "$now  paused" >> "$log"
   exit 0
@@ -91,6 +107,20 @@ PY
 
 dispatched=()
 errors=()
+
+# Wake-gap catch-up: a long gap since the previous tick means the machine was
+# off/asleep through one or more daily slots that cron_due's 15-min grace
+# abandoned (the recurring "computer was off overnight — run missed jobs"). Fire
+# catch_up.sh once to replay the missed daily agents. It is idempotent (per-agent
+# success stamps), only runs slots that already occurred today, single-instance
+# locked, and keeps morning-briefer last — so this is safe to fire and a no-op
+# when nothing was actually missed. Threshold 30min ≫ normal 60s tick.
+if [ "${gap:-0}" -gt 1800 ] && [ -x "$REPO_DIR/scripts/catch_up.sh" ]; then
+  cdir="$REPO_DIR/logs/catch_up"; mkdir -p "$cdir"
+  nohup bash "$REPO_DIR/scripts/catch_up.sh" --reason "wake-gap $((gap/60))m" \
+    >>"$cdir/$(date +%Y-%m-%d).log" 2>&1 &
+  dispatched+=("catch_up (wake-gap $((gap/60))m)")
+fi
 
 # Crew agents (PM, Triager, Designer, etc.) — cron-fired.
 # Capture run_agent's stdout+stderr to a per-agent dispatch log instead of
