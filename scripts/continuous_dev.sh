@@ -545,6 +545,8 @@ for det in (it or {}).get('details', []):
   local is_resume="false"
   local resume_kind=""   # "resume" or "retry" — drives the prompt suffix
   local saved_branch=""
+  local resolve_conflict=0   # set when a reusable branch conflicts on rebase →
+  local conflict_files=""    # dev rebases + resolves in-session (see prompt)
   if echo "$next_title" | grep -qiE '^\[resume\]'; then
     is_resume="true"
     resume_kind="resume"
@@ -628,12 +630,35 @@ if it:
          && git rebase --quiet origin/master 2>/dev/null; then
         :  # reused + rebased cleanly
       else
-        # Existing branch unusable (checkout/rebase conflict) — abort the
-        # rebase and start this branch fresh from master. Same branch name,
-        # so still no duplicate; the prior conflicting work is discarded.
+        # Rebase onto master CONFLICTED. The branch's prior work is complete +
+        # tested — discarding it (the old behaviour: reset to master + rebuild
+        # from scratch) NEVER converges under sustained same-file contention,
+        # because every rebuild re-conflicts with whatever landed meanwhile.
+        # Instead: keep the branch at its tip and hand the conflict to the dev
+        # to rebase + resolve IN-SESSION. These are almost always ADDITIVE (two
+        # features appending to the same file) → "keep both" lands them 1-by-1.
+        # Fail-safe: if the tip can't be restored we fall back to a fresh
+        # rebuild on master (exactly the old behaviour), so this can only help.
         git rebase --abort 2>/dev/null || true
-        echo "continuous: branch $branch unusable (rebase conflict) — resetting to master" >&2
-        git checkout --quiet -B "$branch" origin/master
+        if git checkout --quiet -B "$branch" "origin/$branch" 2>/dev/null; then
+          # Probe which files conflict, then return the branch to its clean tip
+          # so the DEV performs the rebase+resolution (a paused rebase across an
+          # agent session is fragile).
+          git rebase origin/master >/dev/null 2>&1
+          conflict_files=$(git diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+          git rebase --abort >/dev/null 2>&1 || true
+          git checkout --quiet -B "$branch" "origin/$branch" 2>/dev/null
+          if [ -n "$conflict_files" ]; then
+            resolve_conflict=1
+            echo "continuous: branch $branch conflicts on [$conflict_files] — dev rebases+resolves in-session (work preserved)" >&2
+          else
+            # Couldn't reproduce a conflict (transient) — use the tip as-is.
+            git rebase --quiet origin/master >/dev/null 2>&1 || git checkout --quiet -B "$branch" origin/master
+          fi
+        else
+          echo "continuous: branch $branch unusable (cannot restore tip) — resetting to master" >&2
+          git checkout --quiet -B "$branch" origin/master
+        fi
       fi
     else
       echo "continuous: worker $WORKER_ID → '$next_title' on $branch (fresh)"
@@ -733,6 +758,26 @@ Read what was tried (\`git log --oneline -10\` + \`git show <sha>\`) and either:
 
 Do NOT delete the branch or reset to master. Commit your changes; the wrapper
 folds everything into one squash-merge to master at the end."
+    fi
+    if [ "${resolve_conflict:-0}" = "1" ]; then
+      item_brief="$item_brief
+
+## ⚠️ REBASE CONFLICT — RESOLVE THIS FIRST
+
+Your prior work for this item is COMPLETE and committed on branch \`$branch\`,
+but master has moved and the branch no longer rebases cleanly. (Ignore any note
+above claiming the branch is already rebased — it is NOT yet.) Conflicting
+file(s): $conflict_files
+
+These conflicts are almost always ADDITIVE — another feature added code to the
+same region. Do this BEFORE any other work:
+  1. git rebase origin/master
+  2. For each conflict, edit the file and KEEP BOTH sides' changes (do not delete
+     the other feature's code); make the result valid, coherent GDScript.
+  3. git add <files> && git rebase --continue   (repeat until the rebase finishes)
+  4. Re-run the gate test(s) to confirm still green.
+Only once the rebase is clean should you finish any remaining spec work, then
+commit. The wrapper squash-merges the resolved branch to master."
     fi
     echo "$item_brief" > "$item_log.brief"
 
