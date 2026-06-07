@@ -43,6 +43,14 @@ ymd=$(date +%Y-%m-%d)
 log="$TICK_LOGS/$ymd.log"
 now=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
+# Hung-agent reaper (safety net, runs every tick). Kills + clears any agent
+# lockdir whose holder has been wedged past its plausible max runtime — the
+# belt-and-suspenders layer for run_agent.sh's per-attempt watchdog, since both
+# tick and run_agent otherwise honour a LIVE-but-hung holder forever (2026-06-07:
+# architect wedged 22 min, blocking everything). Never touches long-lived
+# continuous-w* locks. Idempotent + exit-0, so it can't break the tick.
+bash "$REPO_DIR/scripts/reap_hung_agents.sh" >>"$log" 2>&1 || true
+
 # Wake-gap detector: wall-clock seconds since the previous tick. Updated on
 # EVERY tick (even when paused, below) so an UNPAUSE never looks like a gap —
 # only a real machine-off/asleep stretch (no ticks ran at all) leaves it stale.
