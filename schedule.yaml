@@ -59,7 +59,11 @@ continuous:
   # (target_per_batch is the total across all of them, not per-worker).
   # Default 1 (single-worker); bump to 3 to burn through items faster
   # — at the cost of ~3x faster Max-plan weekly-cap consumption.
-  dev_concurrency:  3
+  # TEMPORARILY 1 (2026-06-07): the queue is all character.gd abilities, so 3
+  # workers structurally deadlock at the squash-merge (2nd merger always
+  # conflicts → 6h with 0 ships). Serialized to drain it; RESTORE TO 3 once the
+  # single-file backlog clears. Durable fix tracked separately (merge-race).
+  dev_concurrency:  1
 
   # Brake against runaway failures. After N consecutive failures (any
   # worker), each worker sleeps fail_backoff_seconds before retrying.
