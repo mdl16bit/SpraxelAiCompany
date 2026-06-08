@@ -297,38 +297,17 @@ esac
 count_reports() { ( ls "$REPORTS_DIR"/*-"$agent".md 2>/dev/null || true ) | wc -l | tr -d ' '; }
 reports_before=$(count_reports)
 
-# Per-attempt hang guard. A wedged `claude -p` (API socket stall) used to hold
-# this agent's lockdir forever — 2026-06-07: the architect wedged 22 min at ~0%
-# CPU, blocking the whole pipeline (tick + run_agent both honour a LIVE holder,
-# so a hung-but-alive process is never reclaimed). macOS has no `timeout`, so we
-# cap each attempt with a portable background watchdog; a timed-out attempt is
-# killed (so the lock frees on exit) and counts as a failure → normal retry.
-# Override with AGENT_TIMEOUT=<seconds>.
-case "$agent" in
-  developer|reviewer) attempt_timeout="${AGENT_TIMEOUT:-5400}" ;;  # backstop only — continuous_dev owns dev stall-detection
-  *)                  attempt_timeout="${AGENT_TIMEOUT:-900}" ;;   # crew agents normally finish in ~5-8 min
-esac
-
+# NOTE (2026-06-07): a per-attempt background watchdog was tried here but
+# REVERTED — backgrounding the `claude` call correlated with 0-byte dev logs +
+# rc=143 kills (every dev build dying ~2-5 min with no output). Restored the
+# original FOREGROUND invocation. Hang protection now comes from the lock reaper
+# (reap_hung_agents.sh, run each tick) instead of an in-run_agent watchdog.
 attempt=1
 while :; do
-  echo "run_agent: $agent ($model_id) attempt $attempt/$max_attempts (timeout ${attempt_timeout}s) → $log" >&2
+  echo "run_agent: $agent ($model_id) attempt $attempt/$max_attempts → $log" >&2
   SPRAXEL_AGENT_RUN=1 WORK_MD_PATH="$WORK_MD_PATH" \
-    claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1 &
-  claude_pid=$!
-  # Watchdog: if claude is still alive after the timeout, kill its whole tree.
-  ( sleep "$attempt_timeout"
-    if kill -0 "$claude_pid" 2>/dev/null; then
-      echo "run_agent: $agent attempt $attempt TIMEOUT after ${attempt_timeout}s — killing claude tree ($claude_pid)" >&2
-      pkill -TERM -P "$claude_pid" 2>/dev/null; kill -TERM "$claude_pid" 2>/dev/null
-      sleep 5
-      pkill -KILL -P "$claude_pid" 2>/dev/null; kill -KILL "$claude_pid" 2>/dev/null
-    fi
-  ) &
-  watchdog_pid=$!
-  wait "$claude_pid"; rc=$?
-  # Stop the watchdog if claude finished on its own.
-  kill "$watchdog_pid" 2>/dev/null; wait "$watchdog_pid" 2>/dev/null
-  [ "$rc" -gt 128 ] && echo "run_agent: $agent attempt $attempt exited rc=$rc (likely watchdog kill / signal)" >&2
+    claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1
+  rc=$?
   if [ "$rc" -eq 0 ] && [ -s "$log" ]; then
     echo "run_agent: $agent ok (attempt $attempt)" >&2
     # Reliable "ran ok" stamp (per agent, NORMALIZED slug so it matches whether
