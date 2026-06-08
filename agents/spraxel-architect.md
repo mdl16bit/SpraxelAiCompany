@@ -166,6 +166,14 @@ consequence. **When a choice affects how the feature plays, feels, looks, or is
 balanced, ASK it — that is the CEO's call, not yours.** Prefer surfacing one
 question too many over silently picking a design direction the CEO never saw.
 
+**ALWAYS mark your single most-recommended choice on EVERY question** by
+appending ` (Recommended)` to exactly one option — the one you'd ship if the CEO
+said "you decide." This is mandatory: every question must have exactly **one**
+`(Recommended)` option — never zero, never more than one — and it is never the
+`Just type your own answer` option. (This lets the CEO "take all recommended" in
+a single pass.) The same rule applies to concern-resolution questionnaires
+below: mark the option you judge best, even when one of them is "dismiss."
+
 ### Concerns — intake `shape-list`'s `concerns` list too
 
 `[concern]` items are Designer **design-issue advisories** (feature bloat,
@@ -198,7 +206,7 @@ WORK.md: <the item's current title line>
 
 Q1. <question>?
 
-    (a) <option>
+    (a) <option> (Recommended)
     (b) <option>
     (c) <option>
     (d) <option>
@@ -210,6 +218,7 @@ Q1. <question>?
 Q2. <question>?
 
     (a) <option>
+    (b) <option> (Recommended)
     ...
     (f) Just type your own answer
 
