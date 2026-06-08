@@ -166,7 +166,27 @@ cleanup() {
   fi
   release_lock "$lock_dir"
 }
-trap cleanup EXIT INT TERM
+# DIAGNOSTIC (2026-06-07): devs complete + commit but run_agent exits rc=143
+# (external SIGTERM) and the wrapper bounces them pre-merge — source untraced.
+# Log the full process ancestry + timing when a signal arrives, so the killer's
+# lineage can be correlated with tick/reaper/wrapper logs. Passive: only fires on
+# a signal; cleanup still runs via the EXIT trap; exit code unchanged (143/130).
+on_signal() {
+  local signum="$1"
+  {
+    echo "=== $(date '+%F %T') run_agent[$agent] pid=$$ got SIG=$signum attempt=${attempt:-?} claude_pid=${claude_pid:-?} ==="
+    local p=$$
+    for _ in 1 2 3 4 5 6 7; do
+      [ -z "$p" ] || [ "$p" -le 1 ] && break
+      ps -o pid=,ppid=,etime=,command= -p "$p" 2>/dev/null | cut -c1-160 | sed 's/^/    /'
+      p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+    done
+  } >> "$REPO_DIR/logs/signal-debug.log" 2>&1
+  exit $((128 + signum))   # triggers the EXIT trap → cleanup
+}
+trap 'on_signal 15' TERM
+trap 'on_signal 2' INT
+trap cleanup EXIT
 
 # --- Compose the prompt (with WORK_DIR-aware paths) ---
 # The agent spec is the contract; we append today's state. Code/scene

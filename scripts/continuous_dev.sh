@@ -585,35 +585,20 @@ if it:
         git checkout --quiet -B "$branch" origin/master
         is_resume="false"
       else
-        # Rebase the saved branch onto current master. If rebase conflicts,
-        # abort + bounce the item back as [retry] with a "rebase conflict"
-        # note. The next dev run resolves the conflict on the saved branch.
+        # Layer 1 recurrence guard (2026-06-07): only RESUME on a CLEAN rebase.
+        # A saved branch that's fallen behind a hot file (e.g. character.gd)
+        # produces a rebase the dev can't reliably resolve → stall/SIGTERM →
+        # infinite [retry] loop (the multi-hour jam). When the rebase conflicts,
+        # DISCARD the stale branch and rebuild FRESH from current master: the
+        # spec lives in WORK.md and a fresh build has no rebase, so it converges
+        # at any dev_concurrency. (Old behaviour bounced to [retry] + reused the
+        # same stale branch next time — which never converged.)
         if ! git rebase --quiet origin/master 2>/dev/null; then
           git rebase --abort 2>/dev/null || true
-          echo "continuous: $resume_kind FAILED — rebase conflicts. Bouncing back to [retry]." >&2
-          clean_slate
-          local stripped_title
-          stripped_title=$(echo "$next_title" | sed -E 's/^\[(resume|retry)\] //')
-          # Push the [retry] retag + conflict-note via the merge lock.
-          local rclock="$LOCKS_DIR/master-push.lockdir"
-          acquire_lock "$rclock" 60 0.3 || true   # best-effort; fall through even on timeout
-          (
-            trap 'release_lock "'"$rclock"'"' EXIT
-            cd "$game_dir" || exit 1
-            git fetch --quiet origin master 2>/dev/null
-            git checkout --quiet master 2>/dev/null || exit 1
-            git reset --hard origin/master --quiet 2>/dev/null
-            python3 "$WORKMD" retry "$game_dir/WORK.md" "$stripped_title" \
-              --detail "retry $(date '+%Y-%m-%d %H:%M %Z'): rebase of '$branch' onto master conflicted — next dev run resolves the conflict on the saved branch" \
-              >> /dev/null 2>&1 || exit 1
-            git add WORK.md 2>/dev/null
-            git diff --cached --quiet && exit 0
-            git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
-                commit --quiet -m "chore(retry): rebase conflict — '$(echo "$stripped_title" | cut -c1-50)...'" 2>/dev/null || exit 1
-            git push --quiet origin master 2>/dev/null
-          )
-          # Lock release via subshell EXIT trap; no outside-safety rmdir (would race).
-          return 1
+          echo "continuous: saved branch '$branch' stale/conflicting → FRESH build on master (recurrence guard)" >&2
+          branch="$det_branch"
+          git checkout --quiet -B "$branch" origin/master
+          is_resume="false"   # build fresh from the WORK.md spec; no stale-branch rebase
         fi
       fi
     fi
@@ -630,35 +615,16 @@ if it:
          && git rebase --quiet origin/master 2>/dev/null; then
         :  # reused + rebased cleanly
       else
-        # Rebase onto master CONFLICTED. The branch's prior work is complete +
-        # tested — discarding it (the old behaviour: reset to master + rebuild
-        # from scratch) NEVER converges under sustained same-file contention,
-        # because every rebuild re-conflicts with whatever landed meanwhile.
-        # Instead: keep the branch at its tip and hand the conflict to the dev
-        # to rebase + resolve IN-SESSION. These are almost always ADDITIVE (two
-        # features appending to the same file) → "keep both" lands them 1-by-1.
-        # Fail-safe: if the tip can't be restored we fall back to a fresh
-        # rebuild on master (exactly the old behaviour), so this can only help.
+        # Layer 1 recurrence guard (2026-06-07): the reused branch is stale /
+        # conflicts on rebase → rebuild FRESH on current master instead of
+        # attempting a hot-file rebase the dev can't reliably resolve (the cause
+        # of the multi-hour jam). The spec lives in WORK.md; a fresh build has no
+        # rebase, so it converges. (Earlier approaches — discard+rebuild-then-
+        # re-conflict, and hand-conflict-to-dev — both failed under sustained
+        # same-file contention.)
         git rebase --abort 2>/dev/null || true
-        if git checkout --quiet -B "$branch" "origin/$branch" 2>/dev/null; then
-          # Probe which files conflict, then return the branch to its clean tip
-          # so the DEV performs the rebase+resolution (a paused rebase across an
-          # agent session is fragile).
-          git rebase origin/master >/dev/null 2>&1
-          conflict_files=$(git diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
-          git rebase --abort >/dev/null 2>&1 || true
-          git checkout --quiet -B "$branch" "origin/$branch" 2>/dev/null
-          if [ -n "$conflict_files" ]; then
-            resolve_conflict=1
-            echo "continuous: branch $branch conflicts on [$conflict_files] — dev rebases+resolves in-session (work preserved)" >&2
-          else
-            # Couldn't reproduce a conflict (transient) — use the tip as-is.
-            git rebase --quiet origin/master >/dev/null 2>&1 || git checkout --quiet -B "$branch" origin/master
-          fi
-        else
-          echo "continuous: branch $branch unusable (cannot restore tip) — resetting to master" >&2
-          git checkout --quiet -B "$branch" origin/master
-        fi
+        echo "continuous: worker $WORKER_ID — branch $branch stale/conflicting → FRESH build on master (recurrence guard)" >&2
+        git checkout --quiet -B "$branch" origin/master
       fi
     else
       echo "continuous: worker $WORKER_ID → '$next_title' on $branch (fresh)"
