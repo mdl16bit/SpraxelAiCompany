@@ -498,8 +498,9 @@ HOW TO ANSWER:
      [Answer] line — pick a letter or use the "(x) Just type your own answer"
      option. (Only edit [Answer] lines; don't touch T-#### ids or ##/### headers.)
   3. SAVE as often as you like — the Architect ignores the file until you submit.
-  4. When done for now, type any word after the [Indicate complete] line at the
-     bottom and SAVE. Within ~60s the Architect processes every task whose
+  4. When done for now, type any word as the submit token at the bottom and SAVE
+     — it counts on the same line ([Indicate complete] done) OR on any line just
+     below it. Within ~60s the Architect processes every task whose
      questions are ALL answered (finalize → buildable, decompose into an epic, or
      ask a follow-up round ≤5). It also runs 09:00 & 21:00 PT.
   • Answer only the tasks you have time for — partially/unanswered tasks are left

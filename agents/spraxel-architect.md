@@ -50,13 +50,19 @@ mkdir -p "$GAME/.factory/local"
 
 **SUBMIT GATE (check first).** At the VERY BOTTOM of the file is a
 `[Indicate complete]` line — the single submit gate for the whole doc
-(questionnaire answers AND Future-roadmap marks). The CEO types a word after it ONLY when
-they're done answering for this session. **If there is NO text after
-`[Indicate complete]`, process NOTHING in this phase** — the CEO saves the file
-repeatedly while editing, so an un-submitted file may be half-filled. Skip
-straight to Phase 2. Only when `[Indicate complete]` has trailing text do you
-proceed — and after processing you RESET that line back to `[Indicate complete] `
-(empty) so neither your writes nor the CEO's next save reprocess.
+(questionnaire answers AND Future-roadmap marks). The CEO signals "done" by
+typing any word as the submit token. **The token counts whether it's on the SAME
+line (`[Indicate complete] done`) OR on ANY line BELOW `[Indicate complete]`** —
+the CEO commonly hits Enter and types `done` on the next line, and that MUST
+count. Detection rule: the file is SUBMITTED iff there is any non-whitespace,
+non-comment (`#`) text on the `[Indicate complete]` line after the token OR on
+any line after it. **If there is NO such text anywhere at/below the token,
+process NOTHING in this phase** — the CEO saves repeatedly while editing, so an
+un-submitted file may be half-filled. Skip straight to Phase 2. Only when the
+gate is submitted do you proceed — and after processing you RESET the bottom back
+to a bare `[Indicate complete] ` line (remove any submit word on it AND delete
+any stray text lines below it) so neither your writes nor the CEO's next save
+reprocess.
 
 When submitted, for each `### T-xxxx` section under `## ⏳ Awaiting your answers`:
 
@@ -237,8 +243,10 @@ with this exact layout:
 # HOW TO ANSWER: under each question, type your choice after [Answer] — e.g.
 #   [Answer] (b)        or write your own:   [Answer] keep it to taser + key
 # SAVE as often as you like while working; the Architect IGNORES the file until
-# you submit. When you're done answering for now, type any word after
-# [Indicate complete] at the VERY BOTTOM and save. The Architect then processes
+# you submit. When you're done answering for now, type any word as the submit
+# token at the VERY BOTTOM and save — it counts EITHER on the same line
+# ([Indicate complete] done) OR on any line just below [Indicate complete]
+# (e.g. press Enter and type "done"). Both work. The Architect then processes
 # every task whose questions are ALL answered, leaves partial/unanswered tasks
 # for next time (keeping what you typed), clears [Indicate complete], and logs
 # what it finalized under "✅ Recently finalized". Don't edit the T-#### headers.

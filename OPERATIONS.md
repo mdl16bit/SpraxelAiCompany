@@ -332,8 +332,9 @@ $EDITOR ~/GameProjects/<game>/.factory/local/TRIAGE.md   # one file, all questio
 
 Under `## ⏳ Awaiting your answers`, type your choice after each question's
 `[Answer]` line (pick a letter or write your own). **Save freely while you work —
-it's ignored until you submit.** When done for now, type any word after the
-**`[Indicate complete]`** line at the bottom and save — within ~60s the Architect
+it's ignored until you submit.** When done for now, type any word as the submit
+token at the bottom and save — it counts on the **`[Indicate complete]`** line
+itself OR on any line below it — within ~60s the Architect
 processes every fully-answered task (finalize / decompose into an epic / ask a
 follow-up) and leaves partial ones for later. You don't run anything.
 
@@ -1426,8 +1427,9 @@ answer" option and say so).
 **Q: Does it get looked at automatically? How do my answers get back into the
 system?** You can **save as often as you like while editing — the Architect
 ignores the file until you submit.** When you're done answering for now, type any
-word after the **`[Indicate complete]`** line at the bottom of the Awaiting
-section and save. That's the signal: within ~60s `tick.sh` wakes the Architect
+word as the submit token at the bottom of the Awaiting section and save — it
+counts on the **`[Indicate complete]`** line itself OR on any line below it.
+That's the signal: within ~60s `tick.sh` wakes the Architect
 (it also runs 09:00 & 21:00 PT). It processes every task whose questions are ALL
 answered, finalizes/decomposes them, logs them under "✅ Recently finalized",
 then clears `[Indicate complete]`. (Manual nudge anytime the system's running:
