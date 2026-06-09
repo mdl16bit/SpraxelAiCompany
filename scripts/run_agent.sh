@@ -52,7 +52,7 @@ model_short=$(awk '/^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/["'"'"']/, 
 case "${model_short:-sonnet}" in
   haiku)  model_id="claude-haiku-4-5-20251001" ;;
   sonnet) model_id="claude-sonnet-4-6"          ;;
-  opus)   model_id="claude-opus-4-7"            ;;
+  opus)   model_id="claude-opus-4-8"            ;;
   claude-*) model_id="$model_short"             ;;
   *)      echo "run_agent: unknown model '$model_short' in $spec — defaulting to sonnet" >&2
           model_id="claude-sonnet-4-6"          ;;
