@@ -200,6 +200,13 @@ if [ -n "$arch_game_dir" ] && [ -f "$arch_work_md" ]; then
     # line). Without the submit text we never wake for answers — the CEO saves
     # repeatedly while editing and a half-filled file must not be processed.
     arch_reason="triage submitted"
+    # A triage submit IS a CEO interaction, so it counts as a ship-counter
+    # signal — reset the continuous-dev cap just like `checkin.sh` does. Without
+    # this, a CEO who triaged (but never ran checkin / committed to master) saw
+    # the loop stay parked at the cap. TRIAGE.md is git-ignored, so the loop's
+    # commit-based signal never fires on it; touch the stamp here instead.
+    touch "$CACHE_DIR/ceo-checkin.ts" 2>/dev/null \
+      && echo "$(date '+%F %T') tick: triage submitted — reset ship-counter (CEO signal)" >> "$log"
   fi
 fi
 if [ -x "$RUN_AGENT" ] && [ -n "$arch_reason" ] \
