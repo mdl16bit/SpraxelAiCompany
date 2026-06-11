@@ -157,6 +157,11 @@ for key, default in defaults.items():
     mm = re.search(rf"^\s+{re.escape(key)}:\s*(\d+)", block, re.M)
     val = int(mm.group(1)) if mm else default
     print(f"{key.upper()}={val}")
+# Boolean knob (the int loop above only reads digits): cap_excludes_test_fixes
+# accepts true/false/1/0/yes/on; default false. Emitted as 1/0 for the shell.
+_bm = re.search(r"^\s+cap_excludes_test_fixes:\s*([A-Za-z0-9]+)", block, re.M)
+_bval = _bm.group(1).strip().lower() if _bm else ""
+print("CAP_EXCLUDES_TEST_FIXES=" + ("1" if _bval in ("true", "1", "yes", "on") else "0"))
 PY
 )
 eval "$_continuous_yaml_vars"
@@ -497,8 +502,10 @@ ship_one_item() {
   # regression test a dev writes for a [bug] (fail-without-fix / pass-with-fix).
   # Neither exception changes the gate logic below — only [test_failure] gates.
   local is_test_failure="false" test_ref=""
+  CURRENT_ITEM_IS_TEST_FAILURE="false"   # global mirror — read by the main-loop cap gate
   if echo "$next_title" | grep -qiE '^\[test_failure\]'; then
     is_test_failure="true"
+    CURRENT_ITEM_IS_TEST_FAILURE="true"
     test_ref=$(echo "$next_json" | python3 -c "
 import sys, json, re
 d = json.load(sys.stdin); it = d[0] if isinstance(d, list) and d else d
@@ -1400,8 +1407,15 @@ while true; do
     0) # success
       fail_streak=0
       idle_streak=0
-      # Atomic +1 across parallel workers — never lose an increment.
-      inc_state shipped_since_last_signal >/dev/null
+      # Atomic +1 across parallel workers — never lose an increment. BUT when
+      # cap_excludes_test_fixes is on, a [test_failure] fix is test hygiene, not
+      # a feature ship, so it does NOT count toward target_per_batch (the loop
+      # keeps fixing broken tests without parking at the cap).
+      if [ "${CAP_EXCLUDES_TEST_FIXES:-0}" = "1" ] && [ "${CURRENT_ITEM_IS_TEST_FAILURE:-false}" = "true" ]; then
+        trace "ship: test-fix shipped — NOT counted toward cap (cap_excludes_test_fixes)"
+      else
+        inc_state shipped_since_last_signal >/dev/null
+      fi
       ;;
     1) # genuine failure
       fail_streak=$((fail_streak + 1))

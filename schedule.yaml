@@ -51,6 +51,12 @@ continuous:
   # The cap counter is SHARED across all parallel workers.
   target_per_batch: 10
 
+  # When true, [test_failure] fixes do NOT count toward target_per_batch — test
+  # hygiene shouldn't burn the feature-ship budget, so the loop keeps fixing
+  # broken tests without parking at the cap. Per-project knob (this IS the
+  # infiltrators loop config). Default false = test fixes count like any ship.
+  cap_excludes_test_fixes: true
+
   # Max attempts per developer item before the wrapper bounces it to [retry].
   retry_per_item:   1
 
