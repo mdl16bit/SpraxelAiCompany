@@ -765,7 +765,7 @@ are documented below so a CEO knows what to write.
 |---|---|---|
 | `Philosophy.md` | Per-game config + identity + cadence + budgets | Source of truth for `run_mode`, `dev.godot_binary`, model assignments, agent thresholds |
 | `WORK.md` | Work queue (Shipped / Todo) | Mutated atomically via `workmd.py` from the framework |
-| `Game.md` | Feature inventory; dev appends `### <Feature>` blocks per ship | Read by morning-briefer to surface play-test commands |
+| `Game.md` | **Living feature manual** — the Developer appends a `### <Feature>` block for **every player-facing ship** (MANDATORY; the Reviewer **blocks the merge** if it's missing/stale/incomplete). Each block has 9 fields: **What it does · Controls · First encounter · Tutorial prompt (≤80 chars) · Debug hook (`--demo-feature=<slug>`) · Trace events · Test scenario · Unit test · Acceptance (2–4 bullets)**. Doubles as the data source for the future first-encounter tutorial system. Bugs/chores skip it unless they change player-facing behavior; purely-internal work skips it. (Canonical spec: `agents/spraxel-developer.md` step 4.) | Read by morning-briefer to surface play-test commands |
 | `.gitignore` | Excludes `.factory/`, `.worktrees/`, Godot cache, etc. | Critical — framework state lives under `.factory/` |
 | `scripts/run_local_tests.sh` | Test runner (GUT + scenarios) — honors `SPRAXEL_GAME_DIR` + `SPRAXEL_WORKER_ID` env vars from wrapper | Invoked by `continuous_dev.sh` for baseline + post-dev tests |
 | `scripts/run_unit_tests.sh` | Fast unit-only runner | Optional manual invocation |
