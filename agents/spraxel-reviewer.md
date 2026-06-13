@@ -42,6 +42,14 @@ a schedule.
    touched, then `git diff master...HEAD <file>` for each file. Skip
    generated files (Godot `*.import`, `.gdshader_cache`, etc.).
 
+   **No-god-files check (mechanical — run it first).** From the repo root run:
+   `bash ~/SpraxelAiCompany/scripts/check_file_sizes.sh . HEAD master`
+   (the cap comes from `schedule.yaml` → `max_file_lines`). If it exits non-zero
+   it prints each code file this diff grew past the cap — add a `[block]` finding
+   for each ("split <file> into smaller, focused modules; new code belongs in a
+   new file, not appended to an oversized one") and set verdict `blocking`.
+   Shrinking an already-oversized file is allowed; the gate only fires on growth.
+
 2. **Apply review checklist**. For each changed file, look for:
    - Obvious correctness bugs (off-by-one, null deref, wrong sign).
    - GDScript pitfalls: `@onready` ordering, signal connection leaks,

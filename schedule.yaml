@@ -51,6 +51,13 @@ continuous:
   # The cap counter is SHARED across all parallel workers.
   target_per_batch: 5
 
+  # "No god files" cap. The reviewer blocks a merge that GROWS a code file past
+  # this many lines (new files over the cap also fail); shrinking an oversized
+  # file is always allowed, so refactors are never blocked. Enforced mechanically
+  # by scripts/check_file_sizes.sh. Per-project knob; raise/lower as the codebase
+  # needs. (infiltrators: 1500 — ~3.5k tokens, cheap to read fully.)
+  max_file_lines: 1500
+
   # When true, [test_failure] fixes do NOT count toward target_per_batch — test
   # hygiene shouldn't burn the feature-ship budget, so the loop keeps fixing
   # broken tests without parking at the cap. Per-project knob (this IS the

@@ -127,6 +127,14 @@ actually stick.
 3. **Implement.** Edit/create Godot scripts and scenes. Follow the game-repo
    conventions: GDScript style in `scripts/`, scenes in `scenes/`.
 
+   **No god files (enforced).** The reviewer blocks any diff that grows a code
+   file past `max_file_lines` (schedule.yaml; currently 1500). Do NOT keep
+   appending to already-huge files (`character.gd`, `debug_boot.gd`, `guard.gd`,
+   `skill_db.gd`, `level_editor.gd`). New functionality goes in a new focused
+   module — e.g. a new ability belongs in `scripts/characters/abilities/<name>.gd`
+   self-registering via `ability_base.gd` + the AbilityRegistry, NOT in
+   `character.gd`. If a change would push a file over the cap, extract instead.
+
    **For every `[feature]` / `[game-feature]` item, you MUST ship all SIX
    parts. Reviewer blocks the merge if any are missing.** A passing GUT run
    on the unit test is not enough — the CEO has to be able to play with the
