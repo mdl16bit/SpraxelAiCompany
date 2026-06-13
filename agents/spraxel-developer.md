@@ -111,6 +111,19 @@ actually stick.
    touches an existing feature. Inspect `Philosophy.md` for the `run_mode`
    gate (see _shared.md). Don't load the entire codebase.
 
+   **Big-file read discipline (token cost — REQUIRED).** A few source files are
+   huge and re-cost on every turn once they're in your context (each `Read` of a
+   13k-line file loads ~120k tokens that get re-read ~50× over your run):
+   `scripts/characters/character.gd` (~13,000 lines), `scripts/systems/debug_boot.gd`,
+   `scripts/ai/guard.gd`, `scripts/systems/skill_db.gd`, `scripts/game/level_editor.gd`.
+   For ANY file over ~1,500 lines, do **not** `Read` it whole. Instead `grep -n`
+   for the symbol/function/pattern you need
+   (e.g. `grep -n "coin_throw\|func _on_q_pressed" scripts/characters/character.gd`),
+   then `Read` only that span using the `offset`/`limit` args (grab some
+   surrounding lines for context). Read a big file in full only when you truly
+   need its whole structure. Small files (<1,500 lines) you may read normally.
+   This produces identical code for a fraction of the tokens.
+
 3. **Implement.** Edit/create Godot scripts and scenes. Follow the game-repo
    conventions: GDScript style in `scripts/`, scenes in `scenes/`.
 
