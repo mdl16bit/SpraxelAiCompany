@@ -1502,6 +1502,13 @@ def main(argv: list[str] | None = None) -> int:
     pt.add_argument("-n", type=int, default=10)
     pt.add_argument("--skip", action="append", default=[], help="title to skip (repeatable)")
 
+    prn = sub.add_parser("render",
+        help="print selected sections as markdown — token-cheap agent context that omits the "
+             "huge ## Shipped archive (~85%% of the file, re-read every turn)")
+    prn.add_argument("path")
+    prn.add_argument("--sections", default="todo",
+        help="comma-separated sections to emit, in order: todo,current,shipped (default: todo)")
+
     ps = sub.add_parser("ship", help="move Todo item → Shipped-since-last-release")
     ps.add_argument("path")
     ps.add_argument("title")
@@ -1667,6 +1674,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "top":
         items = top_n(path, n=args.n, skip_attempted=args.skip)
         print(json.dumps([it.to_dict() for it in items], indent=2))
+        return 0
+
+    if args.cmd == "render":
+        wm = parse(path)
+        secmap = {
+            "todo":    (wm.todo_heading, wm.todo),
+            "current": (wm.current_heading, wm.current),
+            "shipped": (wm.shipped_heading, wm.shipped),
+        }
+        out: list[str] = list(wm.header)  # keep the small header/tag-legend prose
+        for name in [s.strip() for s in args.sections.split(",") if s.strip()]:
+            if name not in secmap:
+                continue
+            heading, items = secmap[name]
+            if out and out[-1] != "":
+                out.append("")
+            out.append(heading)
+            for it in items:
+                out.extend(_emit_item(it))
+        print("\n".join(out))
         return 0
 
     if args.cmd == "ship":

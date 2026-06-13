@@ -236,12 +236,35 @@ WORK_MD_PATH="$game_dir/WORK.md"
     echo "(no Philosophy.md found at $WORK_DIR/Philosophy.md)"
   fi
   echo
-  echo "### WORK.md (current state — read from canonical path)"
-  if [ -f "$WORK_MD_PATH" ]; then
-    cat "$WORK_MD_PATH"
-  else
-    echo "(no WORK.md found at $WORK_MD_PATH)"
-  fi
+  # ── Context diet (cost) ──────────────────────────────────────────────
+  # The full WORK.md is ~300KB and ~85% of it is the ## Shipped archive,
+  # which gets re-read every turn (~50x/run) and dominates the token bill.
+  # Trim ONLY the two high-volume agents that provably don't need the
+  # archive — developer (gets its item via SPRAXEL_ITEM_BRIEF) and reviewer
+  # (reviews the git diff). Together they're ~80% of all runs.
+  # Everyone else keeps the full file unchanged — notably designer/triager
+  # dedupe new ideas/bugs against shipped history, so they MUST see it.
+  # render falls back to the full file on any error, so this never starves an agent.
+  case "$agent" in
+    developer|reviewer)
+      echo "### WORK.md — ## Todo only (Shipped archive omitted to save tokens)"
+      echo "# Need shipped history? Run: python3 ~/SpraxelAiCompany/scripts/workmd.py render $WORK_MD_PATH --sections current,todo   (or: git log)"
+      if [ -f "$WORK_MD_PATH" ]; then
+        python3 "$REPO_DIR/scripts/workmd.py" render "$WORK_MD_PATH" --sections todo 2>/dev/null \
+          || cat "$WORK_MD_PATH"
+      else
+        echo "(no WORK.md found at $WORK_MD_PATH)"
+      fi
+      ;;
+    *)
+      echo "### WORK.md (current state — read from canonical path)"
+      if [ -f "$WORK_MD_PATH" ]; then
+        cat "$WORK_MD_PATH"
+      else
+        echo "(no WORK.md found at $WORK_MD_PATH)"
+      fi
+      ;;
+  esac
   echo
   # Per-item brief (set by continuous_dev.sh — used by Developer for "this is your assignment").
   if [ -n "${SPRAXEL_ITEM_BRIEF:-}" ] && [ -f "$SPRAXEL_ITEM_BRIEF" ]; then
