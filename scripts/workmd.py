@@ -1179,15 +1179,25 @@ def drop_all(path: Path) -> list[WorkItem]:
         return dropped
 
 
+def release_archive_path(work_path: str | Path, version: str) -> Path:
+    """Per-release archive file for a cut: <WORK.md dir>/WORK_<version>.md."""
+    return Path(work_path).parent / f"WORK_{version}.md"
+
+
 def release_cut(path: Path, version: str) -> int:
-    """Roll WORK.md sections on a release cut.
+    """Roll WORK.md on a release cut — EXTERNALIZE the finished release.
 
     1. Take every item currently in `## Shipped since last release`.
-    2. Prepend `<version> — ` to each title.
-    3. Append them to `## Shipped (previous releases)` in order.
-    4. Leave `## Shipped since last release` empty.
+    2. Write them (prefixed `<version> — `) to an external per-release archive
+       file `WORK_<version>.md` next to WORK.md — NOT back into WORK.md.
+    3. Leave `## Shipped since last release` empty.
 
-    Returns the count of items moved. Used by the PM agent on release day.
+    This keeps WORK.md small + bounded: the canonical file only ever holds the
+    CURRENT release's ships + the Todo queue, never the accumulating history.
+    Per-release WORK_<version>.md files are read only by the PM / release notes
+    on demand (see release_archive_path). Externalizing happens HERE (a single
+    PM action), never at ship() time, so parallel dev workers never contend on
+    a shared archive file. Returns the count of items archived.
     """
     if not re.fullmatch(r"v\d+(\.\d+)*", version):
         raise ValueError(f"version must look like v0.4 or v1.2.3, got: {version!r}")
@@ -1196,13 +1206,22 @@ def release_cut(path: Path, version: str) -> int:
         moved = list(wm.current)
         if not moved:
             return 0
+        block: list[str] = [f"# {version} — shipped ({len(moved)} items)", ""]
         for item in moved:
             new_title = f"{version} — {item.title}"
-            item.title = new_title
             if item.raw_lines:
                 item.raw_lines[0] = new_title
-        wm.shipped.extend(moved)
-        wm.current = []
+            else:
+                item.title = new_title
+            block.extend(_emit_item(item))
+        block.append("")
+        arch = release_archive_path(path, version)
+        prefix = ""
+        if arch.exists():
+            old = arch.read_text()
+            prefix = old + ("" if old.endswith("\n") else "\n") + "\n"
+        arch.write_text(prefix + "\n".join(block) + "\n")
+        wm.current = []                      # cleared from WORK.md; NOT added to wm.shipped
         path.write_text(serialize(wm))
         return len(moved)
 
@@ -1858,7 +1877,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "release-cut":
         n = release_cut(path, args.version)
-        print(f"release-cut {args.version}: rolled {n} item(s) from current → shipped")
+        print(f"release-cut {args.version}: archived {n} item(s) → "
+              f"{release_archive_path(path, args.version).name}")
         return 0
 
     if args.cmd == "clarify":
