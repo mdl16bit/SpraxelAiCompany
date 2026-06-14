@@ -687,35 +687,21 @@ def last_n_ships(game_dir: Path | None, n: int = 20) -> list[tuple[str, str, str
     return rows
 
 
-def read_philosophy_int(game_dir: Path | None, dotted_key: str, default: int) -> int:
-    """Read a numeric YAML-ish value from Philosophy.md.
+def read_config_int(game_dir: Path | None, dotted_key: str, default: int) -> int:
+    """Resolve a numeric config value via scripts/spx_config.py.
 
-    `dotted_key` is e.g. "dashboard.recent_ships". We grep for the inner
-    key (after the dot) under a top-level section line matching the
-    outer key (before the dot). The parser is intentionally lenient —
-    same shape as the bash readers in continuous_dev.sh / agent specs.
+    `dotted_key` is e.g. "dashboard.recent_ships". Values now live in
+    COMPANY_CONFIG.yaml / <game_dir>/GAME_CONFIG.yaml (deep-merged by the
+    loader), not in Philosophy.md. `game_dir` is unused (the loader reads it
+    from COMPANY_CONFIG itself) but kept for call-site compatibility. Falls
+    back to `default` on any error or missing key.
     """
-    if game_dir is None:
-        return default
-    phil = game_dir / "Philosophy.md"
-    if not phil.exists():
-        return default
     try:
-        text = phil.read_text()
+        from spx_config import get as _cfg_get
+        val = _cfg_get(dotted_key, default=default)
+        return int(val)
     except Exception:
         return default
-    outer, inner = dotted_key.split(".", 1)
-    m = re.search(rf"^{re.escape(outer)}:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
-    if not m:
-        return default
-    block = m.group(1)
-    mm = re.search(rf"^\s+{re.escape(inner)}:\s*(\d+)", block, re.M)
-    if mm:
-        try:
-            return int(mm.group(1))
-        except ValueError:
-            return default
-    return default
 
 
 def queue_composition(game_dir: Path | None) -> dict:
@@ -750,10 +736,10 @@ def render(now: datetime, game_dir: Path | None) -> str:
     # `lines` is the LEFT column body; the header spans the full width and the
     # RIGHT column (tick activity, ships, last log line) is composed in at the end.
     lines = []
-    # Read configurable dashboard counts from Philosophy.md (with defaults).
-    recent_ships_n = read_philosophy_int(game_dir, "dashboard.recent_ships", 15)
-    ceo_actions_n  = read_philosophy_int(game_dir, "dashboard.ceo_actions", 10)
-    tick_dispatch_n = read_philosophy_int(game_dir, "dashboard.tick_dispatches", 10)
+    # Read configurable dashboard counts via the config loader (with defaults).
+    recent_ships_n = read_config_int(game_dir, "dashboard.recent_ships", 15)
+    ceo_actions_n  = read_config_int(game_dir, "dashboard.ceo_actions", 10)
+    tick_dispatch_n = read_config_int(game_dir, "dashboard.tick_dispatches", 10)
     title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
     bar = "─" * (WIDTH)
     head = [f"{BOLD}{CYAN}{title}{RESET}", f"{DIM}{bar}{RESET}", ""]

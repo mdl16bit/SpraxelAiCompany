@@ -231,9 +231,11 @@ WORK_MD_PATH="$game_dir/WORK.md"
   echo "  python3 ~/SpraxelAiCompany/scripts/workmd.py clarify ./WORK.md ..."
   echo "  python3 ~/SpraxelAiCompany/scripts/workmd.py clarify $WORK_DIR/WORK.md ..."
   echo
-  echo "### Philosophy.md (run_mode and budgets)"
+  echo "### Philosophy.md (design philosophy)"
+  # Philosophy.md is now prose-only (config moved to COMPANY_CONFIG.yaml /
+  # GAME_CONFIG.yaml). run_mode + budgets come from scripts/spx_config.py.
   if [ -f "$WORK_DIR/Philosophy.md" ]; then
-    sed -n '1,80p' "$WORK_DIR/Philosophy.md"
+    cat "$WORK_DIR/Philosophy.md"
   else
     echo "(no Philosophy.md found at $WORK_DIR/Philosophy.md)"
   fi

@@ -4,7 +4,7 @@
 # On the Claude Max plan, you pay a flat fee. There's no per-token billing,
 # but you DO have a weekly invocation cap. This script counts `claude -p`
 # invocations per agent over a window and compares to the targets in
-# Philosophy.budgets.by_agent_percent.
+# policy.budgets.by_agent_percent (resolved via scripts/spx_config.py).
 #
 # Usage:
 #   bash scripts/token_report.sh           # last 7 days
@@ -18,7 +18,7 @@ set -o pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOGS_DIR="$REPO_DIR/logs"
-SCHEDULE="$REPO_DIR/schedule.yaml"
+SPX_CONFIG="$REPO_DIR/scripts/spx_config.py"
 
 DAYS=7
 SINCE=""
@@ -34,36 +34,25 @@ if [ -z "$SINCE" ]; then
   SINCE=$(date -v-${DAYS}d +%Y-%m-%d 2>/dev/null || date -d "$DAYS days ago" +%Y-%m-%d)
 fi
 
-# Resolve game_dir + Philosophy.md
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1))); break
-PY
-)
-PHILOSOPHY="$game_dir/Philosophy.md"
-[ -f "$PHILOSOPHY" ] || { echo "Philosophy not found at $PHILOSOPHY" >&2; exit 1; }
-
-# Parse Philosophy.budgets.by_agent_percent → key=value pairs.
-targets=$(python3 - "$PHILOSOPHY" <<'PY'
-import sys, yaml, re
-text = open(sys.argv[1]).read()
-m = re.search(r"^---\n(.*?)\n---", text, re.DOTALL)
-if not m:
-    print(""); sys.exit()
-data = yaml.safe_load(m.group(1)) or {}
-budgets = data.get("budgets", {}) or {}
-pct = budgets.get("by_agent_percent", {}) or {}
-for k, v in pct.items():
-    print(f"{k}\t{v}")
+# Resolve policy.budgets.by_agent_percent via the config loader (honors a game's
+# GAME_CONFIG.yaml override of COMPANY_CONFIG.yaml). Import spx_config directly
+# and emit key\tvalue lines.
+targets=$(SPX_DIR="$(dirname "$SPX_CONFIG")" python3 - <<'PY'
+import os, sys
+sys.path.insert(0, os.environ["SPX_DIR"])
+try:
+    from spx_config import get
+    data = get("policy.budgets.by_agent_percent", default={})
+except Exception:
+    data = {}
+if isinstance(data, dict):
+    for k, v in data.items():
+        print(f"{k}\t{v}")
 PY
 )
 
 if [ -z "$targets" ]; then
-  echo "Philosophy.budgets.by_agent_percent not set — nothing to compare against." >&2
+  echo "policy.budgets.by_agent_percent not set — nothing to compare against." >&2
   exit 1
 fi
 

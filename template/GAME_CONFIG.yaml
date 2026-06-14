@@ -1,0 +1,27 @@
+# ============================================================================
+# GAME_CONFIG.yaml — per-game config + overrides for {{GAME_NAME}}. Deep-merged
+# on top of SpraxelAiCompany/COMPANY_CONFIG.yaml by scripts/spx_config.py.
+#
+# Anything you put here OVERRIDES (or extends) the company defaults for THIS
+# game only. Read everything through the loader:
+#     python3 ~/SpraxelAiCompany/scripts/spx_config.py get <dotted.key>
+# ============================================================================
+
+identity:
+  name: "{{GAME_NAME}}"
+  pitch: "TODO — one-sentence elevator pitch"
+  must_include:
+    - "TODO"
+  must_not_include:
+    - "TODO"
+
+# Game-specific cadence (per-agent cron times live in COMPANY_CONFIG.agents).
+cadence:
+  release: "biweekly mondays"
+
+dev:
+  language: "GDScript"
+  engine: "Godot 4.x"
+  godot_binary: "/absolute/path/to/Godot.app/Contents/MacOS/Godot"   # set this
+  main_scene: "res://scenes/game/title.tscn"
+  style_guide: ".factory/style.md"

@@ -82,13 +82,9 @@ PY
 )
 [ -z "$GAME_DIR" ] && { echo "[capture] game_dir not resolvable from $SCHEDULE" >&2; exit 4; }
 
-GODOT=$(python3 -c "
-import yaml, re
-text = open('$GAME_DIR/Philosophy.md').read()
-fm = re.search(r'^---\n(.*?)\n---', text, re.DOTALL).group(1)
-data = yaml.safe_load(fm)
-print(data.get('dev', {}).get('godot_binary', ''))
-")
+# Resolve the Godot binary via the config loader (dev.godot_binary now lives in
+# GAME_CONFIG.yaml, deep-merged over COMPANY_CONFIG.yaml).
+GODOT=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get dev.godot_binary 2>/dev/null)
 [ -x "$GODOT" ] || { echo "[capture] Godot binary not found at '$GODOT'" >&2; exit 4; }
 
 # Default output dir if not given.

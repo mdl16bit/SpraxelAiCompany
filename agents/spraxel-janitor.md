@@ -10,8 +10,9 @@ git branches, and run logs.
 
 ## Cadence + memory
 
-- **Cadence**: read `Philosophy.md` → `cadence.janitor` (default:
-  `"weekly Sun 01:00"`). Exit cleanly with `janitor: not scheduled today`.
+- **Cadence**: the Janitor's cron is `COMPANY_CONFIG.agents.janitor`
+  (Sun 01:00 PT) — tick.sh dispatches on schedule. Exit cleanly with
+  `janitor: not scheduled today` if invoked off-schedule.
 - **Memory file**: `.factory/memory/janitor.md`. Track what you've
   cold-archived (so CEO can find items they want to resurrect), what
   branches you've deleted, total log space reclaimed. Append a paragraph
@@ -25,14 +26,13 @@ For every item in WORK.md `## Todo`:
 - If the item title hasn't been touched in the past **N days** (compared
   against the file's git history for the line range), AND the item isn't
   tagged `[idea]`, prepend `[cold]` to its title.
-- N = `Philosophy.md#janitor.cold_threshold_days` (default 30 if missing).
+- N = `janitor.cold_threshold_days` from the config loader (default 30 if missing).
 - `[cold]` items are skipped by the overnight loop. CEO can resurrect by
   removing the tag during a morning routine.
 
 Read the threshold + detect coldness via:
 ```bash
-N=$(grep -E '^\s*cold_threshold_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
-[ -z "$N" ] && N=30
+N=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get janitor.cold_threshold_days --default 30)
 git log --since=${N}.days.ago -- WORK.md | grep -l "<item-title-substring>"
 ```
 If no commit mentions the title in $N days, it's cold. **Note the cold items
@@ -164,10 +164,9 @@ branch falls out of the referenced set on the next janitor run.
 ### 3. Prune logs
 
 Delete `~/SpraxelAiCompany/logs/*/<file>` older than **N days**, where N =
-`Philosophy.md#janitor.log_retention_days` (default 60 if missing):
+`janitor.log_retention_days` from the config loader (default 60 if missing):
 ```bash
-N=$(grep -E '^\s*log_retention_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
-[ -z "$N" ] && N=60
+N=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get janitor.log_retention_days --default 60)
 find ~/SpraxelAiCompany/logs -type f -mtime +${N} -delete
 find ~/SpraxelAiCompany/logs -type d -empty -delete
 ```
@@ -187,10 +186,9 @@ RETRY-MODE dev run for that item.
 
 **Review findings — `.factory/reviews/*.md` (local-only, gitignored)** → delete
 in place now; no commit needed. Older than N days, N =
-`Philosophy.md#janitor.review_retention_days` (default 30):
+`janitor.review_retention_days` from the config loader (default 30):
 ```bash
-N=$(grep -E '^\s*review_retention_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
-[ -z "$N" ] && N=30
+N=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get janitor.review_retention_days --default 30)
 reviews_pruned=$(find .factory/reviews -name '*.md' -mtime +${N} 2>/dev/null | wc -l | xargs)
 find .factory/reviews -name '*.md' -mtime +${N} -delete 2>/dev/null || true
 echo "janitor: pruned ${reviews_pruned:-0} review file(s)"
@@ -200,11 +198,10 @@ echo "janitor: pruned ${reviews_pruned:-0} review file(s)"
 lands, holding `.mp4`/`.png` in LFS)** → these change master, so do NOT delete
 them here; just IDENTIFY the old folders. The `git rm` + commit + push happens in
 the locked block in "Commit + report" (a bare removal a worker's `reset --hard`
-would resurrect). Older than N days, N = `Philosophy.md#janitor.demo_retention_days`
-(default 30):
+would resurrect). Older than N days, N = `janitor.demo_retention_days` from the
+config loader (default 30):
 ```bash
-N=$(grep -E '^\s*demo_retention_days:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
-[ -z "$N" ] && N=30
+N=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get janitor.demo_retention_days --default 30)
 find .factory/demos -mindepth 1 -maxdepth 1 -type d -mtime +${N} 2>/dev/null
 # ^ note these folder paths; you'll `git rm -r` them inside the lock below.
 ```

@@ -60,7 +60,7 @@ copy_if_missing() {
 }
 
 # Top-level stub files (skipped if they already exist)
-for f in Philosophy.md Game.md WORK.md .gitignore .gitattributes CLAUDE.md; do
+for f in Philosophy.md GAME_CONFIG.yaml Game.md WORK.md .gitignore .gitattributes CLAUDE.md; do
     copy_if_missing "$TEMPLATE_DIR/$f" "$TARGET/$f"
 done
 
@@ -91,7 +91,7 @@ python3 - "$NAME" "${CEO:-}" "$TARGET" <<'PY'
 import sys, pathlib
 name, ceo, target_str = sys.argv[1], sys.argv[2], sys.argv[3]
 target = pathlib.Path(target_str)
-paths = [target / fname for fname in ("Philosophy.md", "Game.md", "WORK.md")]
+paths = [target / fname for fname in ("Philosophy.md", "GAME_CONFIG.yaml", "Game.md", "WORK.md")]
 substitutions = {}
 if name: substitutions["{{GAME_NAME}}"] = name
 if ceo:  substitutions["{{CEO_LOGIN}}"] = ceo
@@ -118,10 +118,12 @@ cat <<EOF
 
 done. next steps to wire this game into the offline Spraxel system:
 
-  1. Edit $TARGET/Philosophy.md
-     - Fill in the project pitch, must_include, must_not_include lists.
+  1. Edit $TARGET/GAME_CONFIG.yaml
+     - Fill in identity.pitch, identity.must_include, identity.must_not_include.
      - Set dev.godot_binary to the absolute path of your Godot binary.
-     - Confirm run_mode is "live" (set to "dryrun" to pause all agents).
+     - (run_mode lives in ~/SpraxelAiCompany/COMPANY_CONFIG.yaml as policy.run_mode;
+       set it to "dryrun" there to pause all agents, or override per-game here.)
+     Then edit $TARGET/Philosophy.md — prose-only design narrative (no config).
 
   2. Edit $TARGET/Game.md with current features + controls.
 

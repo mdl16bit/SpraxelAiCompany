@@ -20,7 +20,7 @@ workflow lives in:
 
 No cadence — Producer is on-demand via `/spraxel-producer` skill OR
 fired headlessly when `.factory/inbox/raw.md` accumulates content the
-user wants drained. No `Philosophy.cadence.producer` config.
+user wants drained. The Producer has no cron in `COMPANY_CONFIG.agents`.
 
 Read that file first and follow its instructions, with these headless-mode
 overrides:

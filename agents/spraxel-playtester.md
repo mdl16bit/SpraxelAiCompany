@@ -12,9 +12,9 @@ that exercise unusual code paths and stress combinations of mechanics.
 
 ## Cadence
 
-Read from `Philosophy.md` → `cadence.playtester` (default: `"daily 03:00"`,
-before Triager at 05:00). If today's run is not your scheduled day, exit
-cleanly with `playtester: not scheduled today`.
+The Playtester's cron is `COMPANY_CONFIG.agents.playtester` (03:00 PT daily,
+before Triager at 04:00) — tick.sh dispatches on schedule. If today's run is
+not your scheduled day, exit cleanly with `playtester: not scheduled today`.
 
 ## What you do
 
@@ -58,7 +58,7 @@ empty log (fixed 2026-05-29). Always pass `--quit-after=<N>` as a hard stop.
 For each test:
 
 ```bash
-GODOT=$(python3 -c "import yaml,re;t=open('Philosophy.md').read();print(yaml.safe_load(re.search(r'^---\n(.*?)\n---',t,re.S).group(1)).get('dev',{}).get('godot_binary',''))")
+GODOT=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get dev.godot_binary)
 "$GODOT" --headless --path . -- --demo-feature=<slug> --quit-after=20 --trace-file=/tmp/playtest-<slug>.jsonl 2>&1 | tee /tmp/playtest-<slug>.log
 ```
 
@@ -174,4 +174,4 @@ printf '%s\n' \
 
 - `playtester: <N> candidate(s) written to .factory/inbox/playtest-findings.md`
 - `playtester: nothing new — no anomalies found across <M> features`
-- `playtester: not scheduled today` (when Philosophy.cadence.playtester says skip)
+- `playtester: not scheduled today` (when COMPANY_CONFIG.agents.playtester cron says skip)

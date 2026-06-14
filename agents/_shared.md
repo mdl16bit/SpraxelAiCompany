@@ -98,12 +98,14 @@ exiting. Don't silently ship with placeholders.
 
 ## HARD RULE: dryrun guard
 
-First action of every run: `cat Philosophy.md` and check the `run_mode:` field.
+First action of every run: resolve `run_mode` via the config loader —
+`python3 ~/SpraxelAiCompany/scripts/spx_config.py get policy.run_mode`.
 
-- If `run_mode: "dryrun"`: print `<role>: run_mode=dryrun — exiting.` to stdout, make NO writes, exit cleanly.
-- If `run_mode: "live"` (default): proceed.
+- If it prints `dryrun`: print `<role>: run_mode=dryrun — exiting.` to stdout, make NO writes, exit cleanly.
+- If it prints `live` (the default) or anything else: proceed.
 
-CEO toggles `run_mode` to pause the factory during off-weeks.
+CEO toggles `policy.run_mode` (in COMPANY_CONFIG.yaml, or a game's GAME_CONFIG.yaml
+override) to pause the factory during off-weeks.
 
 ## HARD RULE: never push directly to master mid-run
 

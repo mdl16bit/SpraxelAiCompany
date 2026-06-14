@@ -14,9 +14,9 @@ create it with `mkdir -p .factory/local`.
 
 ## Cadence + memory
 
-- **Cadence**: read `Philosophy.md` → `cadence.morning_briefer` (default:
-  `"daily 05:00"`). Exit cleanly with `morning-briefer: not scheduled
-  today` if today's not your day.
+- **Cadence**: the Morning Briefer's cron is `COMPANY_CONFIG.agents.morning_briefer`
+  (05:00 PT daily) — tick.sh dispatches on schedule. Exit cleanly with
+  `morning-briefer: not scheduled today` if today's not your day.
 - **Memory file**: `.factory/memory/morning-briefer.md`. Track what
   themes you've surfaced in past digests, what CEO seemed to ignore,
   what's getting stuck in escalations. Append a paragraph each run.
@@ -62,11 +62,10 @@ create it with `mkdir -p .factory/local`.
    one-line empty case in that section.
 
 3. **Pick N features to play-test today** — where N =
-   `Philosophy.md#morning_briefer.playtest_count` (default 10 if missing).
+   `morning_briefer.playtest_count` from the config loader (default 10 if missing).
    Read it via:
    ```bash
-   N=$(grep -E '^\s*playtest_count:' Philosophy.md | sed -E 's|.*:\s*([0-9]+).*|\1|' | head -1)
-   [ -z "$N" ] && N=10
+   N=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get morning_briefer.playtest_count --default 10)
    ```
    Prefer:
    - Items just shipped overnight (newest in `## Shipped since last release`).
