@@ -243,11 +243,14 @@ WORK_MD_PATH="$game_dir/WORK.md"
   # ── Context diet (cost) ──────────────────────────────────────────────
   # The full WORK.md is ~300KB and ~85% of it is the ## Shipped archive,
   # which gets re-read every turn (~50x/run) and dominates the token bill.
-  # Trim ONLY the two high-volume agents that provably don't need the
-  # archive — developer (gets its item via SPRAXEL_ITEM_BRIEF) and reviewer
-  # (reviews the git diff). Together they're ~80% of all runs.
-  # Everyone else keeps the full file unchanged — notably designer/triager
-  # dedupe new ideas/bugs against shipped history, so they MUST see it.
+  # Three tiers:
+  #   developer/reviewer            → ## Todo only (don't need shipped history;
+  #                                    dev gets its item via SPRAXEL_ITEM_BRIEF,
+  #                                    reviewer reads the git diff). ~80% of runs.
+  #   architect/designer/triager/   → current + Todo (recent "Shipped since last
+  #     morning_briefer               release" for dedup/context, drops the older
+  #                                    "## Shipped (previous releases)" archive).
+  #   everyone else (pm/janitor/…)  → full file (pm release notes, janitor archiving).
   # render falls back to the full file on any error, so this never starves an agent.
   case "$agent" in
     developer|reviewer)
@@ -255,6 +258,16 @@ WORK_MD_PATH="$game_dir/WORK.md"
       echo "# Need shipped history? Run: python3 ~/SpraxelAiCompany/scripts/workmd.py render $WORK_MD_PATH --sections current,todo   (or: git log)"
       if [ -f "$WORK_MD_PATH" ]; then
         python3 "$REPO_DIR/scripts/workmd.py" render "$WORK_MD_PATH" --sections todo 2>/dev/null \
+          || cat "$WORK_MD_PATH"
+      else
+        echo "(no WORK.md found at $WORK_MD_PATH)"
+      fi
+      ;;
+    architect|designer|triager|morning_briefer)
+      echo "### WORK.md — ## Shipped-since-last-release + ## Todo (older releases archive omitted to save tokens)"
+      echo "# Need the full archive? Run: python3 ~/SpraxelAiCompany/scripts/workmd.py render $WORK_MD_PATH --sections shipped,current,todo   (or: git log)"
+      if [ -f "$WORK_MD_PATH" ]; then
+        python3 "$REPO_DIR/scripts/workmd.py" render "$WORK_MD_PATH" --sections current,todo 2>/dev/null \
           || cat "$WORK_MD_PATH"
       else
         echo "(no WORK.md found at $WORK_MD_PATH)"
