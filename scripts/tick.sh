@@ -123,7 +123,8 @@ errors=()
 # success stamps), only runs slots that already occurred today, single-instance
 # locked, and keeps morning-briefer last — so this is safe to fire and a no-op
 # when nothing was actually missed. Threshold 30min ≫ normal 60s tick.
-if [ "${gap:-0}" -gt 1800 ] && [ -x "$REPO_DIR/scripts/catch_up.sh" ]; then
+_wakegap=$(python3 "$REPO_DIR/scripts/spx_config.py" get continuous.wake_gap_threshold_secs 2>/dev/null); _wakegap=${_wakegap:-1800}
+if [ "${gap:-0}" -gt "$_wakegap" ] && [ -x "$REPO_DIR/scripts/catch_up.sh" ]; then
   cdir="$REPO_DIR/logs/catch_up"; mkdir -p "$cdir"
   nohup bash "$REPO_DIR/scripts/catch_up.sh" --reason "wake-gap $((gap/60))m" \
     >>"$cdir/$(date +%Y-%m-%d).log" 2>&1 &

@@ -51,13 +51,21 @@ fi
 # latest 4.x release; a full "claude-*" id passes through unchanged.
 model_short=$(python3 "$REPO_DIR/scripts/spx_config.py" get "models.$agent" 2>/dev/null)
 [ -z "$model_short" ] && model_short=$(awk '/^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$spec")
-case "${model_short:-sonnet}" in
-  haiku)  model_id="claude-haiku-4-5-20251001" ;;
-  sonnet) model_id="claude-sonnet-4-6"          ;;
-  opus)   model_id="claude-opus-4-8"            ;;
-  claude-*) model_id="$model_short"             ;;
-  *)      echo "run_agent: unknown model '$model_short' in $spec — defaulting to sonnet" >&2
-          model_id="claude-sonnet-4-6"          ;;
+# Map short name → full Claude id via COMPANY_CONFIG models.ids (so a new Claude
+# release is a config edit, not a code edit). Built-in defaults are the fallback.
+case "$model_short" in
+  claude-*) model_id="$model_short" ;;   # already a full id — pass through
+  *)
+    model_id=$(python3 "$REPO_DIR/scripts/spx_config.py" get "models.ids.${model_short:-sonnet}" 2>/dev/null)
+    if [ -z "$model_id" ]; then
+      case "${model_short:-sonnet}" in
+        haiku)  model_id="claude-haiku-4-5-20251001" ;;
+        opus)   model_id="claude-opus-4-8" ;;
+        sonnet) model_id="claude-sonnet-4-6" ;;
+        *) echo "run_agent: unknown model '$model_short' in $spec — defaulting to sonnet" >&2
+           model_id="claude-sonnet-4-6" ;;
+      esac
+    fi ;;
 esac
 
 # Pull game_dir from schedule.yaml (simple YAML extraction — no PyYAML required).
@@ -318,8 +326,8 @@ cd "$WORK_DIR"
 # developer/reviewer are NOT retried here — the continuous wrapper owns their
 # retry + stall-detection; double-retrying would fight it.
 case "$agent" in
-  developer|reviewer) max_attempts=1 ;;
-  *)                  max_attempts=3 ;;
+  developer|reviewer) max_attempts=$(python3 "$REPO_DIR/scripts/spx_config.py" get agent_retry.lone_attempt 2>/dev/null);  max_attempts=${max_attempts:-1} ;;
+  *)                  max_attempts=$(python3 "$REPO_DIR/scripts/spx_config.py" get agent_retry.crew_attempts 2>/dev/null); max_attempts=${max_attempts:-3} ;;
 esac
 
 # Report safety-net. Every reporting agent SHOULD leave a dated report (see
@@ -384,5 +392,6 @@ while :; do
     exit 1
   fi
   attempt=$((attempt + 1))
-  sleep 30   # let transient concurrency / rate pressure ease before retrying
+  _bk=$(python3 "$REPO_DIR/scripts/spx_config.py" get agent_retry.backoff_secs 2>/dev/null)
+  sleep "${_bk:-30}"   # backoff between attempts (agent_retry.backoff_secs)
 done

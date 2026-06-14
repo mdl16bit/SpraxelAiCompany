@@ -18,7 +18,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TICK_SCRIPT="$REPO_DIR/scripts/tick.sh"
 PLIST_PATH="$HOME/Library/LaunchAgents/com.spraxel.tick.plist"
 LABEL="com.spraxel.tick"
-INTERVAL=60   # seconds — tick every minute
+INTERVAL=$(python3 "$REPO_DIR/scripts/spx_config.py" get tick.interval_secs 2>/dev/null); INTERVAL=${INTERVAL:-60}   # seconds — tick cadence (tick.interval_secs)
 
 action="${1:-install}"
 

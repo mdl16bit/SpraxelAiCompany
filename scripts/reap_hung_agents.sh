@@ -31,14 +31,19 @@ LOCKS_DIR="$REPO_DIR/.locks"
 # OWN per-item MAX_DEV_MINUTES stall watchdog). Age says nothing about their
 # health, so we skip them entirely (returning 0 = "never reap").
 max_age_min() {
+  # Map the agent/lock name → a reaper class, then read its max-age from
+  # COMPANY_CONFIG reaper.max_age_minutes.<class> (fallback = built-in default).
+  local cls dflt
   case "$1" in
-    continuous-w*)        echo 0   ;;   # SKIP — long-lived by design; wrapper self-manages
+    continuous-w*)        cls=continuous_worker; dflt=0  ;;   # long-lived by design; wrapper self-manages
     architect|designer|pm|triager|playtester|demo_creator|janitor|blogger|asset_librarian|morning-briefer|morning_briefer)
-                          echo 20  ;;   # crew agents
-    test-runner)          echo 75  ;;   # full suite ~60 min
-    master-push)          echo 5   ;;   # a single WORK.md edit+push — minutes at most
-    catch_up|*)           echo 30  ;;
+                          cls=crew;        dflt=20 ;;
+    test-runner)          cls=test_runner; dflt=75 ;;
+    master-push)          cls=master_push; dflt=5  ;;
+    catch_up|*)           cls=catch_up;    dflt=30 ;;
   esac
+  local v; v=$(python3 "$REPO_DIR/scripts/spx_config.py" get "reaper.max_age_minutes.$cls" 2>/dev/null)
+  echo "${v:-$dflt}"
 }
 
 now=$(date +%s)

@@ -96,6 +96,9 @@ echo
 printf "| Agent              | Target %% | Actual %% | Drift  | Invocations |\n"
 printf "|--------------------|----------|----------|--------|-------------|\n"
 
+# Drift-warn threshold (points off target) from COMPANY_CONFIG; ⚠ flags an agent over it.
+_dwlim=$(python3 "$(dirname "${BASH_SOURCE[0]}")/spx_config.py" get policy.budgets.drift_warn_percent 2>/dev/null); _dwlim=${_dwlim:-25}
+
 # For each agent in targets, show row. Sort by agent name.
 echo "$targets" | sort | while IFS=$'\t' read -r agent target; do
   count=$(declare_compat_count "$agent")
@@ -105,7 +108,7 @@ echo "$targets" | sort | while IFS=$'\t' read -r agent target; do
     actual="0.0"
   fi
   drift=$(awk -v a="$actual" -v t="$target" 'BEGIN { printf "%+.1f", a - t }')
-  flag=$(awk -v d="$drift" 'BEGIN { d = d < 0 ? -d : d; if (d > 25) print "⚠"; else print " " }')
+  flag=$(awk -v d="$drift" -v lim="$_dwlim" 'BEGIN { d = d < 0 ? -d : d; if (d > lim) print "⚠"; else print " " }')
   printf "| %-18s | %7s%% | %7s%% | %+6s | %11s | %s\n" \
     "$agent" "$target" "$actual" "$drift" "$count" "$flag"
 done

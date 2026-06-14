@@ -56,6 +56,15 @@ models:
   janitor:          haiku
   asset_librarian:  haiku
 
+  # Short-name → full Claude model id. Update these when Anthropic ships a new
+  # release — a model upgrade is a CONFIG edit here, NOT a code edit. run_agent.sh
+  # resolves each agent's short name (above) through this map; a full "claude-*"
+  # id set directly on an agent above passes through unchanged.
+  ids:
+    haiku:   claude-haiku-4-5-20251001
+    sonnet:  claude-sonnet-4-6
+    opus:    claude-opus-4-8
+
 # Company policy defaults (a game's GAME_CONFIG.yaml may override).
 policy:
   run_mode: "live"             # live | offline — gates whether agents actually do work
@@ -74,6 +83,8 @@ policy:
       janitor:           2
       asset_librarian:   1
       demo_creator:      1
+    drift_warn_percent: 25     # token_report.sh flags an agent with ⚠ when its actual
+                               # invocation share drifts more than this many points off target
 
 # Continuous Developer loop — ships items until target_per_batch since the last
 # CEO interaction, then sleeps. Restarts on CEO checkin.
@@ -81,9 +92,14 @@ continuous:
   target_per_batch: 5          # items shipped before parking (shared across workers)
   max_file_lines: 1500         # "no god files" cap — reviewer blocks growth past this (scripts/check_file_sizes.sh)
   cap_excludes_test_fixes: true # [test_failure] fixes don't count toward target_per_batch
-  retry_per_item:   1          # dev attempts per item before [retry]
-  dev_concurrency:  3          # parallel workers (share the cap counter)
-  max_fail_streak:        3    # consecutive failures → backoff
+  retry_per_item:   1          # dev attempts per item (within one run) before [retry]
+  retry_escalate_threshold: 5  # after this many TOTAL [retry] attempts on ONE item, auto-escalate
+                               # it to the CEO ([escalated]) instead of retrying forever — the
+                               # poison-pill brake (workmd.py). Lower = give up & ask sooner.
+  wake_gap_threshold_secs: 1800 # if a tick fires >this long (sec) after the previous one, the Mac
+                               # was asleep → run catch_up to replay missed crew agents (tick.sh).
+  dev_concurrency:  3          # parallel dev workers (share the cap counter). ~Nx weekly-cap burn.
+  max_fail_streak:        3    # consecutive failures (any worker) → back off
   fail_backoff_seconds:   1800 # 30-min backoff after a fail streak
   poll_interval_seconds:  60   # pause/cap re-check cadence while sleeping
   idle_threshold:         5    # empty-queue ticks before dropping to idle_sleep
@@ -98,3 +114,34 @@ continuous:
 test_runner:
   max_minutes:              120  # wall-clock budget per run (0 = run to completion)
   force_after_engine_hours: 100  # fallback trigger after N hrs of engine on-time
+
+# Per-agent invocation retry (scripts/run_agent.sh — distinct from the continuous
+# loop's own per-item retry above). How many times to re-invoke an agent if its
+# `claude` call fails (non-zero exit / empty output).
+agent_retry:
+  lone_attempt:   1    # developer + reviewer: 1 try (the continuous loop owns their retry)
+  crew_attempts:  3    # crew agents are idempotent — retry transient API blips
+  backoff_secs:   30   # sleep between attempts
+
+# Hung-agent reaper (scripts/reap_hung_agents.sh, run each tick). Kills an agent
+# whose lock has been held longer than its class limit (MINUTES). 0 = never reap.
+# Tune up if real runs legitimately take longer (avoid reaping healthy work).
+reaper:
+  max_age_minutes:
+    crew:               20  # architect/designer/pm/triager/playtester/demo_creator/janitor/blogger/…
+    test_runner:        75  # the full suite legitimately runs ~60 min
+    master_push:         5  # a single WORK.md edit + push — minutes at most
+    catch_up:           30  # catch_up replays several agents
+    continuous_worker:   0  # NEVER reap the long-lived worker loops — they self-manage
+
+# Scheduler heartbeat. scripts/install_daemon.sh writes this into the launchd plist,
+# so RE-RUN install_daemon.sh after changing it (a live daemon won't pick it up).
+tick:
+  interval_secs:  60   # how often the scheduler wakes to dispatch due agents
+
+# Dashboard / status-report rendering (framework defaults; GAME_CONFIG.yaml may override).
+dashboard:
+  recent_ships:       15  # "last N shipped" rows
+  ceo_actions:        10  # "next N CEO action items" rows
+  tick_dispatches:    10  # recent crew dispatches shown
+  schedule_scan_days: 35  # days ahead to scan for scheduled events (35 covers monthly agents)

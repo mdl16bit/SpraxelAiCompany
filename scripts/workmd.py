@@ -587,7 +587,16 @@ def sync_escalations(work_path: Path, esc_path: Path) -> int:
 ## [escalated] instead of getting yet another [retry] tag. CEO action
 ## becomes required at that point — five attempts is enough signal that
 ## the dev can't land this autonomously.
-RETRY_ESCALATE_THRESHOLD = 5
+RETRY_ESCALATE_THRESHOLD = 5  # default; COMPANY_CONFIG continuous.retry_escalate_threshold overrides
+try:
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import spx_config as _spx
+    _ret = _spx.get("continuous.retry_escalate_threshold")
+    if isinstance(_ret, int) and _ret > 0:
+        RETRY_ESCALATE_THRESHOLD = _ret
+except Exception:
+    pass
 
 
 def retry(
