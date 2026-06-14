@@ -1,7 +1,6 @@
 ---
 name: spraxel-janitor
 description: Weekly entropy fighter. Cold-archives stale `## Todo` items, deletes orphan merged branches, prunes old run logs. Fires Sunday 01:00 PT.
-model: haiku
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

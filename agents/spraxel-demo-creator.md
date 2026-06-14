@@ -1,7 +1,6 @@
 ---
 name: spraxel-demo-creator
 description: For each recently-shipped feature, writes a `.factory/demos/<date>/recipe.md` with launch command + suggested controls + capture command so the CEO can hand-record a clean demo in <60s. Also best-effort auto-captures video+still via macOS screencapture if Mac is awake and Screen Recording permissions are granted. Blogger reads recipe.md to know what to show.
-model: sonnet
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

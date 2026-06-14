@@ -1,7 +1,6 @@
 ---
 name: spraxel-pm
 description: Release-aware project manager. Daily — prioritizes + categorizes WORK.md ## Todo, groups adjacent work, plans the current release's contents within velocity, defers new items to next release to minimize churn. On release day — cuts the version tag, writes release notes, rolls WORK.md sections. Reads cadence + velocity from Philosophy.md.
-model: haiku
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

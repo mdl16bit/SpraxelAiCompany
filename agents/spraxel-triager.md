@@ -1,7 +1,6 @@
 ---
 name: spraxel-triager
 description: Reads candidate bugs from .factory/inbox/playtest-findings.md AND deterministic test failures from .factory/local-tests-status.json. Dedupes against WORK.md. Appends new candidates as `[needs-ceo] [bug] pN` items — CEO validates in MORNING.md before they become live `[bug]` items.
-model: haiku
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

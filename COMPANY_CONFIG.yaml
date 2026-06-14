@@ -1,0 +1,100 @@
+# ============================================================================
+# COMPANY_CONFIG.yaml — the single source of truth for Spraxel company config.
+#
+# This is the FRAMEWORK-level (company-wide) config. A game project may place a
+# GAME_CONFIG.yaml at its repo root to OVERRIDE any of these keys for that game
+# (deep-merged on top of this file). Read everything through the loader:
+#     scripts/spx_config.py get <dotted.key>      # e.g. continuous.target_per_batch
+# which resolves COMPANY_CONFIG.yaml first, then overlays <game_dir>/GAME_CONFIG.yaml.
+#
+# Edit freely — changes apply on the next tick (within 60s).
+# Pause everything: `touch ~/SpraxelAiCompany/.paused`.
+# (`schedule.yaml` is a back-compat symlink to this file; legacy readers parse it.)
+# ============================================================================
+
+# Path to the game repo. Crew agents read/write WORK.md here. A game's
+# GAME_CONFIG.yaml lives at <game_dir>/GAME_CONFIG.yaml.
+game_dir: ~/GameProjects/infiltrators
+
+# Crew agents: scheduled, write to WORK.md / MORNING.md / .factory/.
+# All cron expressions are America/Los_Angeles (see scripts/cron_match.py).
+agents:
+  playtester:      { cron: "0 3 * * *",  description: "03:00 PT daily — actively plays game; writes candidate bugs" }
+  triager:         { cron: "0 4 * * *",  description: "04:00 PT daily — playtest findings + test fails → [needs-ceo] in WORK.md" }
+  morning_briefer: { cron: "0 5 * * *",  description: "05:00 PT daily — write MORNING.md digest" }
+  demo_creator:    { cron: "30 5 * * *", description: "05:30 PT daily — capture video+still of newly-shipped features (Mac-awake req)" }
+  pm:              { cron: "0 6 * * *",  description: "06:00 PT daily — reorder ## Todo; release-cut on biweekly Mondays" }
+  designer:        { cron: "30 4 * * 2,5",description: "Tue+Fri 04:30 PT — drop ranked ideas as [idea] items. ALSO auto-runs DAILY (tick.sh) on non-Tue/Fri days when the buildable queue is dry." }
+  architect:       { cron: "0 9,21 * * *", description: "09:00 & 21:00 PT — shape [untriaged] work. ALSO dispatched reactively by tick.sh within ~60s of a new [untriaged] item." }
+  blogger:         { cron: "0 9 * * 6",  description: "Sat 09:00 PT — draft weekly devlog (uses demo assets + release notes)" }
+  janitor:         { cron: "0 1 * * 0",  description: "Sun 01:00 PT — cold-archive stale, prune branches + logs" }
+  asset_librarian: { cron: "0 7 1 * *",  description: "1st of month 07:00 PT — scan assets/ for orphans + license gaps" }
+
+# CEO routine — guidance times for when YOU visit the machine (not alarms).
+# Run `/spraxel-inbox` at any visit to see what's pending.
+ceo_routine:
+  timezone: "America/Los_Angeles"
+  morning:   { around: "06:15", purpose: "Full triage — play-test overnight ships, decide Designer ideas, triage bugs, clear escalations, answer Architect questionnaires, dictate fixes." }
+  afternoon: { around: "13:00", purpose: "Quick unblock — clear any [needs-ceo]/[escalated] so the loop never stalls; dump new ideas to the inbox." }
+  evening:   { around: "22:00", purpose: "Top up — drain dictation (/spraxel-producer) and keep WORK.md with 10+ eligible items for the overnight batch." }
+
+# Agent → model. SINGLE SOURCE OF TRUTH (run_agent.sh reads this via the loader;
+# a game's GAME_CONFIG.yaml can override per-agent). Short names map to the latest
+# 4.x release (haiku/sonnet/opus); a full claude-* id passes through unchanged.
+models:
+  developer:        sonnet
+  reviewer:         haiku
+  architect:        sonnet
+  designer:         sonnet
+  playtester:       sonnet     # judgement-heavy: "is this weird?"
+  producer:         sonnet
+  blogger:          sonnet
+  demo_creator:     sonnet     # writes index.md, makes capture decisions
+  triager:          haiku
+  pm:               haiku
+  morning_briefer:  haiku
+  janitor:          haiku
+  asset_librarian:  haiku
+
+# Company policy defaults (a game's GAME_CONFIG.yaml may override).
+policy:
+  run_mode: "live"             # live | offline — gates whether agents actually do work
+  budgets:
+    monthly_usd_hard_cap: 250  # informational
+    by_agent_percent:          # token_report.sh warns if actual share drifts >25%
+      developer:        45
+      designer:         10
+      producer:         10
+      reviewer:          7
+      playtester:        7
+      blogger:           5
+      morning_briefer:   5
+      pm:                4
+      triager:           3
+      janitor:           2
+      asset_librarian:   1
+      demo_creator:      1
+
+# Continuous Developer loop — ships items until target_per_batch since the last
+# CEO interaction, then sleeps. Restarts on CEO checkin.
+continuous:
+  target_per_batch: 5          # items shipped before parking (shared across workers)
+  max_file_lines: 1500         # "no god files" cap — reviewer blocks growth past this (scripts/check_file_sizes.sh)
+  cap_excludes_test_fixes: true # [test_failure] fixes don't count toward target_per_batch
+  retry_per_item:   1          # dev attempts per item before [retry]
+  dev_concurrency:  3          # parallel workers (share the cap counter)
+  max_fail_streak:        3    # consecutive failures → backoff
+  fail_backoff_seconds:   1800 # 30-min backoff after a fail streak
+  poll_interval_seconds:  60   # pause/cap re-check cadence while sleeping
+  idle_threshold:         5    # empty-queue ticks before dropping to idle_sleep
+  idle_sleep_seconds:     300  # sleep when queue is dry
+  dev_stall_minutes:      15   # kill a dev after this long with NO worktree file writes
+  max_dev_minutes:        90   # absolute per-dev backstop
+  description:      "always-on, paced by CEO checkins"
+
+# Batch test runner (scripts/test_runner.sh) — runs the whole suite one test at a
+# time, files each failure as a [test_failure]. Dispatched by tick.sh on triggers,
+# not cron.
+test_runner:
+  max_minutes:              120  # wall-clock budget per run (0 = run to completion)
+  force_after_engine_hours: 100  # fallback trigger after N hrs of engine on-time

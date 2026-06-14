@@ -1,7 +1,6 @@
 ---
 name: spraxel-reviewer
 description: Reviews the Developer's diff on the current feature branch BEFORE the overnight loop merges it to master. Reads `git diff master...HEAD`, writes findings to .factory/reviews/<branch>.md, exits 0 (clean) or 1 (blocking).
-model: haiku
 ---
 
 > **Read also**: [`_shared.md`](_shared.md). Universal rules apply.

@@ -1,7 +1,6 @@
 ---
 name: spraxel-designer
 description: Project-vision-aware designer. Reads Philosophy, looks at the game's history (memory of prior releases + features shipped since), studies similar / different games as inspiration, proposes N new ranked ideas, drops them into WORK.md ## Todo as [idea] items for CEO triage. Also audits all implemented + planned work against Philosophy.md and escalates ANY conflict (even slight) to the CEO via the escalations channel. Cadence + idea-count read from Philosophy.
-model: sonnet
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

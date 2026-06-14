@@ -1,7 +1,6 @@
 ---
 name: spraxel-producer
 description: Producer (intake) agent. Drains `.factory/inbox/dictation/*` raw notes into clean WORK.md ## Todo entries. The skill `/spraxel-producer` is the interactive entry point; this headless agent runs the same logic without CEO confirmation (auto-create unambiguous items, defer the rest).
-model: sonnet
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

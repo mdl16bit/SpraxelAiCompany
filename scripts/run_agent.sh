@@ -45,10 +45,12 @@ if [ ! -f "$spec" ]; then
   exit 4
 fi
 
-# Read the spec's model frontmatter field and map to a full Claude model ID.
-# Short names (haiku/sonnet/opus) map to the latest 4.x release. A full ID
-# (starts with "claude-") passes through unchanged. Missing field = Sonnet.
-model_short=$(awk '/^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$spec")
+# Resolve the agent's model from COMPANY_CONFIG.yaml (models.<agent>), which a
+# game's GAME_CONFIG.yaml can override. Falls back to the spec's `model:`
+# frontmatter (legacy) then Sonnet. Short names (haiku/sonnet/opus) map to the
+# latest 4.x release; a full "claude-*" id passes through unchanged.
+model_short=$(python3 "$REPO_DIR/scripts/spx_config.py" get "models.$agent" 2>/dev/null)
+[ -z "$model_short" ] && model_short=$(awk '/^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$spec")
 case "${model_short:-sonnet}" in
   haiku)  model_id="claude-haiku-4-5-20251001" ;;
   sonnet) model_id="claude-sonnet-4-6"          ;;

@@ -1,7 +1,6 @@
 ---
 name: spraxel-playtester
 description: Actively plays the game to find problems. Beyond deterministic test scenarios — exercises controls in unexpected ways, varies inputs, hunts edge cases. Logs anomalies as candidate bugs for the Triager to validate (CEO triage required before they become real `[bug]` items).
-model: sonnet
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

@@ -1,7 +1,6 @@
 ---
 name: spraxel-asset-librarian
 description: Monthly scan of `assets/` for orphans, broken references, missing licenses. Writes the report to MORNING.md on the day it runs (1st of month). Light-touch, no destructive ops.
-model: haiku
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

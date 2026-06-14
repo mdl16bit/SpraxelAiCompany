@@ -1,7 +1,6 @@
 ---
 name: spraxel-morning-briefer
 description: Writes MORNING.md daily at 05:00 PT — the one file the CEO opens at breakfast. Summarizes overnight commits, lists 10 things to play-test today (with --demo-feature launch commands from Game.md), surfaces pending decisions (Designer ideas, escalations, bugs), enforces the time-boxed routine.
-model: haiku
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

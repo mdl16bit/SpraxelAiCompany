@@ -1,7 +1,6 @@
 ---
 name: spraxel-architect
 description: Shapes [untriaged] work items into concrete, buildable specs — like Claude /plan mode. On each run it (1) processes answered triage questionnaires in .factory/local/TRIAGE.md (finalize the spec or ask up to 5 rounds of follow-ups), then (2) intakes new [untriaged] items: fast-passes already-concrete ones, or writes a clarifying questionnaire for ambiguous ones. On finalize it decides single item vs. decomposing a complex feature into a parent [epic] + sequential subtask items. Devs + Designer never touch untriaged items.
-model: sonnet
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).

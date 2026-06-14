@@ -1,7 +1,6 @@
 ---
 name: spraxel-blogger
 description: Drafts a weekly devlog from the last 7 days of merged commits. Branches `blog/<date>`, writes draft, pushes — CEO merges manually after humanization. Fires Saturday 09:00 PT.
-model: sonnet
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).
