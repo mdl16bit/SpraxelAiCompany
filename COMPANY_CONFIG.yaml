@@ -26,7 +26,7 @@ agents:
   pm:              { cron: "0 6 * * *",  description: "06:00 PT daily — reorder ## Todo; release-cut on biweekly Mondays" }
   designer:        { cron: "30 4 * * 2,5",description: "Tue+Fri 04:30 PT — drop ranked ideas as [idea] items. ALSO auto-runs DAILY (tick.sh) on non-Tue/Fri days when the buildable queue is dry." }
   architect:       { cron: "0 9,21 * * *", description: "09:00 & 21:00 PT — shape [untriaged] work. ALSO dispatched reactively by tick.sh within ~60s of a new [untriaged] item." }
-  blogger:         { cron: "0 9 * * 6",  description: "Sat 09:00 PT — draft weekly devlog (uses demo assets + release notes)" }
+  blogger:         { cron: "0 9 * * 2,5",  description: "Tue+Fri 09:00 PT — draft devlog (since last post; uses demo assets + release notes)" }
   janitor:         { cron: "0 1 * * 0",  description: "Sun 01:00 PT — cold-archive stale, prune branches + logs" }
   asset_librarian: { cron: "0 7 1 * *",  description: "1st of month 07:00 PT — scan assets/ for orphans + license gaps" }
 
