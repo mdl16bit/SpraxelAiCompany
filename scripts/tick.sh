@@ -447,6 +447,15 @@ if [ ! -e "$TR_PENDING" ] && [ ! -e "$TR_ACTIVE" ] && [ -x "$TEST_RUNNER" ]; the
   fi
 fi
 
+# force_interactive_developers mode: never spawn headless dev workers. Treat
+# dev_concurrency as 0 no matter its configured value — the CEO drives development
+# from an interactive session via the /spraxel-develop skill. Crew dispatch above is
+# untouched. (Already-running workers idle themselves; see continuous_dev.sh.)
+_force_interactive=$(python3 "$REPO_DIR/scripts/spx_config.py" get continuous.force_interactive_developers 2>/dev/null)
+if [ "$_force_interactive" = "true" ] || [ "$_force_interactive" = "True" ]; then
+  dev_concurrency=0
+fi
+
 # Spawn missing workers — UNLESS a test-runner run is scheduled/active (it must
 # run alone, so we stop refilling the worker pool and let it drain).
 if [ -x "$CONTINUOUS" ] && [ ! -e "$TR_PENDING" ] && [ ! -e "$TR_ACTIVE" ]; then

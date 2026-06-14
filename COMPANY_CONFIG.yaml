@@ -97,6 +97,15 @@ continuous:
   target_per_batch: 5          # items shipped before parking (shared across workers)
   max_file_lines: 1500         # "no god files" cap — reviewer blocks growth past this (scripts/check_file_sizes.sh)
   cap_excludes_test_fixes: true # [test_failure] fixes don't count toward target_per_batch
+  force_interactive_developers: false # MODE SWITCH. false = headless devs run as normal (default).
+                               # true = NO headless developer runs (tick.sh forces dev_concurrency to 0;
+                               # any already-running worker idles within ~60s). Crew agents are unchanged.
+                               # Drive development from an interactive session via the `/spraxel-develop`
+                               # skill instead (subscription-side, not metered). GAME_CONFIG may override.
+  interactive_dev_heartbeat_stale_secs: 1800 # dashboard only: a /spraxel-develop run touches
+                               # .cache/interactive-dev-active each item; the dashboard shows RUNNING
+                               # (interactive-dev) while that marker is fresher than this many seconds,
+                               # otherwise PAUSED (interactive-dev). Covers a closed/crashed skill window.
   retry_per_item:   1          # dev attempts per item (within one run) before [retry]
   retry_escalate_threshold: 5  # after this many TOTAL [retry] attempts on ONE item, auto-escalate
                                # it to the CEO ([escalated]) instead of retrying forever — the
@@ -119,6 +128,10 @@ continuous:
 test_runner:
   max_minutes:              120  # wall-clock budget per run (0 = run to completion)
   force_after_engine_hours: 100  # fallback trigger after N hrs of engine on-time
+  interactive_sweep_after_hours: 0 # /spraxel-develop ONLY (force_interactive_developers mode): after a
+                                 # run HITS THE CAP, if this many engine-active hours have passed since the
+                                 # last full test run, auto-fire this test_runner. 0 = never (default; games
+                                 # opt in via GAME_CONFIG). Ignored entirely in normal headless mode.
 
 # Per-agent invocation retry (scripts/run_agent.sh — distinct from the continuous
 # loop's own per-item retry above). How many times to re-invoke an agent if its

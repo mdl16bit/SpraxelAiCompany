@@ -1372,6 +1372,15 @@ while true; do
     sleep "$POLL_INTERVAL_SECONDS"
     continue
   fi
+  # force_interactive_developers: a running worker quiesces (behaves like a pause) so
+  # the interactive /spraxel-develop loop is the ONLY claimant — no double-developer
+  # race. Re-checked every poll, so flipping the flag back to false auto-resumes this
+  # worker. tick.sh stops SPAWNING new workers; this idles ones already alive.
+  _fid=$(python3 "$REPO_DIR/scripts/spx_config.py" get continuous.force_interactive_developers 2>/dev/null)
+  if [ "$_fid" = "true" ] || [ "$_fid" = "True" ]; then
+    sleep "$POLL_INTERVAL_SECONDS"
+    continue
+  fi
   # Test-runner drain. When a batch test-runner run is scheduled or active, the
   # runner must run EXCLUSIVELY — so we stop claiming new items and idle here.
   # This is at the TOP of the loop (a claim gate), NOT the mid-run pause check,

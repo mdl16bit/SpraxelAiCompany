@@ -41,6 +41,7 @@ PAUSED = REPO_DIR / ".paused"
 TR_PENDING = REPO_DIR / ".cache" / "test-runner-pending"
 TR_ACTIVE = REPO_DIR / ".cache" / "test-runner-active"
 TR_PROGRESS = REPO_DIR / ".cache" / "test-runner-progress.json"
+INTERACTIVE_DEV_ACTIVE = REPO_DIR / ".cache" / "interactive-dev-active"
 TICK_LOG_DIR = REPO_DIR / "logs" / "tick"
 CONTINUOUS_LOG_DIR = REPO_DIR / "logs" / "continuous"
 TEST_RUNNER_LOG_DIR = REPO_DIR / "logs" / "test_runner"
@@ -80,6 +81,12 @@ def sh(cmd: str, cwd: Path | None = None) -> str:
         return r.stdout.strip()
     except Exception:
         return ""
+
+
+def _spx_get(key: str, default: str = "") -> str:
+    """Read a MERGED-config value (COMPANY_CONFIG + game GAME_CONFIG) via spx_config."""
+    val = sh(f'python3 "{REPO_DIR}/scripts/spx_config.py" get {key}')
+    return val if val else default
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -745,7 +752,27 @@ def render(now: datetime, game_dir: Path | None) -> str:
     head = [f"{BOLD}{CYAN}{title}{RESET}", f"{DIM}{bar}{RESET}", ""]
 
     # System status row
-    if PAUSED.exists():
+    if _spx_get("continuous.force_interactive_developers").lower() == "true":
+        # force_interactive_developers mode: show TWO independent dimensions —
+        #  (1) system pause (.paused) still governs the crew agents, and
+        #  (2) whether a /spraxel-develop run is currently EXECUTING (a fresh
+        #      heartbeat marker, touched each item by the skill).
+        base = f"{YELLOW}⏸  PAUSED{RESET}" if PAUSED.exists() else f"{GREEN}▶  RUNNING{RESET}"
+        try:
+            stale = int(_spx_get("continuous.interactive_dev_heartbeat_stale_secs", "1800"))
+        except ValueError:
+            stale = 1800
+        executing = (
+            INTERACTIVE_DEV_ACTIVE.exists()
+            and (time.time() - INTERACTIVE_DEV_ACTIVE.stat().st_mtime) <= stale
+        )
+        dev_part = f"{GREEN}executing{RESET}" if executing else f"{GRAY}idle{RESET}"
+        status = f"{base} {DIM}(interactive-dev){RESET} · develop: {dev_part}"
+        if TR_ACTIVE.exists():
+            status += f" · {BLUE}test runner running{RESET}"
+        elif TR_PENDING.exists():
+            status += f" · {BLUE}test runner scheduled{RESET}"
+    elif PAUSED.exists():
         status = f"{YELLOW}⏸  PAUSED{RESET}"
     elif TR_ACTIVE.exists():
         status = f"{BLUE}▶  running — test runner running{RESET}"
