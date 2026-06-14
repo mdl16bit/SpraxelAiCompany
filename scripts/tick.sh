@@ -73,6 +73,23 @@ if [ -e "$PAUSED_FLAG" ]; then
   exit 0
 fi
 
+# --- Hard spend guardrail (policy.budgets.daily_run_cap) ---
+# If set >0, halt the whole system (touch .paused) once this many agent runs have
+# happened TODAY — a hard ceiling so a runaway day (retry storm / catch-up burst)
+# can't silently bill metered $$. The CEO removes .paused to resume (and should
+# check WHY it hit). 0 = disabled (the default).
+_run_cap=$(python3 "$REPO_DIR/scripts/spx_config.py" get policy.budgets.daily_run_cap 2>/dev/null)
+if [ "${_run_cap:-0}" -gt 0 ] 2>/dev/null; then
+  _runs_today=$(find "$REPO_DIR/logs" -maxdepth 2 -name "$(date +%Y-%m-%d)-*.log" ! -name '*.prompt' 2>/dev/null \
+                  | grep -vcE '/(continuous|tick|catch_up)/')
+  if [ "${_runs_today:-0}" -ge "$_run_cap" ]; then
+    printf 'daily_run_cap reached: %s agent runs on %s (cap %s). System auto-paused — investigate the spend, then `rm %s` to resume.\n' \
+      "$_runs_today" "$(date +%Y-%m-%d)" "$_run_cap" "$PAUSED_FLAG" > "$PAUSED_FLAG"
+    echo "$now  HALTED — daily_run_cap reached ($_runs_today/$_run_cap)" >> "$log"
+    exit 0
+  fi
+fi
+
 # Engine on-time accumulator. Each UNPAUSED tick adds the elapsed time since
 # the previous tick (capped at 120s so sleep/wake or missed ticks don't inflate
 # it) to a cumulative counter the batch test runner resets to 0 when it runs.
