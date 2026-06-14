@@ -124,6 +124,23 @@ a schedule.
       to instantiate. Block if step 2's headless branch references a
       file that doesn't exist in the diff or on master.
 
+   **For `[bug]` items — the never-again regression test is MANDATORY.**
+   A `[bug]` fix that does not add or extend a test under `test/unit/` is a
+   **block**. Verify all of:
+   - The diff touches `test/unit/` — a new `test_<bug-slug>_regression.gd`
+     OR a new `test_<...>_regression()` / bug-specific function added to an
+     existing `test/unit/` file. A fix with zero test changes = block.
+   - The test actually exercises the buggy behavior (asserts the corrected
+     state / return value), not just `instantiate()` then `assert_not_null`.
+     A vacuous test that would pass on the *un*-fixed code is a block — say
+     so and name what it should assert instead.
+   - It lives under `test/unit/` (so the batch test_runner runs it on every
+     sweep). A regression test parked anywhere the runner won't pick up does
+     not count.
+   The ONLY acceptable miss is a bug the dev explicitly flagged as untestable
+   in their handoff with a concrete reason (pure visual/art glitch, no
+   observable state). "It was hard to test" is not a reason — block it.
+
 3. **Write findings** to `.factory/reviews/<item-slug>.md`. Derive the
    item-slug from the current branch by stripping the
    `feat/cont-YYYYMMDD-HHMM-` prefix:

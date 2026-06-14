@@ -265,16 +265,24 @@ actually stick.
    exercise the new behavior — not just instantiate the class. For:
    - **`[feature]` / `[game-feature]`**: a new `test/unit/test_<slug>.gd`
      that calls the new methods/asserts the new state transitions.
-   - **`[bug]`**: try your best to add a regression test that fails without
-     your fix and passes with it. Name it
-     `test/unit/test_<bug-slug>_regression.gd` (or extend the existing
-     module's test). **You MUST validate it is legitimate** — confirm the test
-     actually FAILS before your fix and PASSES after, so it genuinely pins the
-     bug instead of passing vacuously. You ARE permitted to run this one
-     regression test to do that validation (see the step 7 exception). If, after
-     a real attempt, the bug genuinely cannot be captured in a test, say so
-     explicitly in your step-9 handoff and proceed — but a validated regression
-     test is the strong default for every `[bug]`.
+   - **`[bug]`**: a never-again regression test is **MANDATORY** — every
+     `[bug]` fix MUST ship a test that locks the bug closed forever. This is
+     non-negotiable, not best-effort. Name it
+     `test/unit/test_<bug-slug>_regression.gd` (or add a clearly-named
+     `test_<bug>_regression()` function to the existing module's test). It MUST
+     live under `test/unit/` so the batch **test_runner picks it up on every
+     run** — a regression test the runner never executes is worthless. **You
+     MUST validate it is legitimate** — confirm the test actually FAILS on the
+     pre-fix code and PASSES after your fix, so it genuinely pins the bug
+     instead of passing vacuously (a green test that was always green proves
+     nothing). You ARE permitted to run this one regression test to do that
+     validation (see the step 7 exception). The test's docstring should name the
+     bug + symptom so a future reader knows what it guards.
+     - **Only if the bug genuinely cannot be expressed as a test** (e.g. a
+       pure visual/art glitch with no observable state) may you skip — and then
+       you MUST escalate via clarify (step 9) stating *why* it's untestable.
+       "It was hard" is not a reason. The default, expected outcome for every
+       `[bug]` is: fix + a validated never-again regression test in `test/unit/`.
    - **`[chore]`**: usually a refactor — extend or update the existing
      tests covering the changed module to prove behavior didn't drift.
 
