@@ -20,29 +20,28 @@
 set -o pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEDULE="$REPO_DIR/schedule.yaml"
-PAUSED_FLAG="$REPO_DIR/.paused"
-CACHE_DIR="$REPO_DIR/.cache"
-STATE_FILE="$CACHE_DIR/last-interrupt.txt"
-LOCKS_DIR="$REPO_DIR/.locks"
 . "$REPO_DIR/scripts/lockutils.sh"   # sweep_dead_locks / kill_tree
 
-mkdir -p "$CACHE_DIR"
+# Parse out --game <slug> (this script takes no other args).
+game_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    *)      shift ;;
+  esac
+done
 
-# Resolve game_dir from schedule.yaml
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1))); break
-PY
-)
-if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
-  echo "interrupt: ERROR — game_dir not resolvable from $SCHEDULE" >&2
-  exit 1
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+# PAUSED_FLAG is framework-global; CACHE_DIR/LOCKS_DIR are per-game.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
 fi
+game_dir="$GAME_DIR"
+STATE_FILE="$CACHE_DIR/last-interrupt.txt"
+
+mkdir -p "$CACHE_DIR"
 
 echo "interrupt: starting at $(date '+%Y-%m-%d %H:%M:%S %Z')"
 

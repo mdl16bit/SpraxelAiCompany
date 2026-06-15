@@ -14,7 +14,21 @@
 # file once per minute and resets shipped_since_last_signal to 0 next pass.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CACHE_DIR="$REPO_DIR/.cache"
+
+# ceo-checkin.ts + continuous-state.json are per-game operational state — resolve
+# the game context (honors --game, else $SPRAXEL_GAME, else the sole enabled game).
+game_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
 CHECKIN_FILE="$CACHE_DIR/ceo-checkin.ts"
 
 mkdir -p "$CACHE_DIR"

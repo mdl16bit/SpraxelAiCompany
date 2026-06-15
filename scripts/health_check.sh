@@ -13,7 +13,18 @@
 # Pure bash 3.2-compatible — no mapfile, no associative arrays.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOGS_DIR="$REPO_DIR/logs"
+
+# Resolve game context (the logs root this scans) via the shared resolver.
+# Honors --game, else $SPRAXEL_GAME, else the sole enabled game. PHASE 1: gctx's
+# flat GAME_LOGS_DIR == $REPO_DIR/logs, so the scanned tree is unchanged.
+game_arg=""
+[ "${1:-}" = "--game" ] && { game_arg="${2:-}"; shift 2; }
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+LOGS_DIR="$GAME_LOGS_DIR"
 TODAY=$(date +%Y-%m-%d)
 
 # Patterns that signal real trouble (vs. informational mentions).

@@ -25,10 +25,13 @@ set -o pipefail
 
 # --- arg parsing ---
 WORKER_ID=1
+game_arg=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --worker-id) WORKER_ID="$2"; shift 2 ;;
     --worker-id=*) WORKER_ID="${1#*=}"; shift ;;
+    --game) game_arg="${2:-}"; shift 2 ;;
+    --game=*) game_arg="${1#*=}"; shift ;;
     *) echo "continuous_dev: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done
@@ -38,9 +41,15 @@ SCHEDULE="$REPO_DIR/schedule.yaml"
 RUN_AGENT="$REPO_DIR/scripts/run_agent.sh"
 WORKMD="$REPO_DIR/scripts/workmd.py"
 SLUGIFY="$REPO_DIR/scripts/slugify.py"
-PAUSED_FLAG="$REPO_DIR/.paused"
-LOCKS_DIR="$REPO_DIR/.locks"
-CACHE_DIR="$REPO_DIR/.cache"
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+# Honors --game, else $SPRAXEL_GAME, else the sole enabled game. Sets GAME_DIR,
+# LOCKS_DIR, CACHE_DIR, GAME_LOGS_DIR, WORKTREES_DIR, GLOBAL_CACHE, PAUSED_FLAG
+# (and re-exports SPRAXEL_GAME so child run_agent.sh calls inherit the slug).
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
 # PID-aware lockdir helpers: acquire_lock writes the holder PID into
 # the lockdir so tick.sh can sweep orphan locks (SIGKILL'd holders)
 # without ripping live locks out from under active git operations.
@@ -109,16 +118,8 @@ trap 'for _c in $(pgrep -P $$ 2>/dev/null); do kill_tree "$_c" KILL; done; sleep
 trap 'exit 143' INT TERM
 trace "step: lock acquired for worker $WORKER_ID"
 
-# Resolve game_dir + target.
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1))); break
-PY
-)
+# Resolve game_dir + target. game_dir comes from gctx (sourced above).
+game_dir="$GAME_DIR"
 trace "step: game_dir parsed: '$game_dir'"
 # Read all continuous.* knobs from schedule.yaml in one pass, with defaults.
 # Emits "KEY=VAL" lines we eval'd into shell vars below.
@@ -187,10 +188,10 @@ trace "step: game_dir validated"
 # created on first use, reused across iterations (faster than recreating).
 # Worker's HEAD is detached on origin/master between items; per-item the
 # worker creates a feat branch in its worktree.
-WORK_DIR="$REPO_DIR/.worktrees/worker-$WORKER_ID"
+WORK_DIR="$WORKTREES_DIR/worker-$WORKER_ID"
 if [ ! -d "$WORK_DIR" ]; then
   trace "step: creating worker worktree at $WORK_DIR"
-  mkdir -p "$REPO_DIR/.worktrees"
+  mkdir -p "$WORKTREES_DIR"
   cd "$game_dir"
   git fetch --quiet origin master 2>/dev/null
   if ! git worktree add --quiet --detach "$WORK_DIR" origin/master 2>/dev/null; then
@@ -406,7 +407,7 @@ clean_slate() {
 # --- the per-item ship logic ---
 # Returns 0 on successful ship, 1 on failure, 2 on clarify-only (don't count).
 ship_one_item() {
-  local LOG_DIR="$REPO_DIR/logs/continuous/$(date +%Y-%m-%d)"
+  local LOG_DIR="$GAME_LOGS_DIR/continuous/$(date +%Y-%m-%d)"
   mkdir -p "$LOG_DIR"
   cd "$WORK_DIR" || return 1
   # Pass our worktree path to any child run_agent.sh calls — the dev +
@@ -845,9 +846,9 @@ commit. The wrapper squash-merges the resolved branch to master."
       git branch -D "$branch" --quiet 2>/dev/null || true
       for waited in 30 60 120 240 480 600; do
         sleep "$waited"
-        [ ! -d "$REPO_DIR/.locks/developer.lockdir" ] && break
+        [ ! -d "$LOCKS_DIR/developer.lockdir" ] && break
       done
-      if [ -d "$REPO_DIR/.locks/developer.lockdir" ]; then
+      if [ -d "$LOCKS_DIR/developer.lockdir" ]; then
         echo "continuous: lock still held after 25 min — giving up this iteration" >> "$item_log"
         return 2   # treat as "nothing shipped" — outer loop sleeps + retries
       fi

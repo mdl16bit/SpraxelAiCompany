@@ -16,16 +16,34 @@
 #   playtested.sh --reset    clear today's tested list (start the day over)
 set -euo pipefail
 
-SPRAXEL="$HOME/SpraxelAiCompany"
-SC="$SPRAXEL/schedule.yaml"
-GAME=$(python3 -c "import re,os;m=re.search(r'game_dir:\s*(\S+)',open(os.path.expanduser('$SC')).read());print(os.path.expanduser(m.group(1)))")
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Parse out --game <slug>, leaving the script's own positional arg
+# (<substr>|all|'*'|--list|--reset) intact for the embedded python.
+game_arg=""
+_args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    *)      _args+=("$1"); shift ;;
+  esac
+done
+set -- ${_args[@]+"${_args[@]}"}
+
+# Resolve game context (game_dir) via the shared resolver.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+GAME="$GAME_DIR"
 
 if [ $# -lt 1 ]; then
-  echo "usage: playtested.sh <substr> | all | '*' | --list | --reset" >&2
+  echo "usage: playtested.sh <substr> | all | '*' | --list | --reset [--game <slug>]" >&2
   exit 2
 fi
 
-GAME_DIR="$GAME" SPRAXEL_SCRIPTS="$SPRAXEL/scripts" python3 - "$@" <<'PY'
+GAME_DIR="$GAME" SPRAXEL_SCRIPTS="$REPO_DIR/scripts" python3 - "$@" <<'PY'
 import os, sys, json
 from datetime import datetime
 sys.path.insert(0, os.environ["SPRAXEL_SCRIPTS"])

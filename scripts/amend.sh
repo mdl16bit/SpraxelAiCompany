@@ -20,14 +20,24 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEDULE="$REPO_DIR/schedule.yaml"
 WORKMD="$REPO_DIR/scripts/workmd.py"
-LOCKS_DIR="$REPO_DIR/.locks"
 # shellcheck source=lockutils.sh
 . "$REPO_DIR/scripts/lockutils.sh"
 
+# Parse out --game <slug> from anywhere in the args, leaving the script's own
+# positional args (slug-or-sha + feedback words) intact and in order.
+game_arg=""
+_args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    *)      _args+=("$1"); shift ;;
+  esac
+done
+set -- ${_args[@]+"${_args[@]}"}
+
 if [ $# -lt 2 ]; then
-  echo "usage: $0 <slug-or-sha> <feedback>" >&2
+  echo "usage: $0 <slug-or-sha> <feedback> [--game <slug>]" >&2
   echo "" >&2
   echo "Keeps the feature on master, but queues a refinement pass with" >&2
   echo "your feedback as scope. Use reject.sh if you want it gone instead." >&2
@@ -38,21 +48,13 @@ target="$1"
 shift
 feedback="$*"
 
-# Pull game_dir from schedule.yaml.
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1)))
-            break
-PY
-)
-if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
-  echo "amend: game_dir not resolvable" >&2
-  exit 1
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
 fi
+game_dir="$GAME_DIR"
 cd "$game_dir"
 
 # Need master + clean tree to safely commit the WORK.md update.

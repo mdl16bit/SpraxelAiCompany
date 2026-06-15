@@ -19,15 +19,34 @@
 #   • the CEO, manually: `bash ~/SpraxelAiCompany/scripts/catch_up.sh`
 set -uo pipefail
 
-REPO_DIR="$HOME/SpraxelAiCompany"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULE="$REPO_DIR/schedule.yaml"
 RUN_AGENT="$REPO_DIR/scripts/run_agent.sh"
 SCRIPTS_DIR="$REPO_DIR/scripts"
 . "$REPO_DIR/scripts/lockutils.sh"
-LOCK="$REPO_DIR/.locks/catch_up.lockdir"
 
 reason="manual"
-[ "${1:-}" = "--reason" ] && reason="${2:-manual}"
+game_arg=""
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --reason) reason="${2:-manual}"; shift 2 ;;
+    --game)   game_arg="${2:-}"; shift 2 ;;
+    *)        args+=("$1"); shift ;;
+  esac
+done
+set -- "${args[@]+"${args[@]}"}"
+
+# Resolve game context (per-game state paths) via the shared resolver. Honors
+# --game, else $SPRAXEL_GAME, else the sole enabled game. Sets CACHE_DIR (per-game),
+# LOCKS_DIR (per-game), GLOBAL_CACHE + PAUSED_FLAG (framework-global).
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+
+LOCK="$LOCKS_DIR/catch_up.lockdir"
 
 # Single instance — a second catch_up (e.g. a later tick) just exits.
 if ! acquire_lock "$LOCK" 5 0.3; then
@@ -36,7 +55,7 @@ if ! acquire_lock "$LOCK" 5 0.3; then
 fi
 trap 'release_lock "$LOCK"' EXIT
 
-[ -e "$REPO_DIR/.paused" ] && { echo "$(date '+%F %T') catch_up: paused — skip"; exit 0; }
+[ -e "$PAUSED_FLAG" ] && { echo "$(date '+%F %T') catch_up: paused — skip"; exit 0; }
 
 echo "=== catch_up $(date '+%a %F %H:%M:%S %Z') — reason: $reason ==="
 
@@ -88,7 +107,7 @@ PY
 # is normalized (_→-) to match run_agent's $agent_slug.
 ran_ok_today() {
   local slug="${1//_/-}"
-  local stamp="$REPO_DIR/.cache/agent-last-ok/$slug.ts"
+  local stamp="$CACHE_DIR/agent-last-ok/$slug.ts"
   [ -e "$stamp" ] || return 1
   [ "$(date -r "$stamp" +%Y-%m-%d)" = "$(date +%Y-%m-%d)" ]
 }

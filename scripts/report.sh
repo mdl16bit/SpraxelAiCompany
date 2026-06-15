@@ -17,24 +17,28 @@
 # Briefer (which reads the main checkout).
 set -uo pipefail
 
-agent="${1:-}"
+agent=""
+game_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    *)      [ -z "$agent" ] && agent="$1"; shift ;;
+  esac
+done
 if [ -z "$agent" ]; then
-  echo "report.sh: usage: <body on stdin> | report.sh <agent-name>" >&2
+  echo "report.sh: usage: <body on stdin> | report.sh <agent-name> [--game <slug>]" >&2
   exit 2
 fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEDULE="$REPO_DIR/schedule.yaml"
-game=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-m = re.search(r"game_dir:\s*(\S+)", open(sys.argv[1]).read())
-print(os.path.expanduser(m.group(1)) if m else "")
-PY
-)
-if [ -z "$game" ] || [ ! -d "$game" ]; then
-  echo "report.sh: could not resolve game_dir from $SCHEDULE" >&2
-  exit 1
+# Reports go to the CANONICAL game repo (.factory/local is gitignored). Resolve
+# the game via gctx (honors --game, else inherits $SPRAXEL_GAME from the agent run).
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
 fi
+game="$GAME_DIR"
 
 dir="$game/.factory/local/reports"
 mkdir -p "$dir"

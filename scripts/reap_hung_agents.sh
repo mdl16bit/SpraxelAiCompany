@@ -18,8 +18,19 @@
 #   bash ~/SpraxelAiCompany/scripts/reap_hung_agents.sh
 set -uo pipefail
 
-REPO_DIR="${REPO_DIR:-$HOME/SpraxelAiCompany}"
-LOCKS_DIR="$REPO_DIR/.locks"
+_reap_default_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="${REPO_DIR:-$_reap_default_repo}"
+
+# Resolve game context (the LOCKS_DIR this sweeps) via the shared resolver.
+# Honors --game, else $SPRAXEL_GAME, else the sole enabled game. PHASE 1: gctx's
+# flat LOCKS_DIR == $REPO_DIR/.locks, so the swept set is unchanged.
+game_arg=""
+[ "${1:-}" = "--game" ] && { game_arg="${2:-}"; shift 2; }
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
 . "$REPO_DIR/scripts/lockutils.sh" 2>/dev/null || true
 
 # Per-lock max age (minutes) before we consider the holder hung. Generous:

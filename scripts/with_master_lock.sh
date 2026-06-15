@@ -25,18 +25,24 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEDULE="$REPO_DIR/schedule.yaml"
 WORKMD="$REPO_DIR/scripts/workmd.py"
-LOCKS_DIR="$REPO_DIR/.locks"
 # shellcheck source=lockutils.sh
 . "$REPO_DIR/scripts/lockutils.sh"
 
+# Leading options (-m / --game) may appear in any order BEFORE the workmd
+# subcommand. Everything from the subcommand onward is passed through verbatim
+# (those are the subcmd's own args, which must not be touched).
 msg=""
-if [ "${1:-}" = "-m" ]; then
-  msg="${2:-}"; shift 2
-fi
+game_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -m)     msg="${2:-}"; shift 2 ;;
+    --game) game_arg="${2:-}"; shift 2 ;;
+    *)      break ;;
+  esac
+done
 if [ $# -lt 1 ]; then
-  echo "usage: $0 [-m \"<commit subject>\"] <workmd-subcmd> [args...]" >&2
+  echo "usage: $0 [-m \"<commit subject>\"] [--game <slug>] <workmd-subcmd> [args...]" >&2
   exit 2
 fi
 subcmd="$1"; shift   # remaining "$@" are the subcmd's args AFTER the WORK.md path
@@ -49,18 +55,15 @@ if [ -z "$msg" ]; then
   msg="chore(work): ${subcmd} '${short}'"
 fi
 
-# Resolve game_dir from schedule.yaml.
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1))); break
-PY
-)
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+game_dir="$GAME_DIR"
 if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
-  echo "with_master_lock: game_dir not resolvable from $SCHEDULE" >&2
+  echo "with_master_lock: game_dir not resolvable" >&2
   exit 1
 fi
 

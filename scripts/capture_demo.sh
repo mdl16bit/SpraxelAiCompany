@@ -43,8 +43,10 @@
 
 set -o pipefail
 
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 if [ $# -lt 1 ]; then
-  echo "usage: $0 <slug> [--duration SECS] [--fps FPS] [--out PATH-WITHOUT-EXT]" >&2
+  echo "usage: $0 <slug> [--duration SECS] [--fps FPS] [--out PATH-WITHOUT-EXT] [--game <slug>]" >&2
   exit 2
 fi
 
@@ -52,11 +54,13 @@ SLUG="$1"; shift
 DURATION=10
 FPS=30
 OUT_BASE=""
+game_arg=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --duration) DURATION="$2"; shift 2 ;;
     --fps)      FPS="$2"; shift 2 ;;
     --out)      OUT_BASE="$2"; shift 2 ;;
+    --game)     game_arg="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -69,22 +73,17 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   exit 3
 fi
 
-# Resolve game_dir from the framework's schedule.yaml.
-SCHEDULE=~/SpraxelAiCompany/schedule.yaml
-GAME_DIR=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1))); break
-PY
-)
-[ -z "$GAME_DIR" ] && { echo "[capture] game_dir not resolvable from $SCHEDULE" >&2; exit 4; }
+# Resolve game context (game_dir) via the shared resolver.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+[ -z "$GAME_DIR" ] && { echo "[capture] game_dir not resolvable" >&2; exit 4; }
 
 # Resolve the Godot binary via the config loader (dev.godot_binary now lives in
 # GAME_CONFIG.yaml, deep-merged over COMPANY_CONFIG.yaml).
-GODOT=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get dev.godot_binary 2>/dev/null)
+GODOT=$(python3 "$REPO_DIR/scripts/spx_config.py" get dev.godot_binary 2>/dev/null)
 [ -x "$GODOT" ] || { echo "[capture] Godot binary not found at '$GODOT'" >&2; exit 4; }
 
 # Default output dir if not given.

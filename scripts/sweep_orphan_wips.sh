@@ -22,23 +22,31 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEDULE="$REPO_DIR/schedule.yaml"
 WORKMD="$REPO_DIR/scripts/workmd.py"
 SLUGIFY="$REPO_DIR/scripts/slugify.py"
-LOCKS_DIR="$REPO_DIR/.locks"
-CAND_CACHE="$REPO_DIR/.cache/wip-orphan-candidates.txt"
-DRY_RUN="false"; [ "${1:-}" = "--dry-run" ] && DRY_RUN="true"
 # shellcheck source=lockutils.sh
 . "$REPO_DIR/scripts/lockutils.sh"
 
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-for line in open(sys.argv[1]):
-    m = re.match(r"\s*game_dir:\s*(\S+)", line)
-    if m:
-        print(os.path.expanduser(m.group(1))); break
-PY
-)
+# Parse out --game <slug>, leaving the script's own --dry-run flag.
+game_arg=""
+DRY_RUN="false"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game)    game_arg="${2:-}"; shift 2 ;;
+    --dry-run) DRY_RUN="true"; shift ;;
+    *)         shift ;;
+  esac
+done
+
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+game_dir="$GAME_DIR"
+CAND_CACHE="$CACHE_DIR/wip-orphan-candidates.txt"
+
 if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then exit 0; fi
 WORK="$game_dir/WORK.md"
 [ -f "$WORK" ] || exit 0
@@ -52,7 +60,7 @@ while IFS= read -r _b; do
 done < <(git -C "$game_dir" worktree list --porcelain 2>/dev/null \
   | awk '/^branch /{sub("refs/heads/","",$2); print $2}')
 
-mkdir -p "$REPO_DIR/.cache"
+mkdir -p "$CACHE_DIR"
 prev_cands=""; [ -f "$CAND_CACHE" ] && prev_cands=$(cat "$CAND_CACHE")
 this_cands=""
 to_release=()

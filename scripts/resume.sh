@@ -15,17 +15,29 @@
 set -o pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEDULE="$REPO_DIR/schedule.yaml"
-PAUSED_FLAG="$REPO_DIR/.paused"
-STATE_FILE="$REPO_DIR/.cache/last-interrupt.txt"
 
+# Parse out --game <slug>, leaving the script's own flag (--drop/--no-resume).
+game_arg=""
 mode="restore"
-case "${1:-}" in
-  --drop) mode="drop" ;;
-  --no-resume) mode="no-resume" ;;
-  "") ;;
-  *) echo "usage: $0 [--drop|--no-resume]" >&2; exit 1 ;;
-esac
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    --drop) mode="drop"; shift ;;
+    --no-resume) mode="no-resume"; shift ;;
+    "") shift ;;
+    *) echo "usage: $0 [--drop|--no-resume] [--game <slug>]" >&2; exit 1 ;;
+  esac
+done
+
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+# PAUSED_FLAG is framework-global; CACHE_DIR is per-game.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+game_dir="$GAME_DIR"
+STATE_FILE="$CACHE_DIR/last-interrupt.txt"
 
 if [ ! -f "$STATE_FILE" ]; then
   echo "resume: no prior interrupt state at $STATE_FILE — just clearing .paused"
@@ -33,17 +45,6 @@ if [ ! -f "$STATE_FILE" ]; then
   echo "  ✓ .paused removed; daemon will resume on next tick"
   exit 0
 fi
-
-# Resolve game_dir
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1))); break
-PY
-)
 
 # Parse state file
 pre_branch=$(grep '^pre_branch:' "$STATE_FILE" | cut -d' ' -f2-)

@@ -14,13 +14,30 @@ set -o pipefail
 # "${arr[@]}" when arr is empty, which breaks our skip-list loop. We rely on
 # explicit initialization at the top of the file instead.
 
+# --- arg parsing ---
+game_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    --game=*) game_arg="${1#*=}"; shift ;;
+    *) echo "overnight_dev: unknown arg '$1'" >&2; exit 2 ;;
+  esac
+done
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULE="$REPO_DIR/schedule.yaml"
 RUN_AGENT="$REPO_DIR/scripts/run_agent.sh"
 WORKMD="$REPO_DIR/scripts/workmd.py"
 SLUGIFY="$REPO_DIR/scripts/slugify.py"
-PAUSED_FLAG="$REPO_DIR/.paused"
-LOCKS_DIR="$REPO_DIR/.locks"
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+# Honors --game, else $SPRAXEL_GAME, else the sole enabled game. Sets GAME_DIR,
+# LOCKS_DIR, CACHE_DIR, GAME_LOGS_DIR, WORKTREES_DIR, GLOBAL_CACHE, PAUSED_FLAG
+# (and re-exports SPRAXEL_GAME so child run_agent.sh calls inherit the slug).
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
 
 if [ -e "$PAUSED_FLAG" ]; then
   echo "overnight: paused"
@@ -36,16 +53,8 @@ if ! mkdir "$overnight_lock" 2>/dev/null; then
 fi
 trap 'rmdir "$overnight_lock" 2>/dev/null || true' EXIT INT TERM
 
-# --- game_dir + budget from schedule.yaml ---
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1))); break
-PY
-)
+# --- game_dir (from gctx) + budget from schedule.yaml ---
+game_dir="$GAME_DIR"
 target_items=$(python3 - "$SCHEDULE" <<'PY'
 import sys, re
 with open(sys.argv[1]) as f:
@@ -74,7 +83,7 @@ if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
   exit 1
 fi
 
-LOG_DIR="$REPO_DIR/logs/overnight/$(date +%Y-%m-%d)"
+LOG_DIR="$GAME_LOGS_DIR/overnight/$(date +%Y-%m-%d)"
 mkdir -p "$LOG_DIR"
 
 # --- compute hard-stop epoch in PT ---
@@ -271,7 +280,7 @@ done
 
 # --- summary ---
 echo "overnight: done — shipped=$shipped, attempted=${#attempted_titles[@]}, hard_stop=$(date -r "$hard_stop_epoch" '+%H:%M')"
-cat > "$REPO_DIR/.cache/last-overnight.txt" <<EOF
+cat > "$CACHE_DIR/last-overnight.txt" <<EOF
 ts: $(date '+%Y-%m-%d %H:%M:%S %Z')
 shipped: $shipped
 attempted: ${#attempted_titles[@]}

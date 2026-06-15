@@ -25,8 +25,27 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULE="$REPO_DIR/schedule.yaml"
 WORKMD="$REPO_DIR/scripts/workmd.py"
-LOCKS_DIR="$REPO_DIR/.locks"
-CACHE_DIR="$REPO_DIR/.cache"
+
+# --game <slug> (else $SPRAXEL_GAME, else sole enabled game). Preserve any other args.
+game_arg=""
+_args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    *)      _args+=("$1"); shift ;;
+  esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+# Sets GAME_DIR, WORK_MD, LOCKS_DIR, CACHE_DIR, GAME_LOGS_DIR, WORKTREES_DIR,
+# GLOBAL_CACHE, PAUSED_FLAG; re-exports SPRAXEL_GAME for child scripts (run_local_tests).
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+
 PROGRESS="$CACHE_DIR/test-runner-progress.json"
 UPTIME_FILE="$CACHE_DIR/engine-uptime-since-test.json"
 PENDING_FLAG="$CACHE_DIR/test-runner-pending"
@@ -59,23 +78,22 @@ PY
 trap cleanup EXIT INT TERM
 
 # --- config ----------------------------------------------------------------
-read -r GAME_DIR MAX_MINUTES <<EOF
+# GAME_DIR + WORK_MD come from gctx (sourced above). Only the runner budget is
+# read from the schedule here.
+read -r MAX_MINUTES <<EOF
 $(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
+import sys, re
 text = open(sys.argv[1]).read()
-m = re.search(r"game_dir:\s*(\S+)", text)
-game = os.path.expanduser(m.group(1)) if m else ""
 mm = re.search(r"^test_runner:\s*\n((?:(?:[ \t]+.*)?\n)*?)(?=^\S|\Z)", text, re.M)
 maxm = 120
 if mm:
     x = re.search(r"^\s+max_minutes:\s*(\d+)", mm.group(1), re.M)
     if x:
         maxm = int(x.group(1))
-print(game, maxm)
+print(maxm)
 PY
 )
 EOF
-WORK_MD="$GAME_DIR/WORK.md"
 RLT="$GAME_DIR/scripts/run_local_tests.sh"
 STATUS_JSON="$GAME_DIR/.factory/local-tests-status-wtr.json"
 if [ -z "$GAME_DIR" ] || [ ! -f "$WORK_MD" ] || [ ! -x "$RLT" ]; then

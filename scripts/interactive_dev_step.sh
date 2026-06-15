@@ -32,19 +32,37 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKMD="$REPO_DIR/scripts/workmd.py"
 SLUGIFY="$REPO_DIR/scripts/slugify.py"
 SPX="$REPO_DIR/scripts/spx_config.py"
-LOCKS_DIR="$REPO_DIR/.locks"
-CACHE_DIR="$REPO_DIR/.cache"
+
+# --game <slug> (else $SPRAXEL_GAME, else sole enabled game). Must be parsed
+# before the subcommand args; strip it and leave the rest for the case dispatch.
+game_arg=""
+_args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --game) game_arg="${2:-}"; shift 2 ;;
+    *)      _args+=("$1"); shift ;;
+  esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+# Sets GAME_DIR, WORK_MD, LOCKS_DIR, CACHE_DIR, GAME_LOGS_DIR, WORKTREES_DIR,
+# GLOBAL_CACHE, PAUSED_FLAG; re-exports SPRAXEL_GAME for child processes.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+
 MASTER_LOCK="$LOCKS_DIR/master-push.lockdir"
 STATE_FILE="$CACHE_DIR/continuous-state.json"   # shared cap-counter state (continuous_dev.sh)
 WORKER_ID=0
 . "$REPO_DIR/scripts/lockutils.sh"
 
-GAME_DIR="$(python3 "$SPX" get game_dir 2>/dev/null)"
-GAME_DIR="${GAME_DIR/#\~/$HOME}"      # expand a leading ~
-WORKTREE="$REPO_DIR/.worktrees/interactive"
+WORKTREE="$WORKTREES_DIR/interactive"
 BOT_ID=(-c user.email=interactive-dev-bot@spraxel.ai -c user.name='Spraxel Interactive Dev')
 
-mkdir -p "$LOCKS_DIR" "$CACHE_DIR" "$REPO_DIR/.worktrees"
+mkdir -p "$LOCKS_DIR" "$CACHE_DIR" "$WORKTREES_DIR"
 
 die() { echo "interactive_dev_step: $*" >&2; exit 1; }
 [ -n "$GAME_DIR" ] && [ -d "$GAME_DIR/.git" ] || [ -f "$GAME_DIR/.git" ] || die "game_dir not found: '$GAME_DIR'"

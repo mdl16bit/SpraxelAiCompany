@@ -19,18 +19,34 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEDULE="$REPO_DIR/schedule.yaml"
 AGENTS_DIR="$REPO_DIR/agents"
-LOGS_DIR="$REPO_DIR/logs"
-LOCKS_DIR="$REPO_DIR/.locks"
-PAUSED_FLAG="$REPO_DIR/.paused"
 
 agent="${1:-}"
-dry_run="${2:-}"
+shift || true
+dry_run=""
+game_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry_run="--dry-run"; shift ;;
+    --game)    game_arg="${2:-}"; shift 2 ;;
+    *)         shift ;;
+  esac
+done
 if [ -z "$agent" ]; then
-  echo "usage: $0 <agent-name> [--dry-run]" >&2
+  echo "usage: $0 <agent-name> [--dry-run] [--game <slug>]" >&2
   exit 4
 fi
+
+# Resolve game context (game_dir + per-game state paths) via the shared resolver.
+# Honors --game, else $SPRAXEL_GAME, else the sole enabled game. Sets GAME_DIR,
+# LOCKS_DIR, CACHE_DIR, GAME_LOGS_DIR, WORKTREES_DIR, GLOBAL_CACHE, PAUSED_FLAG.
+if [ -n "$game_arg" ]; then
+  . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
+else
+  . "$REPO_DIR/scripts/gctx.sh"
+fi
+game_dir="$GAME_DIR"
+LOGS_DIR="$GAME_LOGS_DIR"
 
 if [ -e "$PAUSED_FLAG" ]; then
   echo "run_agent: paused (rm $PAUSED_FLAG to resume)" >&2
@@ -78,22 +94,6 @@ OPUS_ID=$(python3 "$REPO_DIR/scripts/spx_config.py" get models.ids.opus 2>/dev/n
 if [ "$model_id" = "$SONNET_ID" ] && python3 "$REPO_DIR/scripts/sonnet_cap.py" is-capped; then
   echo "run_agent: Sonnet capped — $agent running on Opus ($OPUS_ID)" >&2
   model_id="$OPUS_ID"
-fi
-
-# Pull game_dir from schedule.yaml (simple YAML extraction — no PyYAML required).
-game_dir=$(python3 - "$SCHEDULE" <<'PY'
-import sys, os, re
-with open(sys.argv[1]) as f:
-    for line in f:
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            print(os.path.expanduser(m.group(1)))
-            break
-PY
-)
-if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
-  echo "run_agent: game_dir not resolvable: '$game_dir'" >&2
-  exit 4
 fi
 
 mkdir -p "$LOGS_DIR/$agent" "$LOCKS_DIR"
@@ -158,8 +158,8 @@ if [ -n "${SPRAXEL_WORK_DIR:-}" ] && [ -d "$SPRAXEL_WORK_DIR" ]; then
 elif [ "$agent" != "developer" ] && [ "$agent" != "reviewer" ]; then
   current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
   if [ "$current_branch" != "master" ] && [ -n "$current_branch" ]; then
-    WORKTREE_PATH="$REPO_DIR/.worktrees/${agent}-$$"
-    mkdir -p "$REPO_DIR/.worktrees"
+    WORKTREE_PATH="$WORKTREES_DIR/${agent}-$$"
+    mkdir -p "$WORKTREES_DIR"
     # Pull latest origin/master so the worktree starts from the freshest state.
     git fetch --quiet origin master 2>/dev/null
     if ! git worktree add --quiet --detach "$WORKTREE_PATH" origin/master 2>/dev/null; then
@@ -184,7 +184,7 @@ cleanup() {
     git -C "$WORKTREE_PATH" push --quiet origin HEAD:master 2>/dev/null || true
     git -C "$game_dir" worktree remove --force "$WORKTREE_PATH" 2>/dev/null || true
     # Best-effort: also remove any stale parent dir if empty.
-    rmdir "$REPO_DIR/.worktrees" 2>/dev/null || true
+    rmdir "$WORKTREES_DIR" 2>/dev/null || true
   fi
   release_lock "$lock_dir"
 }
@@ -405,8 +405,8 @@ while :; do
     # "morning-briefer"). catch_up.sh reads this to know an agent already produced
     # today's output — far more robust than grepping the session log (the "ok
     # (attempt" line only goes to the wrapper's stderr).
-    mkdir -p "$REPO_DIR/.cache/agent-last-ok"
-    : > "$REPO_DIR/.cache/agent-last-ok/$agent_slug.ts"
+    mkdir -p "$CACHE_DIR/agent-last-ok"
+    : > "$CACHE_DIR/agent-last-ok/$agent_slug.ts"
     if [ "$self_reports" -eq 1 ] && [ "$(count_reports)" = "$reports_before" ]; then
       tailmsg=$( { grep -vE '^[[:space:]]*$' "$log" 2>/dev/null || true; } | tail -1 | cut -c1-160)
       printf '%s\n' \
@@ -421,8 +421,8 @@ while :; do
     # the stamp stale and causing redundant reactive re-dispatches. Enforce it
     # here on every successful run so the stamp can never go stale.
     if [ "$agent" = "architect" ]; then
-      mkdir -p "$REPO_DIR/.cache"
-      touch "$REPO_DIR/.cache/architect-triage-seen.ts"
+      mkdir -p "$CACHE_DIR"
+      touch "$CACHE_DIR/architect-triage-seen.ts"
     fi
     exit 0
   fi
