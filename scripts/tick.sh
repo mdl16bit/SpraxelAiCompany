@@ -457,8 +457,11 @@ if [ "$_force_interactive" = "true" ] || [ "$_force_interactive" = "True" ]; the
 fi
 
 # Spawn missing workers — UNLESS a test-runner run is scheduled/active (it must
-# run alone, so we stop refilling the worker pool and let it drain).
-if [ -x "$CONTINUOUS" ] && [ ! -e "$TR_PENDING" ] && [ ! -e "$TR_ACTIVE" ]; then
+# run alone, so we stop refilling the worker pool and let it drain) OR
+# dev_concurrency is 0 (force_interactive_developers mode). The `-ge 1` guard is
+# load-bearing: on macOS `seq 1 0` counts DOWN to "1 0" (NOT empty), so without it
+# a dev_concurrency of 0 would spawn workers w1 AND w0 every tick.
+if [ -x "$CONTINUOUS" ] && [ ! -e "$TR_PENDING" ] && [ ! -e "$TR_ACTIVE" ] && [ "${dev_concurrency:-0}" -ge 1 ]; then
   mkdir -p "$REPO_DIR/logs/continuous"
   for id in $(seq 1 "$dev_concurrency"); do
     lock="$LOCKS_DIR/continuous-w$id.lockdir"
