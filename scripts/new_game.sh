@@ -60,7 +60,7 @@ copy_if_missing() {
 }
 
 # Top-level stub files (skipped if they already exist)
-for f in Philosophy.md GAME_CONFIG.yaml Game.md WORK.md .gitignore .gitattributes CLAUDE.md; do
+for f in Philosophy.md INSPIRATIONS.md GAME_CONFIG.yaml Game.md WORK.md .gitignore .gitattributes CLAUDE.md; do
     copy_if_missing "$TEMPLATE_DIR/$f" "$TARGET/$f"
 done
 

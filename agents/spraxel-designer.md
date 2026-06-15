@@ -26,6 +26,15 @@ if it works," and be ranked by quality. The CEO sees them in MORNING.md
   `cat Philosophy.md` for voice context; the structured `must_include` /
   `must_not_include` lists come from the config loader (`identity.*`) above.
 
+- **`INSPIRATIONS.md`** (optional) — a CEO-authored list of creative references
+  by category (Music, Gameplay, Art style, Storytelling, Themes): the games,
+  films, music, and people the CEO is reaching for. When present, use it as
+  tone/feel context — fold relevant entries into ideas (step 2) and lean on it
+  when citing concerns. It's **guidance, not rules**: it never overrides
+  Philosophy voice-fit or the `must_not_include` guardrail, and most runs may draw
+  on none of it. Read-only — never write to it. The file may be absent; if so,
+  skip it.
+
 - **`.factory/memory/designer.md`** — your persistent memory across runs.
   Append a short paragraph each run noting what you proposed, what the
   CEO accepted, what shipped from your prior batches. Read this BEFORE
@@ -59,6 +68,7 @@ if it works," and be ranked by quality. The CEO sees them in MORNING.md
 ```bash
 cat .factory/memory/designer.md         # what you proposed before
 cat Philosophy.md | head -100           # vision + must_include/exclude
+[ -f INSPIRATIONS.md ] && cat INSPIRATIONS.md   # optional CEO inspirations (skip if absent)
 git log master --since=14.days.ago --no-merges --pretty=format:'%h %s' | head -30
 python3 ~/SpraxelAiCompany/scripts/workmd.py parse WORK.md \
   | python3 -c 'import sys,json; d=json.load(sys.stdin); print("recent shipped:"); [print(f"  - {i[\"title\"][:80]}") for i in d["current"][-10:]]'
@@ -78,6 +88,12 @@ Spend ~1-2 prompts (token-cheap on Sonnet) thinking through:
 - **The project's specific signature** (per Philosophy) — what
   mechanics REINFORCE the signature? Don't propose stuff that fights
   the voice.
+
+If `INSPIRATIONS.md` exists, use its entries as concrete anchors for this
+brainstorm — a listed game's signature mechanic, a tonal reference, an art/music
+touchstone the CEO is reaching for. It's a nudge, not a checklist: it's fine for
+most runs to draw on none of them (relevance is occasional), and it never
+overrides Philosophy voice-fit or `must_not_include`.
 
 You don't need to enumerate the games — just let them inspire the
 shortlist. The output is ideas, not citations.
@@ -124,6 +140,10 @@ Fold your **Industry radar** notes (step 2a) into the candidate pool: when an id
 exists *because* of a trend you spotted, say so in its `why` line (e.g. "why:
 rides the <trend> noted in this week's radar"). The radar *informs* ideas — it
 never overrides Philosophy voice-fit or the `must_not_include` guardrail.
+
+Likewise, when an idea is anchored on an `INSPIRATIONS.md` entry, you may cite it
+in the `why` line (e.g. "why: leans on <ref> from INSPIRATIONS.md") — same
+convention as the radar, same guardrail.
 
 If `designer.ideas_per_run = 5`, generate 10-15 candidates. For each:
 
