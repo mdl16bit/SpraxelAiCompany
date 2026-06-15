@@ -782,6 +782,11 @@ def render(now: datetime, game_dir: Path | None) -> str:
         status = f"{GREEN}▶  running{RESET}"
     lines.append(f"  Status         {status}")
 
+    # Sonnet-cap auto-fallback (only shown while active)
+    cap_status = sh(f'python3 "{REPO_DIR}/scripts/sonnet_cap.py" status')
+    if cap_status.startswith("CAPPED"):
+        lines.append(f"  Models         {YELLOW}⚠ Sonnet capped → Opus{RESET} {DIM}{cap_status[len('CAPPED → using Opus '):]}{RESET}")
+
     # Tick daemon
     tick_loaded = bool(sh("launchctl list | grep com.spraxel.tick"))
     tick_line = f"{GREEN}✓ loaded{RESET}" if tick_loaded else f"{RED}✗ NOT LOADED{RESET}"

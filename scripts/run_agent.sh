@@ -68,6 +68,18 @@ case "$model_short" in
     fi ;;
 esac
 
+# --- Sonnet-cap auto-fallback to Opus ---
+# If this agent resolves to Sonnet AND the shared sonnet-cap flag is active (a
+# prior Sonnet call hit the weekly limit and it hasn't re-probed yet), run on Opus
+# instead. The flag self-clears once its reset window passes, so this reverts to
+# Sonnet automatically. (Applies to crew + the headless developer in both modes.)
+SONNET_ID=$(python3 "$REPO_DIR/scripts/spx_config.py" get models.ids.sonnet 2>/dev/null); SONNET_ID=${SONNET_ID:-claude-sonnet-4-6}
+OPUS_ID=$(python3 "$REPO_DIR/scripts/spx_config.py" get models.ids.opus 2>/dev/null); OPUS_ID=${OPUS_ID:-claude-opus-4-8}
+if [ "$model_id" = "$SONNET_ID" ] && python3 "$REPO_DIR/scripts/sonnet_cap.py" is-capped; then
+  echo "run_agent: Sonnet capped — $agent running on Opus ($OPUS_ID)" >&2
+  model_id="$OPUS_ID"
+fi
+
 # Pull game_dir from schedule.yaml (simple YAML extraction — no PyYAML required).
 game_dir=$(python3 - "$SCHEDULE" <<'PY'
 import sys, os, re
@@ -356,6 +368,15 @@ while :; do
   SPRAXEL_AGENT_RUN=1 WORK_MD_PATH="$WORK_MD_PATH" \
     claude --model "$model_id" --dangerously-skip-permissions -p < "$log.prompt" > "$log" 2>&1
   rc=$?
+  # Sonnet-cap auto-fallback: if we ran Sonnet and the reply is a usage-cap refusal,
+  # arm the shared flag (every agent now falls back) and retry THIS run on Opus —
+  # WITHOUT burning a real attempt. Automates the old manual "flip dev/architect to
+  # opus to unblock" workaround; ends the retry-storm-on-75-byte-logs failure mode.
+  if [ "$model_id" = "$SONNET_ID" ] && python3 "$REPO_DIR/scripts/sonnet_cap.py" detect "$log"; then
+    echo "run_agent: Sonnet cap detected — switching $agent to Opus ($OPUS_ID) and retrying" >&2
+    model_id="$OPUS_ID"
+    continue
+  fi
   if [ "$rc" -eq 0 ] && [ -s "$log" ]; then
     echo "run_agent: $agent ok (attempt $attempt)" >&2
     # Reliable "ran ok" stamp (per agent, NORMALIZED slug so it matches whether

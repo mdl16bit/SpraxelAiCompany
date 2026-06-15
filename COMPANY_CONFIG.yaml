@@ -68,6 +68,10 @@ models:
 # Company policy defaults (a game's GAME_CONFIG.yaml may override).
 policy:
   run_mode: "live"             # live | offline — gates whether agents actually do work
+  sonnet_cap_reprobe_secs: 7200 # when a Sonnet usage-cap is detected, Sonnet agents (+ the
+                               # interactive developer) fall back to Opus, then re-probe Sonnet
+                               # after this many seconds (default 2h). If the cap message carries
+                               # an explicit reset time, that is used instead. scripts/sonnet_cap.py.
   budgets:
     monthly_usd_hard_cap: 250  # informational
     by_agent_percent:          # token_report.sh warns if actual share drifts >25%

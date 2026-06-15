@@ -36,7 +36,11 @@ Paths (absolute):
        Build `cap` items, then STOP. No parking, no auto-resume.
      - **No arg** (`/spraxel-develop`) → **CONTINUOUS** mode. `cap = target`. Build up to the cap,
        then PARK and self-resume on a CEO poke — looping until the CEO stops it.
-   - Dev model = **sonnet** (`models.developer`); reviewer model = **haiku** (`models.reviewer`).
+   - Reviewer model = **haiku** (`models.reviewer`) — unaffected by the Sonnet cap.
+   - Dev model = **sonnet** (`models.developer`) **UNLESS the Sonnet cap is hit**: run
+     `python3 ~/SpraxelAiCompany/scripts/sonnet_cap.py is-capped` — if it exits 0, use
+     **opus** for the dev subagents instead (the shared Sonnet→Opus fallback). Re-check this
+     at the top of EACH item (the flag can flip mid-run as crew agents probe Sonnet).
 3. **Heartbeat ON**: `touch ~/SpraxelAiCompany/.cache/interactive-dev-active`. Re-touch it at the
    top of every BUILD iteration (the dashboard reads its freshness for "develop: executing").
    Always remove it when the run ends (§4).
@@ -90,6 +94,11 @@ b. **Develop** — dispatch a fresh **dev subagent via the Agent tool** (`model:
    - A fresh subagent per item is the per-item "clear context" (matches the headless
      fresh-`claude -p` model).
    - If the dev subagent reports the item is ambiguous / needs CEO → go to (e) escalate.
+   - **Sonnet-cap fallback**: if a Sonnet dev subagent dies with a usage-limit error (the
+     Agent result mentions hitting a usage/rate limit, or returns empty on a Sonnet run),
+     arm the shared flag: `python3 ~/SpraxelAiCompany/scripts/sonnet_cap.py set`, then
+     re-dispatch the SAME item's dev subagent immediately on **opus**. From then on this
+     run uses opus until `is-capped` clears.
 
 c. **Independent review** — dispatch a SEPARATE **reviewer subagent via the Agent tool**
    (`model: haiku`):
