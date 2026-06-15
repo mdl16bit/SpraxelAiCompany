@@ -342,11 +342,111 @@ finally:
 PY
 }
 
+# ── release-claims ─────────────────────────────────────────────────────────
+# Strip any stale [wip:0] claim from WORK.md (an item the interactive loop was
+# mid-building when it got interrupted) so it becomes eligible again, committed
+# under the lock. Mirrors the headless worker's release-wip-on-startup. The next
+# claim-one re-claims it and the worktree is reset clean, so no item is stranded.
+cmd_release_claims() {
+  acquire_lock "$MASTER_LOCK" 60 0.3 || true
+  (
+    trap 'release_lock "'"$MASTER_LOCK"'"' EXIT
+    cd "$GAME_DIR" || exit 1
+    git fetch --quiet origin master 2>/dev/null
+    git checkout --quiet master 2>/dev/null || exit 1
+    git reset --hard origin/master --quiet 2>/dev/null
+    python3 "$WORKMD" release-wip "$GAME_DIR/WORK.md" --worker-id "$WORKER_ID" >/dev/null 2>&1 || true
+    git add WORK.md 2>/dev/null
+    git diff --cached --quiet && exit 0
+    git "${BOT_ID[@]}" commit --quiet -m "chore(work): release stale [wip:$WORKER_ID] (interactive resume)" 2>/dev/null || exit 1
+    git pull --rebase --quiet origin master 2>/dev/null
+    git push --quiet origin master 2>/dev/null
+  )
+  rmdir "$MASTER_LOCK" 2>/dev/null || true
+  echo "released stale [wip:$WORKER_ID] claims"
+}
+
+# ── cap-status ── prints "<shipped>/<target>" from the shared counter + config.
+cmd_cap_status() {
+  local target shipped
+  target=$(python3 "$SPX" get continuous.target_per_batch 2>/dev/null); target=${target:-5}
+  shipped=$(python3 -c "import json;print(json.load(open('$STATE_FILE')).get('shipped_since_last_signal',0))" 2>/dev/null); shipped=${shipped:-0}
+  echo "$shipped/$target"
+}
+
+# ── poked ── exit 0 (+ reason on stdout) if a CEO poke happened since the last
+# signal: a NON-bot commit on origin/master, a checkin.sh touch, OR a TRIAGE.md
+# save. Mirrors continuous_dev.sh ceo_signaled, plus the TRIAGE-save trigger.
+cmd_poked() {
+  git -C "$GAME_DIR" fetch --quiet origin master 2>/dev/null
+  STATE_FILE="$STATE_FILE" GAME_DIR="$GAME_DIR" \
+  CHECKIN="$CACHE_DIR/ceo-checkin.ts" TRIAGE="$GAME_DIR/.factory/local/TRIAGE.md" \
+  python3 - <<'PY'
+import json, os, subprocess, sys
+from datetime import datetime
+sf = os.environ['STATE_FILE']
+try: s = json.load(open(sf))
+except Exception: s = {}
+last_sha = s.get('last_signal_sha', '')
+def to_epoch(ts):
+    for fmt in ('%Y-%m-%d %H:%M:%S %Z', '%Y-%m-%d %H:%M:%S'):
+        try: return datetime.strptime(ts, fmt).timestamp()
+        except Exception: pass
+    return 0.0
+last_ep = to_epoch(s.get('last_signal_ts', ''))
+reason = None
+# 1. non-bot commit on origin/master since the watermark
+if last_sha:
+    try:
+        out = subprocess.run(['git', '-C', os.environ['GAME_DIR'], 'log', '--format=%ae',
+                              f'{last_sha}..origin/master'], capture_output=True, text=True, timeout=10).stdout
+        for ae in out.split():
+            if not ae.endswith('-bot@spraxel.ai'):
+                reason = f'CEO commit ({ae})'; break
+    except Exception: pass
+# 2. manual checkin touched
+if not reason:
+    c = os.environ['CHECKIN']
+    if os.path.exists(c) and os.path.getmtime(c) > last_ep: reason = 'checkin'
+# 3. TRIAGE.md saved
+if not reason:
+    t = os.environ['TRIAGE']
+    if os.path.exists(t) and os.path.getmtime(t) > last_ep: reason = 'TRIAGE saved'
+if reason:
+    print(reason); sys.exit(0)
+sys.exit(1)
+PY
+}
+
+# ── reset-signal ── record_ceo_signal: counter→0, watermark→current origin/master.
+cmd_reset_signal() {
+  git -C "$GAME_DIR" fetch --quiet origin master 2>/dev/null
+  local now_sha now_ts
+  now_sha=$(git -C "$GAME_DIR" rev-parse origin/master 2>/dev/null || echo '')
+  now_ts=$(date '+%Y-%m-%d %H:%M:%S %Z')
+  STATE_FILE="$STATE_FILE" NOW_SHA="$now_sha" NOW_TS="$now_ts" python3 - <<'PY'
+import json, os
+sf = os.environ['STATE_FILE']
+try: s = json.load(open(sf))
+except Exception: s = {}
+s['shipped_since_last_signal'] = 0
+s['last_signal_sha'] = os.environ['NOW_SHA']
+s['last_signal_ts'] = os.environ['NOW_TS']
+s['last_ts'] = os.environ['NOW_TS']
+json.dump(s, open(sf, 'w'), indent=2)
+PY
+  echo "signal reset (counter=0, watermark=$now_sha)"
+}
+
 case "${1:-}" in
-  claim-one)     shift; cmd_claim_one "$@" ;;
-  finish-one)    shift; cmd_finish_one "$@" ;;
-  fail-one)      shift; cmd_fail_one "$@" ;;
-  append-manual) shift; cmd_append_manual "$@" ;;
-  bump-cap)      shift; cmd_bump_cap "$@" ;;
-  *) echo "usage: interactive_dev_step.sh {claim-one | finish-one <branch> <title> | fail-one <branch> <title> retry|escalate | append-manual <title> [--detail ...] | bump-cap}" >&2; exit 2 ;;
+  claim-one)      shift; cmd_claim_one "$@" ;;
+  finish-one)     shift; cmd_finish_one "$@" ;;
+  fail-one)       shift; cmd_fail_one "$@" ;;
+  append-manual)  shift; cmd_append_manual "$@" ;;
+  bump-cap)       shift; cmd_bump_cap "$@" ;;
+  release-claims) shift; cmd_release_claims "$@" ;;
+  cap-status)     shift; cmd_cap_status "$@" ;;
+  poked)          shift; cmd_poked "$@" ;;
+  reset-signal)   shift; cmd_reset_signal "$@" ;;
+  *) echo "usage: interactive_dev_step.sh {claim-one | finish-one <branch> <title> | fail-one <branch> <title> retry|escalate | append-manual <title> [--detail ...] | bump-cap | release-claims | cap-status | poked | reset-signal}" >&2; exit 2 ;;
 esac

@@ -1,6 +1,6 @@
 ---
 name: spraxel-develop
-description: Interactive developer loop for force_interactive_developers mode. Runs the Spraxel DEVELOPER role from this interactive session instead of a headless `claude -p` worker — building WORK.md items one-by-one (claim → build → independent review → squash-merge → ship → push), up to the batch cap, then stopping. Dev work runs on Sonnet, review on Haiku, both via the Agent tool (subscription-side, not metered). Use when the user types /spraxel-develop (optionally with a count, e.g. `/spraxel-develop 3`) or says "build the queue", "develop the work items", "ship the next N".
+description: Interactive developer loop for force_interactive_developers mode. Runs the Spraxel DEVELOPER role from this interactive session instead of a headless `claude -p` worker — building WORK.md items one-by-one (claim → build → independent review → squash-merge → ship → push). TWO MODES — `/spraxel-develop N` builds exactly N items then stops (one-shot); `/spraxel-develop` with NO number builds up to the batch cap, then PARKS and self-resumes whenever the CEO pokes the system (a non-bot commit, a checkin, or saving TRIAGE.md), looping until told to stop. Dev work runs on Sonnet, review on Haiku, both via the Agent tool (subscription-side, not metered). Use when the user types /spraxel-develop (optionally with a count) or says "build the queue", "develop the work items", "ship the next N", "keep building".
 ---
 
 # Spraxel — interactive developer (`/spraxel-develop [N]`)
@@ -28,18 +28,38 @@ Paths (absolute):
    is false — headless devs are live; enable the mode (set it true in COMPANY_CONFIG or
    the game's GAME_CONFIG) before running /spraxel-develop, or you'll race the headless
    pool." Do not proceed.
-2. **Resolve params**:
+2. **Resolve params + MODE**:
    - `game_dir` = `spx_config get game_dir` (expand a leading `~`).
-   - `N` = the numeric arg to the skill if given, else `spx_config get continuous.target_per_batch` (5).
+   - `target` = `spx_config get continuous.target_per_batch` (5) — the cap size.
+   - **MODE** (the whole behavior split):
+     - A **number was passed** (`/spraxel-develop 3`) → **ONE-SHOT** mode. `cap = that number`.
+       Build `cap` items, then STOP. No parking, no auto-resume.
+     - **No arg** (`/spraxel-develop`) → **CONTINUOUS** mode. `cap = target`. Build up to the cap,
+       then PARK and self-resume on a CEO poke — looping until the CEO stops it.
    - Dev model = **sonnet** (`models.developer`); reviewer model = **haiku** (`models.reviewer`).
-3. **Heartbeat ON**: `touch ~/SpraxelAiCompany/.cache/interactive-dev-active`. You will
-   re-touch it at the top of every iteration (the dashboard reads its freshness to show
-   "develop: executing"). Always remove it on exit (step 4 / on stop).
-4. Initialize `shipped=0`, `escalated=0`, `retried=0`.
+3. **Heartbeat ON**: `touch ~/SpraxelAiCompany/.cache/interactive-dev-active`. Re-touch it at the
+   top of every BUILD iteration (the dashboard reads its freshness for "develop: executing").
+   Always remove it when the run ends (§4).
+4. **Clear stale claims**: `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh release-claims`
+   — releases any orphan `[wip:0]` left by a previously interrupted item (e.g. you pressed Esc
+   mid-build) so it becomes eligible again and nothing is stranded.
+5. **CONTINUOUS mode only — fresh start**:
+   `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh reset-signal` (counter→0, watermark→
+   current master) so the first epoch builds a full `cap`. (ONE-SHOT mode: skip this — it builds
+   exactly its N regardless of the counter.)
+6. Initialize `shipped=0`, `escalated=0`, `retried=0`.
 
-## 1. Build loop — repeat while `shipped < N`
+## 1. Build the batch — repeat the per-item steps (a–e) until the STOP condition
 
-Re-`touch` the heartbeat marker at the start of each iteration.
+Re-`touch` the heartbeat marker at the start of each iteration. **STOP building the current batch when:**
+- **ONE-SHOT**: you have shipped `cap` items, OR the queue is dry (`claim-one` → `EMPTY`). Then do
+  §2 (sweep, if cap hit) and §4 (stop) — you're done.
+- **CONTINUOUS**: `interactive_dev_step.sh cap-status` shows `shipped >= cap` (cap hit), OR the
+  queue is dry. Then do §2 (sweep, if cap hit) and §3 (PARK).
+
+Use the **shared** counter (`cap-status`) for the CONTINUOUS stop test — NOT a local count — so
+that a poke's counter-reset is exactly what lets the next epoch run. In ONE-SHOT mode, count the
+items you shipped this run.
 
 a. **Claim** the next item (syncs master, claims under the master-push lock, pushes the
    `[wip:0]` tag):
@@ -121,11 +141,12 @@ e. **Finish or fail**:
      ```
      `escalated += 1`, `continue`.
 
-## 2. Post-batch full-test sweep (only when the cap was HIT)
+## 2. Post-batch full-test sweep (when the cap was HIT — both modes)
 
-Run this ONLY if the loop stopped because `shipped == N` (a full batch) — NOT if the queue
-went dry. And only if no sweep is already in flight (`~/SpraxelAiCompany/.cache/test-runner-active`
-and `…/test-runner-pending` both absent).
+Run this when the batch stopped because the **cap was hit** (ONE-SHOT: shipped `cap`; CONTINUOUS:
+`cap-status` shows `shipped >= cap`) — NOT if the queue went dry. And only if no sweep is already
+in flight (`~/SpraxelAiCompany/.cache/test-runner-active` and `…/test-runner-pending` both absent).
+In CONTINUOUS mode this fires once per epoch, right before you PARK (§3).
 
 1. Threshold = `spx_config get test_runner.interactive_sweep_after_hours` (merged; infiltrators=48).
    If it is `0` or empty → skip the sweep.
@@ -140,12 +161,44 @@ and `…/test-runner-pending` both absent).
    uptime counter on completion. Those `[test_failure]` items are built by the NEXT
    `/spraxel-develop` run.
 
-## 3. Stop + report
+## 3. CONTINUOUS mode — PARK, then poll for a CEO poke and resume
 
-1. **Heartbeat OFF**: `rm -f ~/SpraxelAiCompany/.cache/interactive-dev-active`.
-2. Report to the CEO: how many shipped / retried / escalated, what (if anything) remains,
-   and whether a full-test sweep was kicked off (and that any `[test_failure]` items it
-   files will be built next run). Then stop and wait — do not loop further.
+**ONE-SHOT mode skips this entirely → go straight to §4 and stop.**
+
+When a CONTINUOUS epoch hits the cap (or the queue went dry) and §2 has fired, you PARK and let
+the session self-resume on a poke:
+
+1. **Schedule a wake-up and END THE TURN** (so control returns to the CEO and the loop self-resumes):
+   - Call **ScheduleWakeup** with `delaySeconds: 90`, a short `reason` (e.g. "parked at cap —
+     polling for a CEO poke"), and a `prompt` that re-enters THIS resume logic, e.g.:
+     > "[/spraxel-develop CONTINUOUS — auto-wake] You are mid-run, parked at the cap. Run
+     > `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh poked`. If it exits 0 (a CEO
+     > poke — it prints the reason), run `interactive_dev_step.sh release-claims` then
+     > `reset-signal`, then resume building the next batch (§1). If it exits 1, ScheduleWakeup
+     > again (~90s) with this same prompt and end the turn."
+   - Then tell the CEO: "Parked at the cap (`<cap-status>`). I'll resume automatically when you
+     poke the system — a non-bot commit on master, a `checkin.sh`, or **saving TRIAGE.md** — or
+     interrupt me (Esc / a message) to stop or redirect." End the turn.
+2. **On wake** (the prompt above fires): `release-claims`, then `interactive_dev_step.sh poked`:
+   - **exit 0** (poked) → `reset-signal`, then go to §1 and build the next batch (a fresh epoch).
+   - **exit 1** (no poke) → re-PARK (step 1 again: ScheduleWakeup ~90s, end the turn).
+3. **Stopping**: the CEO interrupts (Esc while building, or a message any time) and tells you to
+   stop. When that happens, do NOT schedule another wake-up — go to §4.
+
+> If `ScheduleWakeup` isn't available in this context, fall back to: PARK by ending the turn with
+> the same "poke to resume" message, and resume when the CEO next pokes + messages you (run the
+> same `poked` / `reset-signal` checks on re-entry). The behavior is identical; only the
+> auto-wake-while-idle is lost.
+
+## 4. Stop + report
+
+(ONE-SHOT mode lands here after its batch. CONTINUOUS mode lands here only when the CEO stops it.)
+
+1. **Heartbeat OFF**: `rm -f ~/SpraxelAiCompany/.cache/interactive-dev-active`. Do NOT schedule
+   any further wake-up.
+2. Report to the CEO: how many shipped / retried / escalated this run, what (if anything) remains,
+   and whether a full-test sweep was kicked off (and that any `[test_failure]` items it files will
+   be built on the next run/epoch). Then stop.
 
 ## Notes / invariants
 
@@ -157,3 +210,12 @@ and `…/test-runner-pending` both absent).
 - **`.paused` is separate**: it pauses crew agents, not this manually-run skill. You may
   run /spraxel-develop while the system shows PAUSED (the dashboard shows both states).
 - If `claim-one` ever prints `lost push race`, just call it again — a crew push won the race.
+- **Interrupting (CONTINUOUS mode)**: the CEO presses **Esc** to interrupt mid-build, or just
+  types while you're parked between epochs. Either way, handle their request (stop, talk to the
+  producer, dictate a fix, etc.). If they Esc'd mid-item, the next `release-claims` (run at the
+  top of every batch + on every wake) clears the orphaned `[wip:0]` so nothing is stranded.
+- **Resume pokes**: `poked` returns true on a non-bot commit on master, a `checkin.sh` touch, OR
+  a TRIAGE.md save. The interactive-dev bot commits use `*-bot@spraxel.ai`, so the loop's own
+  ship commits never count as a poke (they won't falsely reset the counter).
+- **Cap parity**: every counted ship calls `bump-cap`, so the dashboard "Cap counter X/N" and the
+  CONTINUOUS stop test (`cap-status`) reflect interactive ships exactly like headless ones.
