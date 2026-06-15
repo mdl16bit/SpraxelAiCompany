@@ -453,7 +453,7 @@ def playtest_texts(game_dir: Path | None, limit: int = 20) -> list[str]:
                     t = re.sub(r"\s*—\s*`[0-9a-f]+`\s*$", "", m.group(1).strip())
                     items.append(t)
     if not items:
-        out = sh("git log master --grep='^feat:' --author='continuous-bot' "
+        out = sh("git log master --grep='^feat:' --author='continuous-bot' --author='Interactive Dev' "
                  "--since='yesterday 21:00' --pretty='%s'", cwd=game_dir)
         for ln in (out.splitlines() if out else []):
             items.append(re.sub(r"^feat(\([^)]*\))?:\s*", "", ln))
@@ -612,7 +612,7 @@ def ships_today(game_dir: Path | None) -> int:
     if not game_dir: return 0
     out = sh(
         "git log master --since=midnight --pretty='%h' --grep='^feat:' "
-        "--author='continuous-bot' | wc -l",
+        "--author='continuous-bot' --author='Interactive Dev' | wc -l",
         cwd=game_dir,
     )
     try:
@@ -637,7 +637,7 @@ def ship_throughput(game_dir: Path | None) -> dict[str, int | float]:
     def n(args: str) -> int:
         out = sh(
             f"git log master {args} --pretty='%h' --grep='^feat:' "
-            f"--author='continuous-bot' | wc -l",
+            f"--author='continuous-bot' --author='Interactive Dev' | wc -l",
             cwd=game_dir,
         )
         try: return int(out)
@@ -665,7 +665,7 @@ def last_n_ships(game_dir: Path | None, n: int = 20) -> list[tuple[str, str, str
     # %h short sha, %cr relative date, %s subject
     out = sh(
         f"git log master --pretty=format:'%h|%cr|%s' --grep='^feat:' "
-        f"--author='continuous-bot' -n {n}",
+        f"--author='continuous-bot' --author='Interactive Dev' -n {n}",
         cwd=game_dir,
     )
     if not out:
@@ -816,8 +816,9 @@ def render(now: datetime, game_dir: Path | None) -> str:
                 age_str = fmt_etime(int(age.total_seconds()))
             except Exception:
                 age_str = ""
-            color = YELLOW if str(shipped) == "10" else GREEN
-            cap_line = f"{color}{shipped}/10{RESET} {DIM}since {last_sig} ({age_str} ago){RESET}"
+            cap_target = read_config_int(game_dir, "continuous.target_per_batch", 5)
+            color = YELLOW if str(shipped) == str(cap_target) else GREEN
+            cap_line = f"{color}{shipped}/{cap_target}{RESET} {DIM}since {last_sig} ({age_str} ago){RESET}"
         except Exception:
             pass
     lines.append(f"  Cap counter    {cap_line}")
@@ -935,7 +936,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
     # Throughput — git-log derived, no state file race
     tput = ship_throughput(game_dir)
     lines.append(f"  {BOLD}▸ Throughput{RESET}")
-    lines.append(f"    Today:        {GREEN}{tput['today']:>3}{RESET} {DIM}(continuous-bot ships){RESET}")
+    lines.append(f"    Today:        {GREEN}{tput['today']:>3}{RESET} {DIM}(dev ships — headless + interactive){RESET}")
     lines.append(f"    7-day:        {GREEN}{tput['seven_day']:>3}{RESET} {DIM}avg {tput['avg_per_day']}/day{RESET}")
     lines.append(f"    Lifetime:     {DIM}{tput['lifetime']:>3}{RESET}")
     lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir):>3}{RESET} {DIM}(today, CEO-bound){RESET}")
