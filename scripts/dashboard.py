@@ -908,7 +908,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
             return (pool.get("total_tokens") or 0) - bd.get("cache_read", 0)
 
         lines.append(
-            f"    {'Subscription':<12} {GREEN}{_fmt_tok(_uncached(sub)):>8}{RESET} tok"
+            f"    {'Subscription':<12} {GREEN}{_fmt_tok(_uncached(sub)):>8}{RESET} tokens"
             f" {DIM}(uncached) this week · {_reset_note(sub)}{RESET}"
         )
         sub_comp = _composition_line(sub)
@@ -923,7 +923,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
         else:
             dollars = f"{GREEN}~${spent:,.0f}{RESET}"
         lines.append(
-            f"    {'API credit':<12} {GREEN}{_fmt_tok(_uncached(api)):>8}{RESET} tok"
+            f"    {'API credit':<12} {GREEN}{_fmt_tok(_uncached(api)):>8}{RESET} tokens"
             f" {DIM}(uncached){RESET}  {dollars}  {DIM}this month · {_reset_note(api)}{RESET}"
         )
         api_comp = _composition_line(api)
