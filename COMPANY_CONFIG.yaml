@@ -51,7 +51,7 @@ models:
   blogger:          sonnet
   demo_creator:     sonnet     # writes index.md, makes capture decisions
   triager:          haiku
-  pm:               haiku
+  pm:               sonnet     # judgement-heavy: priority sort + adjacency grouping across a large Todo
   morning_briefer:  haiku
   janitor:          haiku
   asset_librarian:  haiku

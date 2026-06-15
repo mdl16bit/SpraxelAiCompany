@@ -23,7 +23,8 @@ read config via `scripts/spx_config.py` (COMPANY_CONFIG + GAME_CONFIG).
 
 - **Config loader** (`scripts/spx_config.py`) — `cadence.release` (e.g.,
   `"biweekly mondays"`), `cadence.campaign_levels` (e.g., `"2 per release"`),
-  and `dev.velocity_issues_per_release` (default 6). Read each via
+  and `dev.velocity_issues_per_release` (default 6; may be the sentinel
+  `infinite` — see step 3). Read each via
   `python3 ~/SpraxelAiCompany/scripts/spx_config.py get <key>`.
 - **WORK.md** — `## Todo` is the pool you plan from; `## Shipped since
   last release` is what counts toward the current release; `## Shipped
@@ -53,8 +54,19 @@ should ship in the current release, in a sensible build order — and the
 
 3. **Compute current-release size** from config (`spx_config.py get`):
    - `velocity = dev.velocity_issues_per_release` (default 6).
-   - `shipped_so_far` = count of items in WORK.md `## Shipped since last release`.
-   - `slots_left = max(0, velocity - shipped_so_far)`.
+   - **Infinite-velocity gate.** If `velocity` is the sentinel `infinite`
+     (also treat `0`, empty, or unset the same way), there is **no capacity
+     cap**: `slots_left = ∞` (every eligible item is in-release), and you
+     MUST NOT block a release on item count or emit any over-capacity banner
+     — no "RELEASE BLOCKED", no "N/V capacity", no "× velocity target", no
+     "scope freeze / stabilization sprint" framing. Capacity is simply not a
+     gate. Skip the rest of this step's arithmetic and the velocity
+     comparison in "Velocity estimation" below; proceed to step 4 ranking the
+     whole eligible Todo set. (Real blockers — e.g. a stuck `[escalated]` /
+     `[retry]` item — are still worth surfacing; just never frame them as a
+     *capacity* problem.)
+   - Otherwise (a finite number): `shipped_so_far` = count of items in WORK.md
+     `## Shipped since last release`; `slots_left = max(0, velocity - shipped_so_far)`.
    - That's how many MORE items should land before the next release cut.
 
 4. **Pick the current-release set** — the top `slots_left` eligible items
@@ -207,10 +219,13 @@ lower for 3 windows, write a one-line note to `.factory/local/MORNING.md` `## PM
 
 ```
 PM 2026-05-25: actual velocity last 3 windows = 9/window vs config = 6.
-Consider bumping velocity_issues_per_release in Philosophy.md.
+Consider adjusting velocity_issues_per_release in GAME_CONFIG.yaml.
 ```
 
-(Don't auto-edit Philosophy.md — let the CEO decide.)
+(Don't auto-edit the config — let the CEO decide.)
+
+**Skip this entire section when `velocity` is `infinite`** (the gate is off —
+there is nothing to compare against, so don't emit a velocity-vs-config note).
 
 ## Tooling — `workmd.py release-cut` subcommand
 
