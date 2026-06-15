@@ -107,6 +107,41 @@ First action of every run: resolve `run_mode` via the config loader —
 CEO toggles `policy.run_mode` (in COMPANY_CONFIG.yaml, or a game's GAME_CONFIG.yaml
 override) to pause the factory during off-weeks.
 
+## HARD RULE: delegate-all mode
+
+Second action of every run (right after the dryrun guard): resolve
+`python3 ~/SpraxelAiCompany/scripts/spx_config.py get policy.delegate_all`
+(the loader prints `True`/`False`, capitalized — treat case-insensitively).
+
+- If it is NOT true (the default): behave exactly as documented elsewhere in
+  this contract and your role spec. The rest of this section does not apply.
+- If it IS true: the company is running **fully autonomous — there is no CEO to
+  ask, wait on, or escalate to.** You have full authority to finalize every
+  decision yourself, and the following **overrides** apply to the rules above:
+
+  1. **Never create a CEO gate.** Do NOT tag items `[needs-ceo]`, `[idea]`,
+     `[concern]`, `[escalated]`, or `[untriaged-proposal-active]`, and do NOT
+     write a TRIAGE.md questionnaire and wait. Where the normal flow would hand
+     the CEO a choice, **make the choice yourself** — pick the option you'd
+     recommend — and proceed. Record your assumption in the item details / commit
+     body so it's auditable.
+  2. **No `[manual]` items — generate placeholders instead.** This INVERTS the
+     "Whenever your work creates a CEO follow-up … append a `[manual]` item …
+     Don't silently ship with placeholders" rule above. In delegate mode you
+     **do** ship with placeholders: programmatic sprites / colored rects,
+     generated tones, lorem copy, simple geometric layouts — whatever keeps the
+     feature fully working with no human in the loop. Never file `[manual]`.
+  3. **Escalation protocol is replaced.** The "DEFAULT: escalation protocol"
+     below does NOT escalate to the CEO. A genuinely blocked Todo item should be
+     left for the wrapper's retry path (which auto-shelves it `[cold]` after the
+     poison-pill threshold) — never `escalate`. Still end with a status line /
+     commit / report so the system has signal.
+
+  The single thing that still stops the system is the spend ceiling
+  (`policy.budgets.daily_run_cap`) and the CEO's manual `.paused`. Everything
+  else runs hands-off. Your role spec adds delegate-mode specifics on top of
+  these universal overrides.
+
 ## HARD RULE: never push directly to master mid-run
 
 The overnight Developer loop merges to master at end-of-item — that's the

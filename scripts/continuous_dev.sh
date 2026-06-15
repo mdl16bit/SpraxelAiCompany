@@ -168,7 +168,11 @@ eval "$_continuous_yaml_vars"
 unset _continuous_yaml_vars
 # Map UPPER_CASE → existing var names + new shell vars used by the main loop.
 target_per_batch=$TARGET_PER_BATCH
-trace "step: target_per_batch=$target_per_batch dev_concurrency=$DEV_CONCURRENCY max_fail_streak=$MAX_FAIL_STREAK fail_backoff=${FAIL_BACKOFF_SECONDS}s poll=${POLL_INTERVAL_SECONDS}s idle=${IDLE_THRESHOLD}*${IDLE_SLEEP_SECONDS}s"
+# Delegate-all mode: work is UNCAPPED (never park at the cap) and stray CEO gates
+# are auto-cleared each iteration so the loop runs forever until .paused.
+_delegate_all=$(python3 "$REPO_DIR/scripts/spx_config.py" get policy.delegate_all 2>/dev/null)
+case "$_delegate_all" in true|True|TRUE|1|yes|on) DELEGATE=1 ;; *) DELEGATE=0 ;; esac
+trace "step: target_per_batch=$target_per_batch dev_concurrency=$DEV_CONCURRENCY delegate_all=$DELEGATE max_fail_streak=$MAX_FAIL_STREAK fail_backoff=${FAIL_BACKOFF_SECONDS}s poll=${POLL_INTERVAL_SECONDS}s idle=${IDLE_THRESHOLD}*${IDLE_SLEEP_SECONDS}s"
 if [ -z "$game_dir" ] || [ ! -d "$game_dir" ]; then
   trace "step: FATAL — game_dir not resolvable ('$game_dir')"
   echo "continuous: game_dir not resolvable — abort"
@@ -1404,12 +1408,19 @@ while true; do
   if ceo_signaled; then
     record_ceo_signal
   fi
-  # Cap check.
-  shipped=$(read_state shipped_since_last_signal)
-  if [ "$shipped" -ge "$target_per_batch" ]; then
-    # At cap — wait for CEO. Re-check every poll_interval_seconds.
-    sleep "$POLL_INTERVAL_SECONDS"
-    continue
+  # Delegate-all: clear any stray CEO gate so the loop never stalls, and SKIP the
+  # cap entirely (work is uncapped — run forever until .paused). No-op + cheap
+  # when the flag is off, so it's gated here to avoid the workmd call each tick.
+  if [ "$DELEGATE" = "1" ]; then
+    python3 "$WORKMD" auto-clear-gates "$game_dir/WORK.md" >/dev/null 2>&1 || true
+  else
+    # Cap check.
+    shipped=$(read_state shipped_since_last_signal)
+    if [ "$shipped" -ge "$target_per_batch" ]; then
+      # At cap — wait for CEO. Re-check every poll_interval_seconds.
+      sleep "$POLL_INTERVAL_SECONDS"
+      continue
+    fi
   fi
   # Ship one item.
   ship_one_item

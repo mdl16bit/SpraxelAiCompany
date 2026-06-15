@@ -234,6 +234,27 @@ WORK_MD_PATH="$game_dir/WORK.md"
   fi
   echo "Date: $(date '+%Y-%m-%d %H:%M %Z')"
   echo
+  # ── Delegate-all banner ─────────────────────────────────────────────────
+  # When policy.delegate_all is true, make the full-autonomy mandate impossible
+  # to miss — agents also read it from _shared.md, but injecting it here keeps it
+  # in the live context even if the spec section is skimmed.
+  _delegate_all=$(python3 "$REPO_DIR/scripts/spx_config.py" get policy.delegate_all 2>/dev/null)
+  case "$_delegate_all" in
+    true|True|TRUE|1|yes|on)
+      echo "## ⚙️  DELEGATE-ALL MODE ACTIVE — full autonomy, NO CEO"
+      echo "There is no CEO to ask, wait on, or escalate to. You finalize every"
+      echo "decision yourself. Specifically:"
+      echo "- NEVER tag [needs-ceo], [idea], [concern], [escalated], or write a"
+      echo "  TRIAGE.md questionnaire and wait. Make the call you'd recommend and proceed."
+      echo "- NEVER file [manual] items. Generate PLACEHOLDER assets (rects, tones,"
+      echo "  lorem copy, simple layouts) so the feature ships fully working."
+      echo "- Treat designer concerns as legitimate; auto-shape/fix rather than defer."
+      echo "- Do NOT escalate blocked items — leave them to the wrapper's retry/[cold] path."
+      echo "- Work is UNCAPPED and runs forever; the only stops are the spend ceiling"
+      echo "  (daily_run_cap) and the CEO's manual .paused. See _shared.md → DELEGATE-ALL MODE."
+      echo
+      ;;
+  esac
   echo "## CRITICAL: WORK.md path discipline"
   echo "ALL workmd.py invocations (clarify, append, retry, ship, etc.) MUST use the"
   echo "canonical path $WORK_MD_PATH — NOT $WORK_DIR/WORK.md. Reason: with parallel"

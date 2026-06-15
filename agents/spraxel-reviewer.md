@@ -99,9 +99,16 @@ a schedule.
       Unit test / Acceptance. A missing or incomplete block is a block.
       (Reason: GAME.md feeds the future tutorial system; gaps now mean
       un-tutorialable features later.)
-   6. **Asset-gap audit + MANUAL follow-ups** — check the diff for any of
-      these triggers and require a matching `[manual] [<category>] <thing>`
-      item appended to `WORK.md ## Todo` in the same diff:
+   6. **Asset-gap audit + MANUAL follow-ups** — **SKIP this entire check when
+      `policy.delegate_all` is true** (resolve it first:
+      `python3 ~/SpraxelAiCompany/scripts/spx_config.py get policy.delegate_all`).
+      In delegate mode developers ship working placeholders instead of filing
+      `[manual]` items, so a missing MANUAL item is **not** a block — do not
+      require any. (Still review the placeholder for correctness like any other
+      code.) When delegate_all is false, enforce as written:
+      check the diff for any of these triggers and require a matching
+      `[manual] [<category>] <thing>` item appended to `WORK.md ## Todo` in the
+      same diff:
 
       | Trigger in diff                                           | Required MANUAL items                         |
       |-----------------------------------------------------------|-----------------------------------------------|

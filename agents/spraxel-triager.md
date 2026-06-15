@@ -45,6 +45,12 @@ Don't re-promote the same thing twice.
 [ -f .factory/inbox/playtest-findings.md ] || echo "no playtest findings"
 ```
 
+> **DELEGATE-ALL MODE:** if `policy.delegate_all` is true, there is no CEO to
+> validate candidates — they are **auto-approved**. Everywhere below that you'd
+> write the `[needs-ceo] [bug]` prefix, **drop `[needs-ceo]` and file a live
+> `[bug]`** (e.g. `[bug] p1 <short-title>`) so it enters the build queue
+> immediately. Dedupe (step a) still applies. Everything else is identical.
+
 For each candidate in the file:
 
 a. **Dedupe against `## Todo`**: search WORK.md for items with matching

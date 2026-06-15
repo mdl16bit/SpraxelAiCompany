@@ -170,6 +170,11 @@ Rank from 1 (best) to N. Take the top `designer.ideas_per_run` (default 5).
 
 ### 4b. (Rare) Curveball — an idea that breaks Philosophy on purpose
 
+> **DELEGATE-ALL MODE:** if `policy.delegate_all` is true, **skip this entire
+> step — file NO `[curveball]`s.** A curveball is a deliberate bid for CEO
+> judgment; with no CEO it's just an un-vetted rule-break. Stay inside the
+> Philosophy guardrails and produce only your ranked ideas.
+
 Everything above keeps you inside the Philosophy guardrails. **Occasionally**,
 you'll spot an idea that's genuinely exciting *precisely because* it violates a
 core tenet — even something on `must_not_include`. When that happens, you're
@@ -194,6 +199,13 @@ Rules for curveballs:
   removing `[idea]`, deletes it to dismiss — same flow as a normal idea.
 
 ### 5. Append to WORK.md `## Todo` as `[idea]` items
+
+> **DELEGATE-ALL MODE:** if `policy.delegate_all` is true, your ideas are
+> **auto-accepted** — there's no CEO to promote them. Tag each idea
+> **`[untriaged]`** instead of `[idea]` (everything else identical), exactly as a
+> CEO `promote` would, so the Architect picks them up and shapes them into
+> buildable work this same cycle. Do NOT use the `[idea]` tag and do NOT file
+> `[curveball]`s (step 4b is skipped). Rank still sets the priority tag.
 
 Use `workmd.py append`. Each item carries the rank in its priority tag:
 
@@ -236,6 +248,13 @@ what's off about the game as it stands and surface 0-3 specific concerns
 as `[concern]` items in WORK.md. The wrapper skips `[concern]` items; the
 CEO triages them just like ideas (delete to dismiss, remove the tag to
 turn into real work, leave alone to defer).
+
+> **DELEGATE-ALL MODE:** if `policy.delegate_all` is true, every concern is
+> treated as **legitimate and gets worked** — there's no CEO to triage it. File
+> each one as an actionable **`[untriaged]`** fix item (the `suggested fix`
+> framed as the title) rather than a `[concern]` advisory, so the Architect
+> shapes it and the loop builds it. Use `[untriaged]` in the command below
+> instead of `[concern]`.
 
 Things to look for:
 
@@ -283,6 +302,13 @@ Example:
   already flagged; if it's still there, the CEO is deferring deliberately.
 
 ### 5c. Philosophy conformance audit — ESCALATE any conflict (even slight)
+
+> **DELEGATE-ALL MODE:** if `policy.delegate_all` is true, do **NOT** escalate —
+> there's no CEO to rule on conflicts, and `[escalated]` items are auto-cleared.
+> You hold the gavel: Philosophy is the guardrail you enforce yourself. Still run
+> the audit, but instead of escalating, file an actionable **`[untriaged]`**
+> "reconcile `<work>` with Philosophy `<tenet>`" fix item (with the severity in
+> the detail) so the loop corrects the drift. Never use `workmd.py escalate`.
 
 This is stronger than the `[concern]` critique above. **Re-read `Philosophy.md`
 in full** — its `must_not_include`, `must_include`, core fantasy, and design

@@ -588,6 +588,9 @@ def sync_escalations(work_path: Path, esc_path: Path) -> int:
 ## becomes required at that point — five attempts is enough signal that
 ## the dev can't land this autonomously.
 RETRY_ESCALATE_THRESHOLD = 5  # default; COMPANY_CONFIG continuous.retry_escalate_threshold overrides
+# In delegate-all mode there is no CEO, so the poison-pill brake shelves a stuck
+# item [cold] (loop moves on) instead of [escalated] (which would wait forever).
+DELEGATE_ALL = False
 try:
     import os as _os, sys as _sys
     _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
@@ -595,6 +598,9 @@ try:
     _ret = _spx.get("continuous.retry_escalate_threshold")
     if isinstance(_ret, int) and _ret > 0:
         RETRY_ESCALATE_THRESHOLD = _ret
+    _del = _spx.get("policy.delegate_all")
+    if _del is True or (isinstance(_del, str) and _del.strip().lower() in ("true", "1", "yes", "on")):
+        DELEGATE_ALL = True
 except Exception:
     pass
 
@@ -644,11 +650,20 @@ def retry(
         # value reaches the threshold.)
         attempt_about_to_make = prior_retries + 1
         if attempt_about_to_make >= RETRY_ESCALATE_THRESHOLD:
-            new_title = "[escalated] " + new_title
-            item.details.append(
-                f"auto-escalated: failed {attempt_about_to_make} times — "
-                f"CEO judgment required to unstick this item"
-            )
+            if DELEGATE_ALL:
+                # No CEO to unstick it — shelve [cold] so the loop keeps moving.
+                new_title = "[cold] " + new_title
+                item.details.append(
+                    f"auto-shelved [cold]: failed {attempt_about_to_make} times in "
+                    f"delegate-all mode (no CEO) — abandoned so the loop keeps moving; "
+                    f"revive by removing [cold]"
+                )
+            else:
+                new_title = "[escalated] " + new_title
+                item.details.append(
+                    f"auto-escalated: failed {attempt_about_to_make} times — "
+                    f"CEO judgment required to unstick this item"
+                )
         else:
             new_title = "[retry] " + new_title
         item.title = new_title
@@ -1516,6 +1531,42 @@ def clarify(path: Path, title: str, questions: list[str]) -> WorkItem:
         return item
 
 
+def auto_clear_gates(path: Path) -> dict:
+    """DELEGATE-ALL belt-and-suspenders: clear any CEO gate left on a Todo item
+    so the loop never stalls waiting on a human. NO-OP unless policy.delegate_all
+    is true. Idempotent — only writes when something actually changed.
+
+      - `[escalated]` → `[resume]`  (loop picks it up; poison-pill [cold]s it
+        later if it keeps failing)
+      - `[needs-ceo]` → tag stripped (candidate bug becomes live; a dev question
+        item becomes eligible — the dev decides instead of re-asking)
+
+    Returns {"resumed": N, "approved": N}. Designed to be called once per loop
+    iteration; cheap because it short-circuits when the flag is off.
+    """
+    if not DELEGATE_ALL:
+        return {"resumed": 0, "approved": 0}
+    resumed = approved = 0
+    with FileLock(path):
+        wm = parse(path)
+        for item in wm.todo:
+            title = item.title
+            if re.search(r"\[escalated\]", title, re.I):
+                title = re.sub(r"\[escalated\]\s*", "", title, flags=re.I)
+                title = "[resume] " + title
+                resumed += 1
+            if re.search(r"\[needs-ceo\]", title, re.I):
+                title = re.sub(r"\[needs-ceo\]\s*", "", title, flags=re.I).strip()
+                approved += 1
+            if title != item.title:
+                item.title = title
+                if item.raw_lines:
+                    item.raw_lines[0] = title
+        if resumed or approved:
+            path.write_text(serialize(wm))
+    return {"resumed": resumed, "approved": approved}
+
+
 # ---- CLI ----
 
 def main(argv: list[str] | None = None) -> int:
@@ -1569,6 +1620,10 @@ def main(argv: list[str] | None = None) -> int:
     pse.add_argument("path", help="path to WORK.md")
     pse.add_argument("--escalations", default=None,
                      help="path to escalations.md (default: <path-parent>/.factory/escalations.md)")
+
+    pacg = sub.add_parser("auto-clear-gates",
+        help="DELEGATE-ALL only: clear stray CEO gates so the loop never stalls ([escalated]→[resume], strip [needs-ceo]). NO-OP unless policy.delegate_all is true. Idempotent.")
+    pacg.add_argument("path", help="path to WORK.md")
 
     pcl = sub.add_parser("claim",
         help="atomically claim the next eligible Todo item — tag [wip:<worker-id>] + return its title. Used by parallel-dev workers.")
@@ -1796,6 +1851,17 @@ def main(argv: list[str] | None = None) -> int:
                 item.raw_lines[0] = new_title
             path.write_text(serialize(wm))
         print(f"resumed: {item.title}")
+        return 0
+
+    if args.cmd == "auto-clear-gates":
+        res = auto_clear_gates(path)
+        if not DELEGATE_ALL:
+            print("auto-clear-gates: policy.delegate_all is false — no-op")
+        elif res["resumed"] or res["approved"]:
+            print(f"auto-clear-gates: resumed {res['resumed']} [escalated], "
+                  f"cleared {res['approved']} [needs-ceo]")
+        else:
+            print("auto-clear-gates: nothing to clear")
         return 0
 
     if args.cmd == "append":

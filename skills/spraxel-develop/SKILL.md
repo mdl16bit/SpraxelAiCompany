@@ -31,11 +31,16 @@ Paths (absolute):
 2. **Resolve params + MODE**:
    - `game_dir` = `spx_config get game_dir` (expand a leading `~`).
    - `target` = `spx_config get continuous.target_per_batch` (5) — the cap size.
+   - `delegate_all` = `spx_config get policy.delegate_all` (treat `True` case-insensitively).
    - **MODE** (the whole behavior split):
      - A **number was passed** (`/spraxel-develop 3`) → **ONE-SHOT** mode. `cap = that number`.
-       Build `cap` items, then STOP. No parking, no auto-resume.
+       Build `cap` items, then STOP. No parking, no auto-resume. (ONE-SHOT always honors its
+       explicit N, even under delegate_all.)
      - **No arg** (`/spraxel-develop`) → **CONTINUOUS** mode. `cap = target`. Build up to the cap,
        then PARK and self-resume on a CEO poke — looping until the CEO stops it.
+       **DELEGATE-ALL override**: if `delegate_all` is true, work is UNCAPPED — set `cap = ∞`
+       (treat the cap-hit stop test as never true; you only ever stop a CONTINUOUS epoch when the
+       queue goes dry). The loop runs forever until the CEO stops the session or touches `.paused`.
    - Reviewer model = **haiku** (`models.reviewer`) — unaffected by the Sonnet cap.
    - Dev model = **sonnet** (`models.developer`) **UNLESS the Sonnet cap is hit**: run
      `python3 ~/SpraxelAiCompany/scripts/sonnet_cap.py is-capped` — if it exits 0, use
@@ -51,7 +56,11 @@ Paths (absolute):
    `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh reset-signal` (counter→0, watermark→
    current master) so the first epoch builds a full `cap`. (ONE-SHOT mode: skip this — it builds
    exactly its N regardless of the counter.)
-6. Initialize `shipped=0`, `escalated=0`, `retried=0`.
+6. **DELEGATE-ALL only — clear stray gates**: if `delegate_all` is true, run
+   `python3 ~/SpraxelAiCompany/scripts/workmd.py auto-clear-gates "<game_dir>/WORK.md"` so any
+   `[escalated]`/`[needs-ceo]` left on the queue becomes buildable (the loop never waits on a CEO).
+   Re-run this at the top of each CONTINUOUS epoch. No-op when delegate_all is false.
+7. Initialize `shipped=0`, `escalated=0`, `retried=0`.
 
 ## 1. Build the batch — repeat the per-item steps (a–e) until the STOP condition
 
@@ -60,6 +69,8 @@ Re-`touch` the heartbeat marker at the start of each iteration. **STOP building 
   §2 (sweep, if cap hit) and §4 (stop) — you're done.
 - **CONTINUOUS**: `interactive_dev_step.sh cap-status` shows `shipped >= cap` (cap hit), OR the
   queue is dry. Then do §2 (sweep, if cap hit) and §3 (PARK).
+  **DELEGATE-ALL**: ignore the cap-hit half of this test entirely (`cap = ∞`) — only the dry queue
+  ends an epoch. You'll keep building without parking until there's genuinely nothing to claim.
 
 Use the **shared** counter (`cap-status`) for the CONTINUOUS stop test — NOT a local count — so
 that a poke's counter-reset is exactly what lets the next epoch run. In ONE-SHOT mode, count the
@@ -91,9 +102,14 @@ b. **Develop** — dispatch a fresh **dev subagent via the Agent tool** (`model:
    > tuning), list each as an explicit `MANUAL: [<art|sfx|writing|level|tuning>] <short desc>`
    > line in your handoff** — do NOT edit WORK.md; I persist them after the merge. If the item
    > is genuinely ambiguous or needs a CEO decision, say so clearly instead of guessing."
+   - **DELEGATE-ALL**: if `delegate_all` is true, append to the dev prompt: "DELEGATE-ALL MODE
+     is on — there is no CEO. Do NOT emit any `MANUAL:` lines; ship working PLACEHOLDERS
+     instead (rects/tones/lorem/simple layouts) and note them in your commit body. Do NOT flag
+     ambiguity — make the most reasonable call yourself and record the assumption in the body."
    - A fresh subagent per item is the per-item "clear context" (matches the headless
      fresh-`claude -p` model).
    - If the dev subagent reports the item is ambiguous / needs CEO → go to (e) escalate.
+     (Won't happen under delegate_all — the dev decides instead of flagging.)
    - **Sonnet-cap fallback**: if a Sonnet dev subagent dies with a usage-limit error (the
      Agent result mentions hitting a usage/rate limit, or returns empty on a Sonnet run),
      arm the shared flag: `python3 ~/SpraxelAiCompany/scripts/sonnet_cap.py set`, then
@@ -149,6 +165,9 @@ e. **Finish or fail**:
      bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh fail-one "<branch>" "<title>" escalate --detail "<what decision is needed and why>"
      ```
      `escalated += 1`, `continue`.
+     **DELEGATE-ALL**: there is no CEO to escalate to — use `retry` instead of `escalate` here
+     (`retried += 1`). A truly unbuildable item is auto-shelved `[cold]` by the poison-pill brake
+     after `continuous.retry_escalate_threshold` attempts, so the loop never gets stuck on it.
 
 ## 2. Post-batch full-test sweep (when the cap was HIT — both modes)
 

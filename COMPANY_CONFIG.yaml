@@ -68,6 +68,25 @@ models:
 # Company policy defaults (a game's GAME_CONFIG.yaml may override).
 policy:
   run_mode: "live"             # live | offline — gates whether agents actually do work
+  delegate_all: false          # FULL-AUTONOMY MODE SWITCH (default false = CEO-in-the-loop, the
+                               # normal workflow — designer ideas, triage, concerns, escalations,
+                               # playtests, and the ship cap all wait on the CEO). A game's
+                               # GAME_CONFIG.yaml flips this to `true` to run completely hands-off:
+                               #   • designer ideas auto-accepted (no [idea] gate) + no [curveball]s
+                               #   • architect auto-picks its own recommended option (no TRIAGE wait)
+                               #   • [concern]s treated as legitimate + auto-shaped into fixes
+                               #   • triager bugs go straight to live [bug] (no [needs-ceo])
+                               #   • developers DECIDE instead of asking ([needs-ceo] never filed)
+                               #     and generate PLACEHOLDER assets instead of filing [manual] items
+                               #   • reviewer asset-gap block is suppressed (no [manual]s exist)
+                               #   • [escalated]/[needs-ceo] auto-cleared; a poison-pill item is
+                               #     shelved [cold] (not [escalated]) so the loop keeps moving
+                               #   • work is UNCAPPED — the ship loop never parks at target_per_batch
+                               # Runs forever until the CEO touches .paused. THE ONE retained
+                               # automatic safety is the spend ceiling below: set
+                               # policy.budgets.daily_run_cap > 0 so a runaway day still auto-pauses.
+                               # All behaviors key off THIS single flag (see agents/_shared.md
+                               # "DELEGATE-ALL MODE"). When false, nothing below changes.
   sonnet_cap_reprobe_secs: 7200 # when a Sonnet usage-cap is detected, Sonnet agents (+ the
                                # interactive developer) fall back to Opus, then re-probe Sonnet
                                # after this many seconds (default 2h). If the cap message carries
@@ -127,6 +146,9 @@ continuous:
   retry_escalate_threshold: 5  # after this many TOTAL [retry] attempts on ONE item, auto-escalate
                                # it to the CEO ([escalated]) instead of retrying forever — the
                                # poison-pill brake (workmd.py). Lower = give up & ask sooner.
+                               # In policy.delegate_all mode there is no CEO, so the brake shelves
+                               # the item [cold] (loop moves on) instead of [escalated]; a delegate
+                               # game may lower this (e.g. 3) to abandon stuck items sooner.
   wake_gap_threshold_secs: 1800 # if a tick fires >this long (sec) after the previous one, the Mac
                                # was asleep → run catch_up to replay missed crew agents (tick.sh).
   dev_concurrency:  3          # parallel dev workers (share the cap counter). ~Nx weekly-cap burn.

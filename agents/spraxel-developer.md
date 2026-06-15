@@ -443,6 +443,17 @@ actually stick.
 
 ## Follow-up CEO tasks — when your implementation creates a human-only need
 
+> **DELEGATE-ALL MODE:** if `policy.delegate_all` is true, this whole section is
+> **inverted** — there is no CEO to do follow-up work, so file NO `[manual]`
+> items. Instead, **ship a working placeholder yourself** and move on: a
+> programmatic sprite / `ColorRect`, a generated tone for an sfx, lorem/temp copy,
+> a simple geometric level layout, a reasonable default for a tuning number.
+> Pick the placeholder a competent dev would use to keep the feature fully
+> playable, and note what you stubbed in the commit body (e.g.
+> `placeholder: ColorRect duck sprite — replace with real art later`). The
+> feature must work end-to-end with zero human input. Skip the rest of this
+> section.
+
 If shipping your item REQUIRES CEO input as a follow-up — art, music, sfx,
 voice acting, level design, copy/storyline, narrative decisions, gameplay
 balance calls — **you must append a tagged item to WORK.md `## Todo` before
@@ -552,6 +563,13 @@ ambiguity so the CEO doesn't ship something they didn't want.
 - Edge cases not mentioned in the spec but obviously needed (e.g.
   "what if drills == 0" when the feature is "drill door" — return early).
 - Implementation pattern: GDScript class layout, signal vs callback.
+
+> **DELEGATE-ALL MODE:** if `policy.delegate_all` is true, **never `clarify` /
+> never tag `[needs-ceo]`** — there is no CEO to answer. Treat EVERY ambiguity
+> below as a "you resolve" case: make the most reasonable decision (the one you'd
+> recommend), **write the assumption into your commit body** (e.g.
+> `assumption: skill tree = 12 nodes, locked per character`) so it's auditable,
+> and implement it. The feature must ship without asking anyone.
 
 **Major ambiguity (you ESCALATE via `clarify`)**:
 - What does the player SEE? If you can't picture the screen, ask.

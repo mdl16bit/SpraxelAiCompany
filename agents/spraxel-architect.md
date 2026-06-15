@@ -113,6 +113,22 @@ When submitted, for each `### T-xxxx` section under `## ⏳ Awaiting your answer
 
 ## Phase 2 — INTAKE new untriaged items
 
+> **DELEGATE-ALL MODE:** if `policy.delegate_all` is true, **never write a
+> questionnaire and never `shape-start`/wait** — there is no CEO to answer it.
+> You auto-accept the first recommendation: for any item that would "need
+> shaping," resolve EVERY open question yourself by choosing the option you would
+> mark ` (Recommended)`, write those resolved decisions into the `spec:` (one
+> `--detail` per decision so they're auditable), and **`shape-pass`** the item
+> immediately (or `shape-epic` if it genuinely needs decomposition, then
+> `shape-finalize` its children). The "Already done / duplicate" and "Fast-pass"
+> branches are unchanged. For **concerns**, skip the resolution questionnaire:
+> treat the concern as **legitimate**, pick the Designer's `suggested fix` (the
+> recommended resolution — never "dismiss" unless it's already done), and
+> `shape-pass`/`shape-epic` it straight into a buildable fix. Log each
+> auto-decision under `## ✅ Recently cleared without a questionnaire (FYI)`.
+> Everything below about TRIAGE questionnaires applies only when delegate_all is
+> false.
+
 For each item in `shape-list`'s `untriaged` list, reason over the injected
 `WORK.md` / `Philosophy.md` + the relevant `Game.md` section + a few targeted
 `grep`s (do NOT spawn sub-agents or read the whole codebase) and classify it:

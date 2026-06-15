@@ -25,3 +25,28 @@ dev:
   godot_binary: "/absolute/path/to/Godot.app/Contents/MacOS/Godot"   # set this
   main_scene: "res://scenes/game/title.tscn"
   style_guide: ".factory/style.md"
+
+# ── FULL-AUTONOMY ("delegate-all") mode — OPTIONAL ──────────────────────────
+# Uncomment this whole block to run THIS game completely hands-off: every CEO
+# gate auto-resolves and work is uncapped, running forever until you touch
+# .paused. See COMPANY_CONFIG.yaml policy.delegate_all for the full behavior
+# list. The four settings below are the complete setup:
+#
+# policy:
+#   delegate_all: true            # the master switch — turns on full autonomy
+#   budgets:
+#     daily_run_cap: 250          # THE ONE retained auto-stop. >0 = auto-.paused
+#                                 # after this many agent runs/day (runaway brake).
+#                                 # Set ABOVE your normal daily volume. Required in
+#                                 # delegate mode — it's your only cost ceiling.
+#
+# continuous:
+#   retry_escalate_threshold: 3   # shelve a stuck item [cold] after N failed
+#                                 # attempts instead of spinning tokens forever.
+#   # force_interactive_developers: false  # leave false for headless dev agents,
+#                                 # or true to drive dev from /spraxel-develop —
+#                                 # delegate_all supports BOTH dev modes.
+#
+# agents:
+#   designer: { cron: "30 4,16 * * *" }   # twice a day, EVERY day (04:30 + 16:30 PT),
+#                                 # overriding the company Tue+Fri default.
