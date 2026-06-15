@@ -98,9 +98,16 @@ e. **Finish or fail**:
        ```
        bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh append-manual "[manual] [<art|sfx|writing|level|tuning>] <short desc>" --detail "Spawned by: <item title>"
        ```
-       Then increment `shipped` UNLESS (`is_test_failure` is true AND
-       `spx_config get continuous.cap_excludes_test_fixes` is true) — then it does NOT count
-       toward the cap (mirror headless). `continue`.
+       Then update the cap counter the SAME way the headless worker does. If the item counts
+       toward the cap — i.e. NOT (`is_test_failure` true AND `spx_config get
+       continuous.cap_excludes_test_fixes` true) — increment BOTH your local `shipped` AND the
+       **shared** cap counter so the dashboard "Cap counter X/N" reflects interactive ships
+       identically to headless ones:
+       ```
+       bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh bump-cap
+       ```
+       (A `[test_failure]` fix under `cap_excludes_test_fixes` counts toward neither — same
+       exclusion the headless main loop applies.) `continue`.
      - rc 2 (Game.md gate) or rc 1 (merge conflict/push fail) → treat as a blocking failure:
        run `fail-one … retry` (below), `retried += 1`, `continue`.
    - **Still blocking / merge failure** → bounce to the queue as `[retry]`:

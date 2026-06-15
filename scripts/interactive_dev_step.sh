@@ -35,13 +35,14 @@ SPX="$REPO_DIR/scripts/spx_config.py"
 LOCKS_DIR="$REPO_DIR/.locks"
 CACHE_DIR="$REPO_DIR/.cache"
 MASTER_LOCK="$LOCKS_DIR/master-push.lockdir"
+STATE_FILE="$CACHE_DIR/continuous-state.json"   # shared cap-counter state (continuous_dev.sh)
 WORKER_ID=0
 . "$REPO_DIR/scripts/lockutils.sh"
 
 GAME_DIR="$(python3 "$SPX" get game_dir 2>/dev/null)"
 GAME_DIR="${GAME_DIR/#\~/$HOME}"      # expand a leading ~
 WORKTREE="$REPO_DIR/.worktrees/interactive"
-BOT_ID=(-c user.email=interactive-dev@spraxel.ai -c user.name='Spraxel Interactive Dev')
+BOT_ID=(-c user.email=interactive-dev-bot@spraxel.ai -c user.name='Spraxel Interactive Dev')
 
 mkdir -p "$LOCKS_DIR" "$CACHE_DIR" "$REPO_DIR/.worktrees"
 
@@ -308,10 +309,44 @@ cmd_append_manual() {
   echo "APPENDED: $title"
 }
 
+# ── bump-cap ───────────────────────────────────────────────────────────────
+# Atomically +1 `shipped_since_last_signal` in the shared continuous-state.json
+# — the SAME cap counter a headless worker pumps via inc_state (continuous_dev.sh)
+# — so the dashboard "Cap counter X/N" and any cap-keyed logic treat an interactive
+# /spraxel-develop ship identically to a headless ship. The skill calls this after a
+# successful ship, EXCEPT a [test_failure] fix when continuous.cap_excludes_test_fixes
+# is true (same exclusion the headless main loop applies). Prints the new value.
+cmd_bump_cap() {
+  STATE_FILE="$STATE_FILE" python3 - <<'PY'
+import json, os, time
+from datetime import datetime
+sf = os.environ['STATE_FILE']
+key = 'shipped_since_last_signal'
+lock = sf + '.lockdir'
+deadline = time.time() + 10
+while True:
+    try:
+        os.mkdir(lock); break
+    except FileExistsError:
+        if time.time() > deadline: raise SystemExit(2)
+        time.sleep(0.05)
+try:
+    s = json.load(open(sf)) if os.path.exists(sf) else {key: 0}
+    s[key] = int(s.get(key, 0)) + 1
+    s['last_ts'] = datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')
+    json.dump(s, open(sf, 'w'), indent=2)
+    print(s[key])
+finally:
+    try: os.rmdir(lock)
+    except FileNotFoundError: pass
+PY
+}
+
 case "${1:-}" in
   claim-one)     shift; cmd_claim_one "$@" ;;
   finish-one)    shift; cmd_finish_one "$@" ;;
   fail-one)      shift; cmd_fail_one "$@" ;;
   append-manual) shift; cmd_append_manual "$@" ;;
-  *) echo "usage: interactive_dev_step.sh {claim-one | finish-one <branch> <title> | fail-one <branch> <title> retry|escalate | append-manual <title> [--detail ...]}" >&2; exit 2 ;;
+  bump-cap)      shift; cmd_bump_cap "$@" ;;
+  *) echo "usage: interactive_dev_step.sh {claim-one | finish-one <branch> <title> | fail-one <branch> <title> retry|escalate | append-manual <title> [--detail ...] | bump-cap}" >&2; exit 2 ;;
 esac
