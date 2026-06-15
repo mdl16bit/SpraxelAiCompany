@@ -97,7 +97,7 @@ continuous:
   target_per_batch: 5          # items shipped before parking (shared across workers)
   max_file_lines: 1500         # "no god files" cap — reviewer blocks growth past this (scripts/check_file_sizes.sh)
   cap_excludes_test_fixes: true # [test_failure] fixes don't count toward target_per_batch
-  force_interactive_developers: false # MODE SWITCH. false = headless devs run as normal (default).
+  force_interactive_developers: true # MODE SWITCH. false = headless devs run as normal (default).
                                # true = NO headless developer runs (tick.sh forces dev_concurrency to 0;
                                # any already-running worker idles within ~60s). Crew agents are unchanged.
                                # Drive development from an interactive session via the `/spraxel-develop`

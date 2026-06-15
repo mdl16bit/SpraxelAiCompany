@@ -1372,14 +1372,16 @@ while true; do
     sleep "$POLL_INTERVAL_SECONDS"
     continue
   fi
-  # force_interactive_developers: a running worker quiesces (behaves like a pause) so
-  # the interactive /spraxel-develop loop is the ONLY claimant — no double-developer
-  # race. Re-checked every poll, so flipping the flag back to false auto-resumes this
-  # worker. tick.sh stops SPAWNING new workers; this idles ones already alive.
+  # force_interactive_developers: headless devs must not run in this mode — the
+  # interactive /spraxel-develop loop is the ONLY developer. A worker that's alive
+  # when the mode is enabled EXITS cleanly here (at the top of the loop, so any
+  # in-flight item already shipped) → the dashboard shows ZERO workers, not idle
+  # ones. tick.sh forces dev_concurrency=0 in this mode so it never respawns; flip
+  # the flag back to false and tick respawns workers within ~60s.
   _fid=$(python3 "$REPO_DIR/scripts/spx_config.py" get continuous.force_interactive_developers 2>/dev/null)
   if [ "$_fid" = "true" ] || [ "$_fid" = "True" ]; then
-    sleep "$POLL_INTERVAL_SECONDS"
-    continue
+    echo "continuous: force_interactive_developers=true — worker $WORKER_ID exiting (interactive mode owns dev)"
+    exit 0
   fi
   # Test-runner drain. When a batch test-runner run is scheduled or active, the
   # runner must run EXCLUSIVELY — so we stop claiming new items and idle here.
