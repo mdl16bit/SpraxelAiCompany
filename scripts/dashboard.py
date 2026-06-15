@@ -881,10 +881,32 @@ def render(now: datetime, game_dir: Path | None) -> str:
         sub = tu.get("subscription", {})
         api = tu.get("api_credit", {})
         lines.append(f"  Token usage    {DIM}(calc {calc_short}){RESET}")
+
+        # Composition line for a pool — most of any pool's token total is cheap
+        # cache_read (the cached prompt re-read every turn), not real output. They
+        # all cost (cache_read is just billed cheaply), so this is presentational:
+        # it stops the headline token count from looking alarming. Shown under
+        # whichever pool actually has tokens this window.
+        def _composition_line(pool):
+            bd = pool.get("token_breakdown") or {}
+            tot = pool.get("total_tokens") or 0
+            cr = bd.get("cache_read", 0)
+            if not (tot and cr):
+                return None
+            pct = round(100 * cr / tot)
+            return (
+                f"    {'':<12} {DIM}↳ {_fmt_tok(cr)} ({pct}%) cache reads (billed cheap) · "
+                f"{_fmt_tok(bd.get('output', 0))} output · "
+                f"{_fmt_tok(bd.get('cache_write', 0))} cache-write{RESET}"
+            )
+
         lines.append(
             f"    {'Subscription':<12} {GREEN}{_fmt_tok(sub.get('total_tokens')):>8}{RESET} tok"
             f"  {DIM}this week · {_reset_note(sub)}{RESET}"
         )
+        sub_comp = _composition_line(sub)
+        if sub_comp:
+            lines.append(sub_comp)
         cap = api.get("cap_usd") or 0
         spent = api.get("est_usd") or 0
         if cap:
@@ -897,19 +919,9 @@ def render(now: datetime, game_dir: Path | None) -> str:
             f"    {'API credit':<12} {GREEN}{_fmt_tok(api.get('total_tokens')):>8}{RESET} tok"
             f"  {dollars}  {DIM}this month · {_reset_note(api)}{RESET}"
         )
-        # Composition line — most of the token total is cheap cache_read (the
-        # cached prompt re-read every turn), not real output. They all cost, but
-        # showing the split stops the headline token count from looking alarming.
-        bd = api.get("token_breakdown") or {}
-        tot = api.get("total_tokens") or 0
-        cr = bd.get("cache_read", 0)
-        if tot and cr:
-            pct = round(100 * cr / tot)
-            lines.append(
-                f"    {'':<12} {DIM}↳ {_fmt_tok(cr)} ({pct}%) cache reads (billed cheap) · "
-                f"{_fmt_tok(bd.get('output', 0))} output · "
-                f"{_fmt_tok(bd.get('cache_write', 0))} cache-write{RESET}"
-            )
+        api_comp = _composition_line(api)
+        if api_comp:
+            lines.append(api_comp)
         lines.append("")
 
     # Test runner — only while active/pending (it runs exclusively, pausing the
