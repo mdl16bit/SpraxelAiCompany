@@ -900,9 +900,16 @@ def render(now: datetime, game_dir: Path | None) -> str:
                 f"{_fmt_tok(bd.get('cache_write', 0))} cache-write{RESET}"
             )
 
+        # Headline count = UNCACHED tokens (input + output + cache_write) — i.e.
+        # total minus the cheap cache_read re-reads. That's the "real work" volume;
+        # the cache_read share is shown on the ↳ composition line below.
+        def _uncached(pool):
+            bd = pool.get("token_breakdown") or {}
+            return (pool.get("total_tokens") or 0) - bd.get("cache_read", 0)
+
         lines.append(
-            f"    {'Subscription':<12} {GREEN}{_fmt_tok(sub.get('total_tokens')):>8}{RESET} tok"
-            f"  {DIM}this week · {_reset_note(sub)}{RESET}"
+            f"    {'Subscription':<12} {GREEN}{_fmt_tok(_uncached(sub)):>8}{RESET} tok"
+            f" {DIM}(uncached) this week · {_reset_note(sub)}{RESET}"
         )
         sub_comp = _composition_line(sub)
         if sub_comp:
@@ -916,8 +923,8 @@ def render(now: datetime, game_dir: Path | None) -> str:
         else:
             dollars = f"{GREEN}~${spent:,.0f}{RESET}"
         lines.append(
-            f"    {'API credit':<12} {GREEN}{_fmt_tok(api.get('total_tokens')):>8}{RESET} tok"
-            f"  {dollars}  {DIM}this month · {_reset_note(api)}{RESET}"
+            f"    {'API credit':<12} {GREEN}{_fmt_tok(_uncached(api)):>8}{RESET} tok"
+            f" {DIM}(uncached){RESET}  {dollars}  {DIM}this month · {_reset_note(api)}{RESET}"
         )
         api_comp = _composition_line(api)
         if api_comp:
