@@ -91,6 +91,15 @@ def month_start(now):
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
+def next_month_start(now):
+    """First of next month, 00:00 PT — when the monthly API-credit window resets."""
+    if now.month == 12:
+        return now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0,
+                           second=0, microsecond=0)
+    return now.replace(month=now.month + 1, day=1, hour=0, minute=0,
+                       second=0, microsecond=0)
+
+
 def pricing_for(model):
     """Longest-prefix match against COMPANY_CONFIG.policy.pricing."""
     table = cfg_get("policy.pricing", {}) or {}
@@ -124,6 +133,10 @@ def blank():
 def compute(now=None):
     now = now or datetime.now(TZ)
     bounds = {"subscription": week_start(now), "api_credit": month_start(now)}
+    resets = {
+        "subscription": week_start(now) + timedelta(days=7),  # next Mon 06:00 PT
+        "api_credit": next_month_start(now),                  # 1st of next month
+    }
     # pools[pool][model] -> token bundle; de-dup assistant msgs by requestId
     pools = {"subscription": {}, "api_credit": {}}
     seen = set()
@@ -172,6 +185,12 @@ def compute(now=None):
         out = {
             "window": window,
             "since": bounds[pool].strftime(TS_FMT),
+            "resets": resets[pool].strftime(TS_FMT),
+            "days_left": max(0, (resets[pool] - now).days),
+            "pct_elapsed": round(
+                100 * (now - bounds[pool]).total_seconds()
+                / max(1, (resets[pool] - bounds[pool]).total_seconds())
+            ),
             "total_tokens": total,
             "by_model": {
                 m: sum(b.values())

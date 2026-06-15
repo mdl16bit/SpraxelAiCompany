@@ -113,6 +113,23 @@ def _fmt_tok(n) -> str:
     return str(n)
 
 
+def _reset_note(pool: dict) -> str:
+    """e.g. 'resets Mon Jun 15 (1d left, 86% through)' from a token-usage pool."""
+    rs = pool.get("resets", "")
+    try:
+        dt = datetime.strptime(rs, "%Y-%m-%d %H:%M:%S %Z")
+        when = f"{dt.strftime('%a %b')} {dt.day}"
+    except Exception:
+        when = rs.split(" ")[0] if rs else "?"
+    bits = []
+    if pool.get("days_left") is not None:
+        bits.append(f"{pool['days_left']}d left")
+    if pool.get("pct_elapsed") is not None:
+        bits.append(f"{pool['pct_elapsed']}% through")
+    extra = f" ({', '.join(bits)})" if bits else ""
+    return f"resets {when}{extra}"
+
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -866,7 +883,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
         lines.append(f"  Token usage    {DIM}(calc {calc_short}){RESET}")
         lines.append(
             f"    {'Subscription':<12} {GREEN}{_fmt_tok(sub.get('total_tokens')):>8}{RESET} tok"
-            f"  {DIM}this week (since Mon 6am){RESET}"
+            f"  {DIM}this week · {_reset_note(sub)}{RESET}"
         )
         cap = api.get("cap_usd") or 0
         spent = api.get("est_usd") or 0
@@ -878,7 +895,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
             dollars = f"{GREEN}~${spent:,.0f}{RESET}"
         lines.append(
             f"    {'API credit':<12} {GREEN}{_fmt_tok(api.get('total_tokens')):>8}{RESET} tok"
-            f"  {dollars}  {DIM}this month{RESET}"
+            f"  {dollars}  {DIM}this month · {_reset_note(api)}{RESET}"
         )
         lines.append("")
 
