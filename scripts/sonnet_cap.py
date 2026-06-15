@@ -37,8 +37,12 @@ FLAG = os.path.join(REPO, ".cache", "sonnet-capped.json")
 # Specific cap phrases (NOT bare "limit") so a normal short agent status line that
 # merely mentions a limit doesn't false-positive.
 CAP_RE = re.compile(
-    r"usage limit|limit reached|limit will reset|reached your[^.\n]*limit|"
-    r"rate.?limit|too many requests|out of (?:credit|usage)|weekly limit|"
+    # The real subscription cap line is: "You've hit your Sonnet limit · resets
+    # <date> at 6am (America/Los_Angeles)" — so "hit your … limit" + "Sonnet limit"
+    # MUST match. Plus the generic API/usage-limit phrasings.
+    r"hit your[^.\n]*limit|reached your[^.\n]*limit|sonnet limit|usage limit|"
+    r"limit reached|limit will reset|·\s*resets|resets .*\bat\b|rate.?limit|"
+    r"too many requests|out of (?:credit|usage)|weekly limit|"
     r"upgrade to (?:increase|continue)",
     re.I,
 )
