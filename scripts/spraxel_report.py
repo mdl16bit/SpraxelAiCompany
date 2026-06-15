@@ -200,12 +200,12 @@ def commit_counts(game_dir: Path, since: str) -> dict:
     """Return {ships, escalations, ceo_commits} for the given git --since."""
     ships = sh(
         f"git log master --since='{since}' --pretty='%h' --grep='^feat:' "
-        f"--author='continuous-bot' | wc -l",
+        f"--author='continuous-bot' --author='Interactive Dev' | wc -l",
         cwd=game_dir,
     )
     escs = sh(
         f"git log master --since='{since}' --pretty='%h' --grep='^escalate:' "
-        f"--author='continuous-bot' | wc -l",
+        f"--author='continuous-bot' --author='Interactive Dev' | wc -l",
         cwd=game_dir,
     )
     ceo = sh(
@@ -251,7 +251,7 @@ def section_last_24h(now: datetime, game_dir: Path | None) -> None:
     # Recent feat: titles
     feats = sh(
         f"git log master --since='24 hours ago' --pretty='%h %s' "
-        f"--grep='^feat:' --author='continuous-bot' | head -10",
+        f"--grep='^feat:' --author='continuous-bot' --author='Interactive Dev' | head -10",
         cwd=game_dir,
     )
     if feats:
@@ -287,7 +287,7 @@ def section_last_week(now: datetime, game_dir: Path | None) -> None:
     # Top 10 features by date
     feats = sh(
         "git log master --since='7 days ago' --pretty='%h %ar %s' "
-        "--grep='^feat:' --author='continuous-bot' | head -20",
+        "--grep='^feat:' --author='continuous-bot' --author='Interactive Dev' | head -20",
         cwd=game_dir,
     )
     if feats:
