@@ -62,8 +62,11 @@ b. **Develop** — dispatch a fresh **dev subagent via the Agent tool** (`model:
    > The canonical WORK.md is `<game_dir>/WORK.md` (read-only for you). If this is a
    > `[bug]`, you MUST add a never-again regression test under `test/unit/` (per the spec).
    > When done, print a final line `COMMIT_SUBJECT: <conventional-commit subject>` and a
-   > short body. If the item is genuinely ambiguous or needs a CEO decision, say so clearly
-   > instead of guessing."
+   > short body. **If the feature introduces any asset gap (a new entity/pickup needing real
+   > art, a new audible event needing real SFX, new copy needing writing, a new level, or
+   > tuning), list each as an explicit `MANUAL: [<art|sfx|writing|level|tuning>] <short desc>`
+   > line in your handoff** — do NOT edit WORK.md; I persist them after the merge. If the item
+   > is genuinely ambiguous or needs a CEO decision, say so clearly instead of guessing."
    - A fresh subagent per item is the per-item "clear context" (matches the headless
      fresh-`claude -p` model).
    - If the dev subagent reports the item is ambiguous / needs CEO → go to (e) escalate.
@@ -88,7 +91,14 @@ e. **Finish or fail**:
      ```
      bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh finish-one "<branch>" "<title>" --subject "<COMMIT_SUBJECT from the dev>"
      ```
-     - Prints `SHIPPED: …` (rc 0) → increment `shipped` UNLESS (`is_test_failure` is true AND
+     - Prints `SHIPPED: …` (rc 0) → first, **persist any `[manual]` asset follow-ups the
+       dev reported** in its handoff (the dev must NOT edit WORK.md; finish-one discards any
+       branch WORK.md change, so these would otherwise be lost). For EACH follow-up the dev
+       named (e.g. "needs a real sprite for the new pickup"), run:
+       ```
+       bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh append-manual "[manual] [<art|sfx|writing|level|tuning>] <short desc>" --detail "Spawned by: <item title>"
+       ```
+       Then increment `shipped` UNLESS (`is_test_failure` is true AND
        `spx_config get continuous.cap_excludes_test_fixes` is true) — then it does NOT count
        toward the cap (mirror headless). `continue`.
      - rc 2 (Game.md gate) or rc 1 (merge conflict/push fail) → treat as a blocking failure:

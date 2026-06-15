@@ -194,6 +194,11 @@ cmd_finish_one() {
     git fetch --quiet origin master 2>/dev/null
     git checkout --quiet master 2>/dev/null || exit 1
     git reset --hard origin/master --quiet 2>/dev/null
+    # Drop any stray untracked files (e.g. a dev subagent or a rogue worker that
+    # wrote into the main checkout) so they can't block the squash with
+    # "untracked working tree files would be overwritten". Respects .gitignore
+    # (no -x), so .godot/.factory local caches are left alone.
+    git clean -fd --quiet 2>/dev/null || true
     if ! git merge --squash --quiet "$branch"; then
       # Code conflict against current master — dev-fixable. Clean up + bail to retry.
       git reset --hard origin/master --quiet 2>/dev/null || true
@@ -273,12 +278,40 @@ cmd_fail_one() {
     git push --quiet origin master 2>/dev/null
   )
   rmdir "$MASTER_LOCK" 2>/dev/null || true
-  echo "${mode^^}: $stripped"
+  echo "${mode}: $stripped"
+}
+
+# ── append-manual ──────────────────────────────────────────────────────────
+# Append a CEO-facing [manual] asset-gap item to the canonical WORK.md ## Todo,
+# committed + pushed under the master-push lock. The /spraxel-develop skill calls
+# this for each [manual] follow-up a dev subagent REPORTS — the dev must not edit
+# WORK.md itself (finish-one discards any branch WORK.md change), so this is how
+# those follow-ups get persisted.
+cmd_append_manual() {
+  local title="$1"; shift   # remaining args: --detail "..." [--detail "..."] ...
+  [ -n "$title" ] || die "append-manual needs a <title> (+ optional --detail ...)"
+  acquire_lock "$MASTER_LOCK" 60 0.3 || true
+  (
+    trap 'release_lock "'"$MASTER_LOCK"'"' EXIT
+    cd "$GAME_DIR" || exit 1
+    git fetch --quiet origin master 2>/dev/null
+    git checkout --quiet master 2>/dev/null || exit 1
+    git reset --hard origin/master --quiet 2>/dev/null
+    python3 "$WORKMD" append "$GAME_DIR/WORK.md" --section todo "$title" "$@" >/dev/null 2>&1 || exit 1
+    git add WORK.md 2>/dev/null
+    git diff --cached --quiet && exit 0
+    git "${BOT_ID[@]}" commit --quiet -m "chore(work): asset-gap follow-up" 2>/dev/null || exit 1
+    git pull --rebase --quiet origin master 2>/dev/null
+    git push --quiet origin master 2>/dev/null
+  )
+  rmdir "$MASTER_LOCK" 2>/dev/null || true
+  echo "APPENDED: $title"
 }
 
 case "${1:-}" in
-  claim-one)  shift; cmd_claim_one "$@" ;;
-  finish-one) shift; cmd_finish_one "$@" ;;
-  fail-one)   shift; cmd_fail_one "$@" ;;
-  *) echo "usage: interactive_dev_step.sh {claim-one|finish-one <branch> <title>|fail-one <branch> <title> retry|escalate}" >&2; exit 2 ;;
+  claim-one)     shift; cmd_claim_one "$@" ;;
+  finish-one)    shift; cmd_finish_one "$@" ;;
+  fail-one)      shift; cmd_fail_one "$@" ;;
+  append-manual) shift; cmd_append_manual "$@" ;;
+  *) echo "usage: interactive_dev_step.sh {claim-one | finish-one <branch> <title> | fail-one <branch> <title> retry|escalate | append-manual <title> [--detail ...]}" >&2; exit 2 ;;
 esac
