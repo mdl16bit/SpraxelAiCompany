@@ -40,6 +40,14 @@ TS_FMT = "%Y-%m-%d %H:%M:%S %Z"          # the format dashboard.py already parse
 # entrypoint → pool. Anything else (unknown/missing) is ignored.
 POOL_BY_ENTRYPOINT = {"cli": "subscription", "sdk-cli": "api_credit"}
 
+# Headless `claude -p` only began drawing on METERED API credit on 2026-06-15.
+# Before that it was subscription-covered, so counting the whole calendar month
+# would show ~2 weeks of subscription usage as if it were API spend (the scary,
+# fictitious "$1.5k / $250"). We floor the api_credit window at this date so the
+# dashboard reflects REAL metered spend. Harmless once we're past June 2026:
+# month_start is always >= this date from July on, so max() picks month_start.
+METERED_SINCE = datetime(2026, 6, 15, 0, 0, 0, tzinfo=TZ)
+
 
 def transcript_dirs():
     """Every ~/.claude/projects dir for this repo (main checkout + worktrees)."""
@@ -132,7 +140,12 @@ def blank():
 
 def compute(now=None):
     now = now or datetime.now(TZ)
-    bounds = {"subscription": week_start(now), "api_credit": month_start(now)}
+    # api_credit floors at the metering cutover (see METERED_SINCE) so the cutover
+    # month doesn't count pre-metering, subscription-covered usage.
+    bounds = {
+        "subscription": week_start(now),
+        "api_credit": max(month_start(now), METERED_SINCE),
+    }
     resets = {
         "subscription": week_start(now) + timedelta(days=7),  # next Mon 06:00 PT
         "api_credit": next_month_start(now),                  # 1st of next month
@@ -182,6 +195,14 @@ def compute(now=None):
     def pool_summary(pool, window):
         by_model = pools[pool]
         total = sum(sum(b.values()) for b in by_model.values())
+        # 4-way split across all models — lets the dashboard show how much of the
+        # token total is cheap cache_read (re-reading the cached prompt each turn)
+        # vs. real output. They ALL cost money (cache_read is just billed cheaply),
+        # so this is presentational, not a cost adjustment.
+        breakdown = blank()
+        for b in by_model.values():
+            for k in breakdown:
+                breakdown[k] += b.get(k, 0)
         out = {
             "window": window,
             "since": bounds[pool].strftime(TS_FMT),
@@ -192,6 +213,7 @@ def compute(now=None):
                 / max(1, (resets[pool] - bounds[pool]).total_seconds())
             ),
             "total_tokens": total,
+            "token_breakdown": breakdown,
             "by_model": {
                 m: sum(b.values())
                 for m, b in sorted(by_model.items())

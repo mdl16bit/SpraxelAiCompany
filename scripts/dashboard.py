@@ -897,6 +897,19 @@ def render(now: datetime, game_dir: Path | None) -> str:
             f"    {'API credit':<12} {GREEN}{_fmt_tok(api.get('total_tokens')):>8}{RESET} tok"
             f"  {dollars}  {DIM}this month · {_reset_note(api)}{RESET}"
         )
+        # Composition line — most of the token total is cheap cache_read (the
+        # cached prompt re-read every turn), not real output. They all cost, but
+        # showing the split stops the headline token count from looking alarming.
+        bd = api.get("token_breakdown") or {}
+        tot = api.get("total_tokens") or 0
+        cr = bd.get("cache_read", 0)
+        if tot and cr:
+            pct = round(100 * cr / tot)
+            lines.append(
+                f"    {'':<12} {DIM}↳ {_fmt_tok(cr)} ({pct}%) cache reads (billed cheap) · "
+                f"{_fmt_tok(bd.get('output', 0))} output · "
+                f"{_fmt_tok(bd.get('cache_write', 0))} cache-write{RESET}"
+            )
         lines.append("")
 
     # Test runner — only while active/pending (it runs exclusively, pausing the
