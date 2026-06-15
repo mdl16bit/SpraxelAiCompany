@@ -37,6 +37,7 @@ from cron_match import cron_match
 REPO_DIR = Path.home() / "SpraxelAiCompany"
 SCHEDULE = REPO_DIR / "schedule.yaml"
 STATE_FILE = REPO_DIR / ".cache" / "continuous-state.json"
+TOKEN_USAGE_FILE = REPO_DIR / ".cache" / "token-usage.json"
 PAUSED = REPO_DIR / ".paused"
 TR_PENDING = REPO_DIR / ".cache" / "test-runner-pending"
 TR_ACTIVE = REPO_DIR / ".cache" / "test-runner-active"
@@ -87,6 +88,29 @@ def _spx_get(key: str, default: str = "") -> str:
     """Read a MERGED-config value (COMPANY_CONFIG + game GAME_CONFIG) via spx_config."""
     val = sh(f'python3 "{REPO_DIR}/scripts/spx_config.py" get {key}')
     return val if val else default
+
+
+def token_usage_status() -> dict | None:
+    """Read the cached subscription-vs-API-credit split (scripts/token_usage.py)."""
+    if not TOKEN_USAGE_FILE.exists():
+        return None
+    try:
+        return json.loads(TOKEN_USAGE_FILE.read_text())
+    except Exception:
+        return None
+
+
+def _fmt_tok(n) -> str:
+    """Compact token count: 12345678 -> '12.3M', 456789 -> '0.46M'."""
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return "?"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}K"
+    return str(n)
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -828,6 +852,35 @@ def render(now: datetime, game_dir: Path | None) -> str:
             pass
     lines.append(f"  Cap counter    {cap_line}")
     lines.append("")
+
+    # Token usage — subscription pool (interactive) vs API-credit pool (headless).
+    # Refreshed ~daily by scripts/token_usage.py (zero Claude tokens); cached JSON.
+    tu = token_usage_status()
+    if tu:
+        calc = tu.get("calculated_ts", "?")
+        # strip seconds for compactness: "2026-06-14 21:10:38 PDT" -> "2026-06-14 21:10 PDT"
+        parts = calc.split(" ")
+        calc_short = f"{parts[0]} {parts[1][:5]} {parts[2]}" if len(parts) == 3 else calc
+        sub = tu.get("subscription", {})
+        api = tu.get("api_credit", {})
+        lines.append(f"  Token usage    {DIM}(calc {calc_short}){RESET}")
+        lines.append(
+            f"    {'Subscription':<12} {GREEN}{_fmt_tok(sub.get('total_tokens')):>8}{RESET} tok"
+            f"  {DIM}this week (since Mon 6am){RESET}"
+        )
+        cap = api.get("cap_usd") or 0
+        spent = api.get("est_usd") or 0
+        if cap:
+            frac = spent / cap if cap else 0
+            cc = RED if frac > 0.85 else (YELLOW if frac > 0.60 else GREEN)
+            dollars = f"{cc}~${spent:,.0f} / ${cap:,.0f}{RESET}"
+        else:
+            dollars = f"{GREEN}~${spent:,.0f}{RESET}"
+        lines.append(
+            f"    {'API credit':<12} {GREEN}{_fmt_tok(api.get('total_tokens')):>8}{RESET} tok"
+            f"  {dollars}  {DIM}this month{RESET}"
+        )
+        lines.append("")
 
     # Test runner — only while active/pending (it runs exclusively, pausing the
     # dev workers, so it explains an otherwise-idle "Current items" below).

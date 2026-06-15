@@ -51,6 +51,17 @@ now=$(date '+%Y-%m-%d %H:%M:%S %Z')
 # continuous-w* locks. Idempotent + exit-0, so it can't break the tick.
 bash "$REPO_DIR/scripts/reap_hung_agents.sh" >>"$log" 2>&1 || true
 
+# Token-usage refresh (zero Claude tokens — pure local JSONL parsing). Recompute
+# the subscription-pool vs API-credit-pool split for the dashboard at most once
+# every ~12h; missing or stale cache regenerates on the next tick (self-healing
+# across wake-gaps). Backgrounded + exit-0 so it can never stall or break a tick.
+_tu_cache="$CACHE_DIR/token-usage.json"
+if [ ! -f "$_tu_cache" ] || [ -z "$(find "$_tu_cache" -mmin -720 2>/dev/null)" ]; then
+  _tu_log="$REPO_DIR/logs/token_usage"; mkdir -p "$_tu_log"
+  nohup python3 "$REPO_DIR/scripts/token_usage.py" \
+    >>"$_tu_log/$(date +%Y-%m-%d).log" 2>&1 &
+fi
+
 # Wake-gap detector: wall-clock seconds since the previous tick. Updated on
 # EVERY tick (even when paused, below) so an UNPAUSE never looks like a gap —
 # only a real machine-off/asleep stretch (no ticks ran at all) leaves it stale.

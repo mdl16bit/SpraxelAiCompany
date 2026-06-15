@@ -95,6 +95,19 @@ policy:
                                # metered $$. CEO removes .paused to resume. Set ABOVE your normal
                                # daily volume (e.g. recent steady-state ~150/day → cap ~250).
 
+  # Per-MTok model pricing (USD), used by scripts/token_usage.py to estimate the
+  # API-credit-pool $ figure shown on the dashboard. Keyed by model-family prefix
+  # (longest match wins); cache_write is the 5-minute-TTL rate (1.25x input), the
+  # 1h-TTL rate is 2x input and computed from `input` automatically. Update these
+  # when Anthropic changes prices — confirm via the claude-api skill.
+  pricing:
+    "claude-opus-4-8":   { input: 5.00, output: 25.00, cache_write: 6.25, cache_read: 0.50 }
+    "claude-opus":       { input: 5.00, output: 25.00, cache_write: 6.25, cache_read: 0.50 }  # fallback for other opus 4.x
+    "claude-sonnet-4-6": { input: 3.00, output: 15.00, cache_write: 3.75, cache_read: 0.30 }
+    "claude-sonnet":     { input: 3.00, output: 15.00, cache_write: 3.75, cache_read: 0.30 }
+    "claude-haiku-4-5":  { input: 1.00, output:  5.00, cache_write: 1.25, cache_read: 0.10 }
+    "claude-haiku":      { input: 1.00, output:  5.00, cache_write: 1.25, cache_read: 0.10 }
+
 # Continuous Developer loop — ships items until target_per_batch since the last
 # CEO interaction, then sleeps. Restarts on CEO checkin.
 continuous:
