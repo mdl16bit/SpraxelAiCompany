@@ -18,18 +18,18 @@ Scripts live in `~/SpraxelAiCompany/scripts/` (abbreviated below): `interactive_
 1. **Pick the project** (multi-game). `SLUG=$(spx_config.py current --game "<named>")`
    if the CEO named one, else `SLUG=$(spx_config.py current)`. Priority: explicit >
    folder you're in > last used > sole enabled. If `current` exits non-zero it's
-   ambiguous (candidates on stderr) → **ask the CEO**, set SLUG. Then
+   ambiguous → **ask the CEO**, set SLUG. Then
    `spx_config.py set-current "$SLUG"` and `GAME=$(spx_config.py game-dir "$SLUG")`.
    **Pass `--game "$SLUG"` to every helper/config call below.**
 2. **Mode gate**: if `spx_config.py get continuous.force_interactive_developers --game "$SLUG"`
-   is not true → STOP and tell the CEO to enable it first (else you race the headless pool).
+   is not true → STOP and tell the CEO to enable it first.
 3. **Params + MODE**:
    - `target = get continuous.target_per_batch --game "$SLUG"`; `delegate_all = get policy.delegate_all --game "$SLUG"`.
    - **Arg N** (`/spraxel-develop 3`) → **ONE-SHOT**: `cap=N`, build then STOP (no park; honors N even under delegate_all).
    - **No arg** → **CONTINUOUS**: `cap=target`, build to cap then PARK + auto-resume on a poke.
      **delegate_all → uncapped** (`cap=∞`; only a dry queue ends an epoch; runs until the CEO stops or `.paused`).
    - Models: dev=**sonnet**, review=**haiku**. If `sonnet_cap.py is-capped` exits 0 → use **opus** for dev subagents. Re-check each item (the flag can flip mid-run).
-4. **Heartbeat**: `touch .cache/interactive-dev-active` — re-touch each build iteration; remove at the end (§4).
+4. **Heartbeat**: `interactive_dev_step.sh heartbeat on --game "$SLUG"` — re-run each build iteration (drives the dashboard's "develop: executing" + Current items); `heartbeat off` at the end (§4).
 5. `interactive_dev_step.sh release-claims --game "$SLUG"` — clears orphan `[wip:0]` from an interrupted item.
 6. CONTINUOUS only: `reset-signal --game "$SLUG"` (counter→0) so epoch 1 builds a full cap.
 7. delegate_all only: `workmd.py auto-clear-gates "$GAME/WORK.md"` (makes gated items buildable); re-run each CONTINUOUS epoch.
@@ -87,8 +87,8 @@ Skip on a dry-queue stop, or if a sweep is in flight (`.cache/test-runner-active
 ## 3. CONTINUOUS — PARK + auto-resume  (ONE-SHOT skips → §4)
 When an epoch hits the cap (or the queue went dry) and §2 has fired, PARK:
 1. Call **ScheduleWakeup** (`delaySeconds: 90`, `reason` "parked at cap") with a `prompt` that
-   re-enters this resume logic — **bake the resolved SLUG in literally** (fresh re-entry; the
-   variable is out of scope on wake): *"[/spraxel-develop CONTINUOUS auto-wake] Parked on project
+   re-enters this resume logic — **bake the resolved SLUG in literally** (out of scope on wake):
+   *"[/spraxel-develop CONTINUOUS auto-wake] Parked on project
    `<SLUG>`. Run `interactive_dev_step.sh poked --game <SLUG>`. Exit 0 → run `release-claims --game <SLUG>`
    then `reset-signal --game <SLUG>`, then resume §1 on `<SLUG>`. Exit 1 → ScheduleWakeup ~90s with
    this same prompt and end the turn."* Then tell the CEO: *"Parked (`<cap-status>`); I'll resume on a
@@ -100,7 +100,7 @@ When an epoch hits the cap (or the queue went dry) and §2 has fired, PARK:
 > If ScheduleWakeup is unavailable: just end the turn with the poke-to-resume message and resume when the CEO next pokes + messages (same `poked`/`reset-signal` checks) — only the idle auto-wake is lost.
 
 ## 4. Stop + report
-1. `rm -f .cache/interactive-dev-active`; schedule no further wake-up.
+1. `interactive_dev_step.sh heartbeat off --game "$SLUG"`; schedule no further wake-up.
 2. Report shipped/retried/escalated, what remains, and whether a sweep was kicked off (its `[test_failure]` items build next run). Stop.
 
 ## Invariants

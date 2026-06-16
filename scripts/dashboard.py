@@ -222,11 +222,16 @@ def _compose_columns(left: list, right: list, left_w: int, gutter: int,
 
 
 def recent_tick_dispatches(slug: str, n: int = 10) -> list:
-    """The last N tick runs that actually dispatched an agent (idle
-    'dispatched=[] errors=[]' ticks are skipped). Newest first.
-    Returns [(hh:mm:ss, what_dispatched, errors)]. Reads the PER-GAME tick log."""
+    """The last N tick runs that dispatched an agent FOR THIS GAME (idle
+    'dispatched=[] errors=[]' ticks skipped). Newest first.
+    Returns [(hh:mm:ss, what_dispatched, errors)].
+
+    The tick log is GLOBAL (one daemon → one log). Post-cutover dispatch entries
+    are slug-prefixed ("<slug>/architect", "catch_up:<slug>"), so we filter to this
+    game; legacy un-prefixed lines (single-game era) are attributed to it too."""
+    tick_dir = REPO_DIR / "logs" / "tick"
     try:
-        files = sorted(_tick_log_dir(slug).glob("*.log"))
+        files = sorted(tick_dir.glob("*.log"))
     except Exception:
         return []
     rows: list = []
@@ -239,7 +244,11 @@ def recent_tick_dispatches(slug: str, n: int = 10) -> list:
                 disp = m.group(2).strip()
                 if not disp:
                     continue               # idle tick — nothing dispatched
-                rows.append((m.group(1), disp, m.group(3).strip()))
+                # If the line carries game-tagged entries but none for this slug, skip.
+                if re.search(r"[\w-]+/|catch_up:[\w-]+", disp) and slug not in disp:
+                    continue
+                shown = disp.replace(f"{slug}/", "").replace(f"catch_up:{slug}", "catch_up")
+                rows.append((m.group(1), shown, m.group(3).strip()))
                 if len(rows) >= n:
                     return rows
         except Exception:
@@ -1013,8 +1022,24 @@ def _per_game_panels(now: datetime, slug: str, game_dir: Path | None,
     # Worker count comes from the wrapper count. Show every worker even if
     # it has no [wip:N] yet (idle / between items).
     n_workers = len(wrapper_pids)
+    # Interactive dev (/spraxel-develop) claims as worker 0 with NO headless wrapper
+    # process, so surface its live claim + heartbeat here — otherwise hand-driven
+    # work shows a misleading "nothing — workers not running!".
+    ida = _interactive_dev_active(slug)
+    try:
+        _stale = int(_spx_get("continuous.interactive_dev_heartbeat_stale_secs", "1800", slug))
+    except ValueError:
+        _stale = 1800
+    interactive_live = ida.exists() and (time.time() - ida.stat().st_mtime) <= _stale
     if n_workers == 0:
-        if PAUSED.exists():
+        if wip_items:
+            # Claimed items with no headless wrapper = interactive dev (or leftover claims).
+            for wid, title in sorted(wip_items.items()):
+                who = f"{CYAN}interactive dev{RESET}" if wid == 0 else f"worker {wid}"
+                lines.append(f"    {who}  {title}")
+        elif interactive_live:
+            lines.append(f"    {CYAN}interactive dev{RESET} {DIM}— claiming next item…{RESET}")
+        elif PAUSED.exists():
             lines.append(f"    {DIM}(nothing — system paused){RESET}")
         else:
             lines.append(f"    {RED}(nothing — workers not running!){RESET}")

@@ -456,7 +456,20 @@ PY
   echo "signal reset (counter=0, watermark=$now_sha)"
 }
 
+# ── heartbeat on|off ── touch/remove the per-game interactive-dev marker the
+# dashboard reads for "develop: executing" + Current items. Lives under the
+# NAMESPACED CACHE_DIR (via gctx) so it matches where dashboard.py looks.
+cmd_heartbeat() {
+  local hb="$CACHE_DIR/interactive-dev-active"
+  case "${1:-}" in
+    on)  touch "$hb"; echo "heartbeat on ($hb)" ;;
+    off) rm -f "$hb"; echo "heartbeat off" ;;
+    *)   echo "usage: interactive_dev_step.sh heartbeat on|off" >&2; return 2 ;;
+  esac
+}
+
 case "${1:-}" in
+  heartbeat)      shift; cmd_heartbeat "$@" ;;
   claim-one)      shift; cmd_claim_one "$@" ;;
   finish-one)     shift; cmd_finish_one "$@" ;;
   fail-one)       shift; cmd_fail_one "$@" ;;
