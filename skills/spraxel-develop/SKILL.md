@@ -7,8 +7,10 @@ description: Interactive developer loop (force_interactive_developers mode) — 
 
 You ARE the dev loop: behave like `agents/spraxel-developer.md` + the merge wrapper
 (`continuous_dev.sh`), but driven from this session so it bills to the subscription, not metered
-`claude -p`. **Never prompt the CEO mid-run** — on ambiguity, escalate via the helper and move on.
-Assumes bypass-permissions mode.
+`claude -p`. **Run FULLY AUTONOMOUSLY — NEVER stop to ask the CEO anything** (asking stalls the loop
+overnight): on ambiguity escalate via the helper and move on; never pause to ask whether to
+continue/proceed/stop. A run ends ONLY on a CEO interrupt (Esc/message) or, in CONTINUOUS mode, the
+§3 park-and-self-resume. Assumes bypass-permissions mode.
 
 Scripts live in `~/SpraxelAiCompany/scripts/` (abbreviated below): `interactive_dev_step.sh`
 (the helper — lock/merge/ship), `spx_config.py`, `sonnet_cap.py`, `workmd.py`. Specs:
@@ -97,13 +99,13 @@ When an epoch hits the cap (or the queue went dry) and §2 has fired, PARK:
    `interactive_dev_step.sh poked --game "$SLUG"` → exit 0: `reset-signal --game "$SLUG"`, go to §1
    (fresh epoch); exit 1: re-PARK (step 1).
 3. **Stop**: if the CEO interrupts (Esc / a message) and says stop → schedule no further wake-up, go to §4.
-> If ScheduleWakeup is unavailable: just end the turn with the poke-to-resume message and resume when the CEO next pokes + messages (same `poked`/`reset-signal` checks) — only the idle auto-wake is lost.
+> (No ScheduleWakeup? End the turn with the poke message; resume on the CEO's next poke + message.)
 
 ## 4. Stop + report
 1. `interactive_dev_step.sh heartbeat off --game "$SLUG"`; schedule no further wake-up.
-2. Report shipped/retried/escalated, what remains, and whether a sweep was kicked off (its `[test_failure]` items build next run). Stop.
+2. Report shipped/retried/escalated, what remains, and whether a sweep was kicked off. Stop.
 
 ## Invariants
-- Lock discipline lives in the helper (`claim-one`/`finish-one`/`fail-one` take `master-push.lockdir`); never hand-roll pushes to the game master. If `claim-one` prints `lost push race`, just call it again.
-- You're the SOLE dev (the mode guarantees no headless devs) — no claim races. `.paused` pauses crew agents, not this skill (you may run it while the dashboard shows PAUSED).
-- `poked` = a non-bot master commit OR `checkin.sh` OR a TRIAGE.md save; the loop's own `*-bot@spraxel.ai` ship commits never count. Every counted ship calls `bump-cap`, so "Cap counter X/N" matches headless.
+- Lock discipline is in the helper (`claim-one`/`finish-one`/`fail-one` take `master-push.lockdir`) — never hand-roll game-master pushes; if `claim-one` says `lost push race`, call it again.
+- You're the SOLE dev (mode guarantees no headless devs); `.paused` pauses crew, not this skill.
+- `poked` = a non-bot master commit, `checkin.sh`, or a TRIAGE.md save (the loop's own `*-bot@spraxel.ai` commits never count). Every counted ship calls `bump-cap` so "Cap counter X/N" matches headless.

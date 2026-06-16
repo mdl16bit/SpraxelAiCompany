@@ -541,7 +541,7 @@ def playtest_texts(game_dir: Path | None, limit: int = 20) -> list[str]:
                     t = re.sub(r"\s*—\s*`[0-9a-f]+`\s*$", "", m.group(1).strip())
                     items.append(t)
     if not items:
-        out = sh("git log master --grep='^feat:' --author='continuous-bot' --author='Interactive Dev' "
+        out = sh("git log master --grep='^feat[(:]' --author='continuous-bot' --author='Interactive Dev' "
                  "--since='yesterday 21:00' --pretty='%s'", cwd=game_dir)
         for ln in (out.splitlines() if out else []):
             items.append(re.sub(r"^feat(\([^)]*\))?:\s*", "", ln))
@@ -701,7 +701,7 @@ def escalations_today(game_dir: Path | None) -> int:
 def ships_today(game_dir: Path | None) -> int:
     if not game_dir: return 0
     out = sh(
-        "git log master --since=midnight --pretty='%h' --grep='^feat:' "
+        "git log master --since=midnight --pretty='%h' --grep='^feat[(:]' "
         "--author='continuous-bot' --author='Interactive Dev' | wc -l",
         cwd=game_dir,
     )
@@ -726,7 +726,7 @@ def ship_throughput(game_dir: Path | None) -> dict[str, int | float]:
         return {"lifetime": 0, "today": 0, "seven_day": 0, "avg_per_day": 0.0}
     def n(args: str) -> int:
         out = sh(
-            f"git log master {args} --pretty='%h' --grep='^feat:' "
+            f"git log master {args} --pretty='%h' --grep='^feat[(:]' "
             f"--author='continuous-bot' --author='Interactive Dev' | wc -l",
             cwd=game_dir,
         )
@@ -754,7 +754,7 @@ def last_n_ships(game_dir: Path | None, n: int = 20) -> list[tuple[str, str, str
     if not game_dir: return []
     # %h short sha, %cr relative date, %s subject
     out = sh(
-        f"git log master --pretty=format:'%h|%cr|%s' --grep='^feat:' "
+        f"git log master --pretty=format:'%h|%cr|%s' --grep='^feat[(:]' "
         f"--author='continuous-bot' --author='Interactive Dev' -n {n}",
         cwd=game_dir,
     )

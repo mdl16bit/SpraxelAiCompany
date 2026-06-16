@@ -222,7 +222,7 @@ def section_right_now(now: datetime, games: list) -> None:
 def commit_counts(game_dir: Path, since: str) -> dict:
     """Return {ships, escalations, ceo_commits} for the given git --since."""
     ships = sh(
-        f"git log master --since='{since}' --pretty='%h' --grep='^feat:' "
+        f"git log master --since='{since}' --pretty='%h' --grep='^feat[(:]' "
         f"--author='continuous-bot' --author='Interactive Dev' | wc -l",
         cwd=game_dir,
     )
@@ -274,7 +274,7 @@ def _section_last_24h_one(now: datetime, slug: str, game_dir: Path | None) -> No
     # Recent feat: titles
     feats = sh(
         f"git log master --since='24 hours ago' --pretty='%h %s' "
-        f"--grep='^feat:' --author='continuous-bot' --author='Interactive Dev' | head -10",
+        f"--grep='^feat[(:]' --author='continuous-bot' --author='Interactive Dev' | head -10",
         cwd=game_dir,
     )
     if feats:
@@ -309,7 +309,7 @@ def _section_last_week_one(now: datetime, slug: str, game_dir: Path | None) -> N
     # Top 10 features by date
     feats = sh(
         "git log master --since='7 days ago' --pretty='%h %ar %s' "
-        "--grep='^feat:' --author='continuous-bot' --author='Interactive Dev' | head -20",
+        "--grep='^feat[(:]' --author='continuous-bot' --author='Interactive Dev' | head -20",
         cwd=game_dir,
     )
     if feats:
@@ -319,8 +319,8 @@ def _section_last_week_one(now: datetime, slug: str, game_dir: Path | None) -> N
             parts = line.split(maxsplit=3)
             if len(parts) >= 4:
                 sha, t1, t2, rest = parts[0], parts[1], parts[2], parts[3]
-                # rest = "X ago feat: title" — kebab everything after "feat:"
-                title = re.sub(r"^.*?feat:\s*", "", rest)
+                # rest = "X ago feat[(scope)]: title" — strip the feat prefix (scoped or not)
+                title = re.sub(r"^.*?feat(\([^)]*\))?:\s*", "", rest)
                 print(f"    - `{sha}` {title[:90]}{'…' if len(title) > 90 else ''}")
     print()
 
