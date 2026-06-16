@@ -1,269 +1,109 @@
 ---
 name: spraxel-develop
-description: Interactive developer loop for force_interactive_developers mode. Runs the Spraxel DEVELOPER role from this interactive session instead of a headless `claude -p` worker — building WORK.md items one-by-one (claim → build → independent review → squash-merge → ship → push). TWO MODES — `/spraxel-develop N` builds exactly N items then stops (one-shot); `/spraxel-develop` with NO number builds up to the batch cap, then PARKS and self-resumes whenever the CEO pokes the system (a non-bot commit, a checkin, or saving TRIAGE.md), looping until told to stop. Dev work runs on Sonnet, review on Haiku, both via the Agent tool (subscription-side, not metered). Use when the user types /spraxel-develop (optionally with a count) or says "build the queue", "develop the work items", "ship the next N", "keep building".
+description: Interactive developer loop (force_interactive_developers mode) — run the Spraxel DEVELOPER role from this session instead of a headless `claude -p` worker, building WORK.md items one by one (claim → build → independent review → squash-merge → ship → push). `/spraxel-develop N` builds N then stops; `/spraxel-develop` builds to the batch cap, then parks and self-resumes on a CEO poke (non-bot commit, checkin, or saving TRIAGE.md). Dev on Sonnet, review on Haiku, via the Agent tool (subscription-side). Use when the user types /spraxel-develop (optionally with a count) or says "build the queue", "ship the next N", "keep building".
 ---
 
 # Spraxel — interactive developer (`/spraxel-develop [N]`)
 
-You ARE the developer loop now. Behave EXACTLY like the headless developer
-(`agents/spraxel-developer.md`) + the wrapper (`continuous_dev.sh`) that merges
-its work — but driven from this interactive session so the dev work bills against
-the subscription, not metered `claude -p`. **Never prompt the CEO** during the
-run: on any ambiguity, escalate via the helper and move on (same contract as the
-headless dev). This skill assumes the session is in **bypass-permissions mode**.
+You ARE the dev loop: behave like `agents/spraxel-developer.md` + the merge wrapper
+(`continuous_dev.sh`), but driven from this session so it bills to the subscription, not metered
+`claude -p`. **Never prompt the CEO mid-run** — on ambiguity, escalate via the helper and move on.
+Assumes bypass-permissions mode.
 
-Paths (absolute):
-- Helper (lock/merge/ship mechanics): `~/SpraxelAiCompany/scripts/interactive_dev_step.sh`
-- Config loader: `~/SpraxelAiCompany/scripts/spx_config.py`
-- Dev spec: `~/SpraxelAiCompany/agents/spraxel-developer.md`
-- Reviewer spec: `~/SpraxelAiCompany/agents/spraxel-reviewer.md`
-- Heartbeat marker: `~/SpraxelAiCompany/.cache/interactive-dev-active`
+Scripts live in `~/SpraxelAiCompany/scripts/` (abbreviated below): `interactive_dev_step.sh`
+(the helper — lock/merge/ship), `spx_config.py`, `sonnet_cap.py`, `workmd.py`. Specs:
+`agents/spraxel-developer.md`, `agents/spraxel-reviewer.md`. Heartbeat: `.cache/interactive-dev-active`.
 
 ## 0. Preflight
+1. **Pick the project** (multi-game). `SLUG=$(spx_config.py current --game "<named>")`
+   if the CEO named one, else `SLUG=$(spx_config.py current)`. Priority: explicit >
+   folder you're in > last used > sole enabled. If `current` exits non-zero it's
+   ambiguous (candidates on stderr) → **ask the CEO**, set SLUG. Then
+   `spx_config.py set-current "$SLUG"` and `GAME=$(spx_config.py game-dir "$SLUG")`.
+   **Pass `--game "$SLUG"` to every helper/config call below.**
+2. **Mode gate**: if `spx_config.py get continuous.force_interactive_developers --game "$SLUG"`
+   is not true → STOP and tell the CEO to enable it first (else you race the headless pool).
+3. **Params + MODE**:
+   - `target = get continuous.target_per_batch --game "$SLUG"`; `delegate_all = get policy.delegate_all --game "$SLUG"`.
+   - **Arg N** (`/spraxel-develop 3`) → **ONE-SHOT**: `cap=N`, build then STOP (no park; honors N even under delegate_all).
+   - **No arg** → **CONTINUOUS**: `cap=target`, build to cap then PARK + auto-resume on a poke.
+     **delegate_all → uncapped** (`cap=∞`; only a dry queue ends an epoch; runs until the CEO stops or `.paused`).
+   - Models: dev=**sonnet**, review=**haiku**. If `sonnet_cap.py is-capped` exits 0 → use **opus** for dev subagents. Re-check each item (the flag can flip mid-run).
+4. **Heartbeat**: `touch .cache/interactive-dev-active` — re-touch each build iteration; remove at the end (§4).
+5. `interactive_dev_step.sh release-claims --game "$SLUG"` — clears orphan `[wip:0]` from an interrupted item.
+6. CONTINUOUS only: `reset-signal --game "$SLUG"` (counter→0) so epoch 1 builds a full cap.
+7. delegate_all only: `workmd.py auto-clear-gates "$GAME/WORK.md"` (makes gated items buildable); re-run each CONTINUOUS epoch.
+8. Init `shipped=0, escalated=0, retried=0`.
 
-0. **Select the target project** (the framework is multi-game now). Resolve WHICH
-   project you'll build for before any other preflight. Priority: an explicit
-   project named in the CEO's message/args > the folder you're currently in > the
-   last project used > the sole enabled project; if it's genuinely ambiguous, ask.
-   ```bash
-   # If the CEO named a project, pass it; otherwise let the resolver decide.
-   SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current --game "<named>") \
-     || SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current)
-   ```
-   - If `current` exits non-zero, it was **ambiguous** and printed the candidate slugs
-     on stderr. **Ask the CEO which project**, then set `SLUG` to their answer.
-   - Record last-used: `python3 ~/SpraxelAiCompany/scripts/spx_config.py set-current "$SLUG"`.
-   - All config reads below that select a game (the `get` calls) take `--game "$SLUG"`,
-     and every helper call takes `--game "$SLUG"` so the whole run stays on this project.
+## 1. Build loop — per item (a–e) until STOP
+**STOP when:** ONE-SHOT → shipped `cap` OR queue dry;
+CONTINUOUS → `interactive_dev_step.sh cap-status --game "$SLUG"` shows `shipped >= cap` OR queue dry
+(delegate_all: ignore the cap test — only a dry queue ends the epoch). Use the **shared** `cap-status`
+(not a local count) so a poke's reset frees the next epoch.
 
-1. **Mode gate** — read `continuous.force_interactive_developers`:
-   `python3 ~/SpraxelAiCompany/scripts/spx_config.py get continuous.force_interactive_developers --game "$SLUG"`
-   (the loader prints `True`/`False`, capitalized — treat case-insensitively).
-   If it is NOT true, STOP immediately and tell the CEO: "force_interactive_developers
-   is false — headless devs are live; enable the mode (set it true in COMPANY_CONFIG or
-   the game's GAME_CONFIG) before running /spraxel-develop, or you'll race the headless
-   pool." Do not proceed.
-2. **Resolve params + MODE**:
-   - `game_dir` (`$GAME`) = `spx_config game-dir "$SLUG"` — the resolved project's
-     absolute dir; build every game path below (e.g. `"$GAME/WORK.md"`) from it.
-   - `target` = `spx_config get continuous.target_per_batch --game "$SLUG"` (5) — the cap size.
-   - `delegate_all` = `spx_config get policy.delegate_all --game "$SLUG"` (treat `True` case-insensitively).
-   - **MODE** (the whole behavior split):
-     - A **number was passed** (`/spraxel-develop 3`) → **ONE-SHOT** mode. `cap = that number`.
-       Build `cap` items, then STOP. No parking, no auto-resume. (ONE-SHOT always honors its
-       explicit N, even under delegate_all.)
-     - **No arg** (`/spraxel-develop`) → **CONTINUOUS** mode. `cap = target`. Build up to the cap,
-       then PARK and self-resume on a CEO poke — looping until the CEO stops it.
-       **DELEGATE-ALL override**: if `delegate_all` is true, work is UNCAPPED — set `cap = ∞`
-       (treat the cap-hit stop test as never true; you only ever stop a CONTINUOUS epoch when the
-       queue goes dry). The loop runs forever until the CEO stops the session or touches `.paused`.
-   - Reviewer model = **haiku** (`models.reviewer --game "$SLUG"`) — unaffected by the Sonnet cap.
-   - Dev model = **sonnet** (`models.developer --game "$SLUG"`) **UNLESS the Sonnet cap is hit**: run
-     `python3 ~/SpraxelAiCompany/scripts/sonnet_cap.py is-capped` — if it exits 0, use
-     **opus** for the dev subagents instead (the shared Sonnet→Opus fallback). Re-check this
-     at the top of EACH item (the flag can flip mid-run as crew agents probe Sonnet).
-3. **Heartbeat ON**: `touch ~/SpraxelAiCompany/.cache/interactive-dev-active`. Re-touch it at the
-   top of every BUILD iteration (the dashboard reads its freshness for "develop: executing").
-   Always remove it when the run ends (§4).
-4. **Clear stale claims**: `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh release-claims --game "$SLUG"`
-   — releases any orphan `[wip:0]` left by a previously interrupted item (e.g. you pressed Esc
-   mid-build) so it becomes eligible again and nothing is stranded.
-5. **CONTINUOUS mode only — fresh start**:
-   `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh reset-signal --game "$SLUG"` (counter→0, watermark→
-   current master) so the first epoch builds a full `cap`. (ONE-SHOT mode: skip this — it builds
-   exactly its N regardless of the counter.)
-6. **DELEGATE-ALL only — clear stray gates**: if `delegate_all` is true, run
-   `python3 ~/SpraxelAiCompany/scripts/workmd.py auto-clear-gates "$GAME/WORK.md"` so any
-   `[escalated]`/`[needs-ceo]` left on the queue becomes buildable (the loop never waits on a CEO).
-   Re-run this at the top of each CONTINUOUS epoch. No-op when delegate_all is false.
-7. Initialize `shipped=0`, `escalated=0`, `retried=0`.
+a. **Claim**: `interactive_dev_step.sh claim-one --game "$SLUG"`. `EMPTY` → dry, stop (cap NOT hit).
+   Else parse JSON `title, details, branch, worktree, is_test_failure, test_ref` (re-read fresh each item — crew agents may edit WORK.md between items).
 
-## 1. Build the batch — repeat the per-item steps (a–e) until the STOP condition
+b. **Develop** — fresh dev subagent (Agent tool, `model: sonnet`, or opus if capped). A fresh
+   subagent per item = clean context:
+   *"Follow `agents/spraxel-developer.md` exactly. Implement ONLY this item — Title `<title>`,
+   Details `<details>`. Work in worktree `<worktree>` on `<branch>` with incremental commits; do NOT
+   merge/push/touch WORK.md (canonical `$GAME/WORK.md` is read-only). If `[bug]`, add a regression
+   test under `test/unit/`. End with `COMMIT_SUBJECT: <subject>` + short body, and list any asset gap
+   as `MANUAL: [<art|sfx|writing|level|tuning>] <desc>` (don't edit WORK.md — I persist them
+   post-merge). If genuinely ambiguous, say so instead of guessing."*
+   - **delegate_all**: append *"No CEO — emit NO `MANUAL:` lines; ship working PLACEHOLDERS noted in
+     the body; never flag ambiguity, decide and record the assumption."*
+   - Dev flags ambiguity → (e) escalate. **Sonnet-cap**: if a sonnet dev subagent dies on a usage
+     limit (or empty), `sonnet_cap.py set` then re-dispatch the SAME item on **opus** (stay until `is-capped` clears).
 
-Re-`touch` the heartbeat marker at the start of each iteration. **STOP building the current batch when:**
-- **ONE-SHOT**: you have shipped `cap` items, OR the queue is dry (`claim-one` → `EMPTY`). Then do
-  §2 (sweep, if cap hit) and §4 (stop) — you're done.
-- **CONTINUOUS**: `interactive_dev_step.sh cap-status --game "$SLUG"` shows `shipped >= cap` (cap hit), OR the
-  queue is dry. Then do §2 (sweep, if cap hit) and §3 (PARK).
-  **DELEGATE-ALL**: ignore the cap-hit half of this test entirely (`cap = ∞`) — only the dry queue
-  ends an epoch. You'll keep building without parking until there's genuinely nothing to claim.
+c. **Independent review** — a SEPARATE subagent (Agent tool, `model: haiku`), independent of (b):
+   *"Follow `agents/spraxel-reviewer.md`. Review `git -C <worktree> diff master...HEAD` plus
+   `bash scripts/check_file_sizes.sh <worktree> HEAD master`. Item `<title>`. Verdict `clean` or
+   `blocking` (list each `[block]` as file:line + fix)."*
 
-Use the **shared** counter (`cap-status`) for the CONTINUOUS stop test — NOT a local count — so
-that a poke's counter-reset is exactly what lets the next epoch run. In ONE-SHOT mode, count the
-items you shipped this run.
-
-a. **Claim** the next item (syncs master, claims under the master-push lock, pushes the
-   `[wip:0]` tag):
-   ```
-   bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh claim-one --game "$SLUG"
-   ```
-   - Output `EMPTY` → the queue is dry. Stop the loop (go to step 3); note the cap was NOT hit.
-   - Otherwise parse the JSON: `title`, `details`, `branch`, `worktree`, `is_test_failure`,
-     `test_ref`. Always re-read this fresh each iteration — a crew agent may have changed
-     WORK.md between items.
-
-b. **Develop** — dispatch a fresh **dev subagent via the Agent tool** (`model: sonnet`):
-   > "You are the Spraxel developer. Read and follow `~/SpraxelAiCompany/agents/spraxel-developer.md`
-   > EXACTLY. Implement THIS item only:
-   > Title: `<title>`
-   > Details:
-   > `<details>`
-   > Work inside the git worktree `<worktree>` on branch `<branch>` (already checked out).
-   > Make incremental commits there. Do NOT merge, do NOT push, do NOT touch WORK.md.
-   > The canonical WORK.md is `$GAME/WORK.md` (read-only for you). If this is a
-   > `[bug]`, you MUST add a never-again regression test under `test/unit/` (per the spec).
-   > When done, print a final line `COMMIT_SUBJECT: <conventional-commit subject>` and a
-   > short body. **If the feature introduces any asset gap (a new entity/pickup needing real
-   > art, a new audible event needing real SFX, new copy needing writing, a new level, or
-   > tuning), list each as an explicit `MANUAL: [<art|sfx|writing|level|tuning>] <short desc>`
-   > line in your handoff** — do NOT edit WORK.md; I persist them after the merge. If the item
-   > is genuinely ambiguous or needs a CEO decision, say so clearly instead of guessing."
-   - **DELEGATE-ALL**: if `delegate_all` is true, append to the dev prompt: "DELEGATE-ALL MODE
-     is on — there is no CEO. Do NOT emit any `MANUAL:` lines; ship working PLACEHOLDERS
-     instead (rects/tones/lorem/simple layouts) and note them in your commit body. Do NOT flag
-     ambiguity — make the most reasonable call yourself and record the assumption in the body."
-   - A fresh subagent per item is the per-item "clear context" (matches the headless
-     fresh-`claude -p` model).
-   - If the dev subagent reports the item is ambiguous / needs CEO → go to (e) escalate.
-     (Won't happen under delegate_all — the dev decides instead of flagging.)
-   - **Sonnet-cap fallback**: if a Sonnet dev subagent dies with a usage-limit error (the
-     Agent result mentions hitting a usage/rate limit, or returns empty on a Sonnet run),
-     arm the shared flag: `python3 ~/SpraxelAiCompany/scripts/sonnet_cap.py set`, then
-     re-dispatch the SAME item's dev subagent immediately on **opus**. From then on this
-     run uses opus until `is-capped` clears.
-
-c. **Independent review** — dispatch a SEPARATE **reviewer subagent via the Agent tool**
-   (`model: haiku`):
-   > "You are the Spraxel reviewer. Read and follow `~/SpraxelAiCompany/agents/spraxel-reviewer.md`
-   > EXACTLY. Review the diff `git diff master...HEAD` inside the worktree `<worktree>`
-   > (run `git -C <worktree> diff master...HEAD`). Also run
-   > `bash ~/SpraxelAiCompany/scripts/check_file_sizes.sh <worktree> HEAD master`.
-   > The item is `<title>`. Return a verdict: `clean` or `blocking`, and for `blocking`
-   > list each `[block]` finding with file:line and what to fix."
-   - Use a separate subagent (NOT yourself) so the review is independent of the code you
-     just wrote.
-
-d. **Review loop**: if `blocking`, dispatch the dev subagent again with the findings to
-   fix (in the same worktree/branch), then re-review. Allow up to **2** fix rounds. If it
-   is still blocking after that → (e) with mode `retry`.
+d. **Review loop**: if `blocking`, re-dispatch the dev subagent with the findings (same worktree/branch),
+   then re-review. Up to **2** fix rounds; still blocking → (e) with mode `retry`.
 
 e. **Finish or fail**:
-   - **Clean** → merge + ship + push under the lock:
-     ```
-     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh finish-one "<branch>" "<title>" --subject "<COMMIT_SUBJECT from the dev>" --game "$SLUG"
-     ```
-     - Prints `SHIPPED: …` (rc 0) → first, **persist any `[manual]` asset follow-ups the
-       dev reported** in its handoff (the dev must NOT edit WORK.md; finish-one discards any
-       branch WORK.md change, so these would otherwise be lost). For EACH follow-up the dev
-       named (e.g. "needs a real sprite for the new pickup"), run:
-       ```
-       bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh append-manual "[manual] [<art|sfx|writing|level|tuning>] <short desc>" --detail "Spawned by: <item title>" --game "$SLUG"
-       ```
-       Then update the cap counter the SAME way the headless worker does. If the item counts
-       toward the cap — i.e. NOT (`is_test_failure` true AND `spx_config get
-       continuous.cap_excludes_test_fixes --game "$SLUG"` true) — increment BOTH your local `shipped` AND the
-       **shared** cap counter so the dashboard "Cap counter X/N" reflects interactive ships
-       identically to headless ones:
-       ```
-       bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh bump-cap --game "$SLUG"
-       ```
-       (A `[test_failure]` fix under `cap_excludes_test_fixes` counts toward neither — same
-       exclusion the headless main loop applies.) `continue`.
-     - rc 2 (Game.md gate) or rc 1 (merge conflict/push fail) → treat as a blocking failure:
-       run `fail-one … retry` (below), `retried += 1`, `continue`.
-   - **Still blocking / merge failure** → bounce to the queue as `[retry]`:
-     ```
-     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh fail-one "<branch>" "<title>" retry --detail "<one-line reason: reviewer blocks or merge conflict>" --game "$SLUG"
-     ```
-     `retried += 1`, `continue`.
-   - **Genuine ambiguity / needs a CEO decision** → escalate and move on (NEVER ask the CEO inline):
-     ```
-     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh fail-one "<branch>" "<title>" escalate --detail "<what decision is needed and why>" --game "$SLUG"
-     ```
-     `escalated += 1`, `continue`.
-     **DELEGATE-ALL**: there is no CEO to escalate to — use `retry` instead of `escalate` here
-     (`retried += 1`). A truly unbuildable item is auto-shelved `[cold]` by the poison-pill brake
-     after `continuous.retry_escalate_threshold` attempts, so the loop never gets stuck on it.
+   - **clean** → `interactive_dev_step.sh finish-one "<branch>" "<title>" --subject "<COMMIT_SUBJECT>" --game "$SLUG"`.
+     - `SHIPPED:` (rc 0) → for EACH `MANUAL:` the dev named, persist it (finish-one discards branch
+       WORK.md edits, so do it here): `interactive_dev_step.sh append-manual "[manual] [<kind>] <desc>" --detail "Spawned by: <title>" --game "$SLUG"`.
+       Then, unless (`is_test_failure` AND `get continuous.cap_excludes_test_fixes --game "$SLUG"` is true):
+       `interactive_dev_step.sh bump-cap --game "$SLUG"` and `shipped+=1`. `continue`.
+     - rc 2 (Game.md gate) / rc 1 (merge conflict / push fail) → `fail-one … retry`, `retried+=1`, `continue`.
+   - **still blocking / merge failure** → `interactive_dev_step.sh fail-one "<branch>" "<title>" retry --detail "<reason>" --game "$SLUG"`, `retried+=1`, `continue`.
+   - **ambiguity / CEO decision** → `interactive_dev_step.sh fail-one "<branch>" "<title>" escalate --detail "<what & why>" --game "$SLUG"`, `escalated+=1`, `continue`.
+     **delegate_all**: use `retry` not `escalate` (no CEO); the poison-pill brake auto-`[cold]`s after `continuous.retry_escalate_threshold` attempts.
 
-## 2. Post-batch full-test sweep (when the cap was HIT — both modes)
+## 2. Post-batch test sweep (only when the cap was HIT)
+Skip on a dry-queue stop, or if a sweep is in flight (`.cache/test-runner-active` or `…/test-runner-pending` present). CONTINUOUS fires this once per epoch, before PARK.
+1. `th = get test_runner.interactive_sweep_after_hours --game "$SLUG"`; if 0/empty → skip.
+2. `hours = (.cache/engine-uptime-since-test.json → seconds) / 3600`.
+3. If `hours >= th`: `touch .cache/test-runner-pending` then
+   `nohup bash ~/SpraxelAiCompany/scripts/test_runner.sh --game "$SLUG" >> ~/SpraxelAiCompany/logs/test_runner/$(date +%F).log 2>&1 &`.
+   It runs the suite, files failures as `[test_failure]` items (built next run), and resets the uptime counter.
 
-Run this when the batch stopped because the **cap was hit** (ONE-SHOT: shipped `cap`; CONTINUOUS:
-`cap-status` shows `shipped >= cap`) — NOT if the queue went dry. And only if no sweep is already
-in flight (`~/SpraxelAiCompany/.cache/test-runner-active` and `…/test-runner-pending` both absent).
-In CONTINUOUS mode this fires once per epoch, right before you PARK (§3).
-
-1. Threshold = `spx_config get test_runner.interactive_sweep_after_hours --game "$SLUG"` (merged; infiltrators=48).
-   If it is `0` or empty → skip the sweep.
-2. Engine-active hours since the last full test run:
-   read `~/SpraxelAiCompany/.cache/engine-uptime-since-test.json` → `seconds / 3600`.
-3. If `hours >= threshold`: kick off the same batch runner the system uses (fire-and-forget):
-   ```
-   touch ~/SpraxelAiCompany/.cache/test-runner-pending
-   nohup bash ~/SpraxelAiCompany/scripts/test_runner.sh --game "$SLUG" >> ~/SpraxelAiCompany/logs/test_runner/$(date +%Y-%m-%d).log 2>&1 &
-   ```
-   It runs the whole suite, files any failures as `[test_failure]` items, and resets the
-   uptime counter on completion. Those `[test_failure]` items are built by the NEXT
-   `/spraxel-develop` run.
-
-## 3. CONTINUOUS mode — PARK, then poll for a CEO poke and resume
-
-**ONE-SHOT mode skips this entirely → go straight to §4 and stop.**
-
-When a CONTINUOUS epoch hits the cap (or the queue went dry) and §2 has fired, you PARK and let
-the session self-resume on a poke:
-
-1. **Schedule a wake-up and END THE TURN** (so control returns to the CEO and the loop self-resumes):
-   - Call **ScheduleWakeup** with `delaySeconds: 90`, a short `reason` (e.g. "parked at cap —
-     polling for a CEO poke"), and a `prompt` that re-enters THIS resume logic, e.g.:
-     > "[/spraxel-develop CONTINUOUS — auto-wake] You are mid-run on project `$SLUG`, parked at
-     > the cap. Run `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh poked --game $SLUG`.
-     > If it exits 0 (a CEO poke — it prints the reason), run
-     > `interactive_dev_step.sh release-claims --game $SLUG` then `reset-signal --game $SLUG`,
-     > then resume building the next batch (§1) on project `$SLUG`. If it exits 1, ScheduleWakeup
-     > again (~90s) with this same prompt and end the turn."
-     (Bake the resolved `$SLUG` into the prompt text — it's a fresh re-entry, so the variable
-     won't be in scope on wake; the project must be named explicitly.)
-   - Then tell the CEO: "Parked at the cap (`<cap-status>`). I'll resume automatically when you
-     poke the system — a non-bot commit on master, a `checkin.sh`, or **saving TRIAGE.md** — or
-     interrupt me (Esc / a message) to stop or redirect." End the turn.
-2. **On wake** (the prompt above fires): re-resolve `SLUG` from the baked-in project name, then
-   `release-claims --game "$SLUG"`, then `interactive_dev_step.sh poked --game "$SLUG"`:
-   - **exit 0** (poked) → `reset-signal --game "$SLUG"`, then go to §1 and build the next batch (a fresh epoch).
-   - **exit 1** (no poke) → re-PARK (step 1 again: ScheduleWakeup ~90s, end the turn).
-3. **Stopping**: the CEO interrupts (Esc while building, or a message any time) and tells you to
-   stop. When that happens, do NOT schedule another wake-up — go to §4.
-
-> If `ScheduleWakeup` isn't available in this context, fall back to: PARK by ending the turn with
-> the same "poke to resume" message, and resume when the CEO next pokes + messages you (run the
-> same `poked` / `reset-signal` checks on re-entry). The behavior is identical; only the
-> auto-wake-while-idle is lost.
+## 3. CONTINUOUS — PARK + auto-resume  (ONE-SHOT skips → §4)
+When an epoch hits the cap (or the queue went dry) and §2 has fired, PARK:
+1. Call **ScheduleWakeup** (`delaySeconds: 90`, `reason` "parked at cap") with a `prompt` that
+   re-enters this resume logic — **bake the resolved SLUG in literally** (fresh re-entry; the
+   variable is out of scope on wake): *"[/spraxel-develop CONTINUOUS auto-wake] Parked on project
+   `<SLUG>`. Run `interactive_dev_step.sh poked --game <SLUG>`. Exit 0 → run `release-claims --game <SLUG>`
+   then `reset-signal --game <SLUG>`, then resume §1 on `<SLUG>`. Exit 1 → ScheduleWakeup ~90s with
+   this same prompt and end the turn."* Then tell the CEO: *"Parked (`<cap-status>`); I'll resume on a
+   poke, or interrupt me to stop."* **End the turn.**
+2. **On wake**: re-resolve SLUG from the baked-in name; `release-claims --game "$SLUG"`; then
+   `interactive_dev_step.sh poked --game "$SLUG"` → exit 0: `reset-signal --game "$SLUG"`, go to §1
+   (fresh epoch); exit 1: re-PARK (step 1).
+3. **Stop**: if the CEO interrupts (Esc / a message) and says stop → schedule no further wake-up, go to §4.
+> If ScheduleWakeup is unavailable: just end the turn with the poke-to-resume message and resume when the CEO next pokes + messages (same `poked`/`reset-signal` checks) — only the idle auto-wake is lost.
 
 ## 4. Stop + report
+1. `rm -f .cache/interactive-dev-active`; schedule no further wake-up.
+2. Report shipped/retried/escalated, what remains, and whether a sweep was kicked off (its `[test_failure]` items build next run). Stop.
 
-(ONE-SHOT mode lands here after its batch. CONTINUOUS mode lands here only when the CEO stops it.)
-
-1. **Heartbeat OFF**: `rm -f ~/SpraxelAiCompany/.cache/interactive-dev-active`. Do NOT schedule
-   any further wake-up.
-2. Report to the CEO: how many shipped / retried / escalated this run, what (if anything) remains,
-   and whether a full-test sweep was kicked off (and that any `[test_failure]` items it files will
-   be built on the next run/epoch). Then stop.
-
-## Notes / invariants
-
-- **Lock discipline is in the helper** — `claim-one`/`finish-one`/`fail-one` each take the
-  shared `master-push.lockdir` briefly so you never lose a concurrent crew WORK.md push.
-  Don't hand-roll git pushes to the game master from here; always go through the helper.
-- **One developer only**: the mode (tick.sh + continuous_dev.sh) guarantees no headless
-  dev runs, so you're the sole claimant — no claim races.
-- **`.paused` is separate**: it pauses crew agents, not this manually-run skill. You may
-  run /spraxel-develop while the system shows PAUSED (the dashboard shows both states).
-- If `claim-one` ever prints `lost push race`, just call it again — a crew push won the race.
-- **Interrupting (CONTINUOUS mode)**: the CEO presses **Esc** to interrupt mid-build, or just
-  types while you're parked between epochs. Either way, handle their request (stop, talk to the
-  producer, dictate a fix, etc.). If they Esc'd mid-item, the next `release-claims` (run at the
-  top of every batch + on every wake) clears the orphaned `[wip:0]` so nothing is stranded.
-- **Resume pokes**: `poked` returns true on a non-bot commit on master, a `checkin.sh` touch, OR
-  a TRIAGE.md save. The interactive-dev bot commits use `*-bot@spraxel.ai`, so the loop's own
-  ship commits never count as a poke (they won't falsely reset the counter).
-- **Cap parity**: every counted ship calls `bump-cap`, so the dashboard "Cap counter X/N" and the
-  CONTINUOUS stop test (`cap-status`) reflect interactive ships exactly like headless ones.
+## Invariants
+- Lock discipline lives in the helper (`claim-one`/`finish-one`/`fail-one` take `master-push.lockdir`); never hand-roll pushes to the game master. If `claim-one` prints `lost push race`, just call it again.
+- You're the SOLE dev (the mode guarantees no headless devs) — no claim races. `.paused` pauses crew agents, not this skill (you may run it while the dashboard shows PAUSED).
+- `poked` = a non-bot master commit OR `checkin.sh` OR a TRIAGE.md save; the loop's own `*-bot@spraxel.ai` ship commits never count. Every counted ship calls `bump-cap`, so "Cap counter X/N" matches headless.
