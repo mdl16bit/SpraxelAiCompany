@@ -1170,12 +1170,10 @@ def render(now: datetime, games: list) -> str:
     wrappers, token/$ usage, scheduled agents) are rendered ONCE; per-game
     panels are rendered for each enabled game. With a single enabled game the
     output reads as it always has."""
-    single = len(games) <= 1
-    # The "primary" game drives the global status-row test-runner decoration and
-    # the single-game cap-counter row.
+    # The "primary" game drives the global status-row interactive-dev heartbeat +
+    # test-runner decoration (these reflect machine-wide dev activity).
     primary = games[0] if games else {"slug": None, "dir": ""}
     p_slug = primary["slug"]
-    p_dir = Path(primary["dir"]) if primary.get("dir") else None
 
     title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
     bar = "─" * (WIDTH)
@@ -1259,43 +1257,34 @@ def render(now: datetime, games: list) -> str:
         wrapper_line = f"{GRAY}not running{RESET}" if PAUSED.exists() else f"{RED}⚠ not running{RESET}"
     lines.append(f"  Wrappers       {wrapper_line}")
 
-    # Cap counter — PER-GAME. For a SINGLE game it sits right here (identical to
-    # the historical layout); for MULTI-game it's rendered inside each game's
-    # section below (prefixed with the slug), so we skip it here.
-    if single:
-        lines.append(_cap_counter_line(now, p_slug) if p_slug else "  Cap counter    ?")
+    # Cap counter is PER-PROJECT — rendered inside each project's section below.
     lines.append("")
 
     # Token usage — GLOBAL (account/machine-wide token-usage.json). Rendered once.
     _token_usage_lines(lines)
 
-    if single:
-        # SINGLE-GAME: weave the one game's panels into the same single LEFT/RIGHT
-        # columns the dashboard has always used — output reads exactly as before.
-        # LEFT order: [global status..token usage] + pre + [global schedule] + post
-        gpre, gpost, gright = _per_game_panels(now, p_slug, p_dir, wrapper_pids)
-        lines.extend(gpre)
-        _next_agents_lines(now, lines)
-        lines.append("")
-        lines.extend(gpost)
-        body = _compose_columns(lines, gright, LEFT_W, GUTTER, RIGHT_W)
-        return "\n".join(head + body)
-
-    # MULTI-GAME: render the GLOBAL schedule once under the global status panel,
-    # then one composed two-column section per game (each prefixed by its slug).
+    # Scheduled agents — GLOBAL (shared cron schedule). Rendered once under the
+    # global panel (each project dispatches the same crons against its own state).
     _next_agents_lines(now, lines)
+
+    # The dashboard is PER-PROJECT: a single GLOBAL header block (system / models /
+    # tick / wrappers / token-usage / schedule), then ONE clearly-bannered section
+    # per enabled game/project — uniform whether there is 1 project or N.
     blocks = ["\n".join(_compose_columns(lines, [], LEFT_W, GUTTER, RIGHT_W))]
     for g in games:
         gslug = g["slug"]
         gdir = Path(g["dir"]) if g["dir"] else None
+        # Friendly project label: "<display name> · <slug>" (slug alone if no name).
+        name = (_spx_get("identity.name", slug=gslug).strip() if gslug else "")
+        label = f"{name} · {gslug}" if name and name != gslug else (gslug or "?")
         gpre, gpost, gright = _per_game_panels(now, gslug, gdir, wrapper_pids)
-        # Per-game header + the per-game cap counter, then the game's panels
-        # (the global schedule is NOT repeated per game).
-        sec: list = ["", f"  {BOLD}{CYAN}━━ {gslug} ━━{RESET}",
-                     _cap_counter_line(now, gslug), ""]
+        sec: list = ["", f"  {BOLD}{CYAN}━━ {label} ━━{RESET}",
+                     (_cap_counter_line(now, gslug) if gslug else "  Cap counter    ?"), ""]
         sec.extend(gpre)
         sec.extend(gpost)
         blocks.append("\n".join(_compose_columns(sec, gright, LEFT_W, GUTTER, RIGHT_W)))
+    if not games:
+        blocks.append(f"\n  {YELLOW}(no enabled games in the registry){RESET}")
     return "\n".join(head + blocks)
 
 
@@ -1324,7 +1313,15 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Spraxel always-on dashboard")
     p.add_argument("--interval", type=int, default=5,
                    help="refresh interval in seconds (default: 5)")
+    p.add_argument("--game", default=None,
+                   help="show only this project/game slug (default: all enabled)")
     args = p.parse_args()
+
+    def _games():
+        gs = enabled_games()
+        if args.game:
+            gs = [g for g in gs if g["slug"] == args.game] or gs
+        return gs
 
     # Re-read the game registry each refresh so enabling/adding a game shows up
     # without a restart.
@@ -1342,7 +1339,7 @@ def main() -> int:
         while True:
             now = datetime.now(TZ)
             sys.stdout.write(CLEAR_SCREEN)
-            sys.stdout.write(render(now, enabled_games()))
+            sys.stdout.write(render(now, _games()))
             sys.stdout.write(f"\n{DIM}  refresh every {args.interval}s · press q or Ctrl+C to exit{RESET}\n")
             sys.stdout.flush()
             if _sleep_or_quit(args.interval):
