@@ -49,9 +49,39 @@ POOL_BY_ENTRYPOINT = {"cli": "subscription", "sdk-cli": "api_credit"}
 METERED_SINCE = datetime(2026, 6, 15, 0, 0, 0, tzinfo=TZ)
 
 
+def _enc(path):
+    """Encode an absolute cwd into its ~/.claude/projects dir-name prefix. Claude
+    Code replaces '/' and '.' with '-' (e.g. ~/SpraxelAiCompany/.worktrees/worker-0
+    → -Users-skinnyluigi-SpraxelAiCompany--worktrees-worker-0)."""
+    return str(path).replace("/", "-").replace(".", "-")
+
+
 def transcript_dirs():
-    """Every ~/.claude/projects dir for this repo (main checkout + worktrees)."""
-    return [Path(p) for p in glob.glob(str(PROJECTS / "*SpraxelAiCompany*"))]
+    """Every ~/.claude/projects dir holding this system's headless transcripts:
+
+      - the framework repo + its worktrees  → dev/reviewer workers AND transient
+        crew worktrees (created when the main checkout is on a feature branch);
+      - EACH enabled game's repo            → crew agents (architect/pm/triager/…)
+        run with cwd=game_dir when the main checkout is on master, so their
+        sdk-cli (metered) transcripts land under the GAME project dir, not the
+        framework's. Missing these undercounted API-credit spend to ~0.
+    """
+    roots = [str(REPO_DIR)]
+    try:
+        from spx_config import games as _games
+        roots += [g["dir"] for g in _games() if g.get("dir")]
+    except Exception:
+        pass
+    out, seen = [], set()
+    for r in roots:
+        r = os.path.expanduser(r)
+        if not r:
+            continue
+        for p in glob.glob(str(PROJECTS / (_enc(r) + "*"))):
+            if p not in seen:
+                seen.add(p)
+                out.append(Path(p))
+    return out
 
 
 def file_entrypoint(path):
