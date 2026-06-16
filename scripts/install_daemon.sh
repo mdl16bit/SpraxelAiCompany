@@ -108,8 +108,8 @@ case "$action" in
       echo "Local-tests daemon not running."
       template_install="$REPO_DIR/template/scripts/install_local_tests.sh"
       if [ -x "$template_install" ]; then
-        echo "Run this in the game repo to enable 30-min local tests:"
-        echo "  cd ~/GameProjects/infiltrators && bash scripts/install_local_tests.sh"
+        echo "Run this in EACH game repo to enable 30-min local tests:"
+        python3 "$REPO_DIR/scripts/spx_config.py" games 2>/dev/null | awk -F'\t' '$3=="1"{print "  cd "$2" && bash scripts/install_local_tests.sh"}'
       fi
     fi
     ;;

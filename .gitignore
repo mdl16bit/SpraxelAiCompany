@@ -12,6 +12,7 @@ venv/
 logs/
 .locks/
 .cache/
+state/
 .paused
 .claude/*.lock
 

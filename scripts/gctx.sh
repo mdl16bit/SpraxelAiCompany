@@ -46,14 +46,23 @@ export SPRAXEL_GAME="$GAME_SLUG"
 export GAME_SLUG GAME_DIR
 export WORK_MD="$GAME_DIR/WORK.md"
 
-# --- per-game operational state (PHASE 1 = legacy flat; Phase 3 flips these) ---
-LOCKS_DIR="$REPO_DIR/.locks"
-CACHE_DIR="$REPO_DIR/.cache"
-GAME_LOGS_DIR="$REPO_DIR/logs"
-WORKTREES_DIR="$REPO_DIR/.worktrees"
-export LOCKS_DIR CACHE_DIR GAME_LOGS_DIR WORKTREES_DIR
+# --- per-game operational state (NAMESPACED by slug) ---
+# Each game gets an isolated state tree so multiple games can run concurrently
+# without colliding on locks / caches / worktrees / logs.
+STATE_DIR="$REPO_DIR/state/$GAME_SLUG"
+LOCKS_DIR="$STATE_DIR/locks"
+CACHE_DIR="$STATE_DIR/cache"
+GAME_LOGS_DIR="$REPO_DIR/logs/$GAME_SLUG"
+WORKTREES_DIR="$REPO_DIR/.worktrees/$GAME_SLUG"
+export STATE_DIR LOCKS_DIR CACHE_DIR GAME_LOGS_DIR WORKTREES_DIR
+# Ensure the two most-written per-game roots exist (cheap, idempotent) so first
+# writes never fail; log/worktree dirs are mkdir'd by their writers.
+mkdir -p "$LOCKS_DIR" "$CACHE_DIR" 2>/dev/null || true
 
 # --- framework-global state (shared by ALL games, never namespaced) ---
+# Account-wide concerns: Sonnet rate-limit flag, token/$ accounting, the wall-clock
+# tick stamp, and the master pause switch. These reflect the one Anthropic account
+# / one machine, so they intentionally stay shared across games.
 export GLOBAL_CACHE="$REPO_DIR/.cache"
 export PAUSED_FLAG="$REPO_DIR/.paused"
 

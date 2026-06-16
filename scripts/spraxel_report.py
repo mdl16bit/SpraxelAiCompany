@@ -20,16 +20,39 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-# Reuse the existing cron matcher.
+# Reuse the existing cron matcher + the multi-game config/layout helpers.
 sys.path.insert(0, str(Path(__file__).parent))
 from cron_match import cron_match
+import spx_config
 
-REPO_DIR = Path.home() / "SpraxelAiCompany"
+# REPO_DIR is the framework root (one dir above scripts/). spx_config.REPO is the
+# same value; we re-derive it here so the path constants below read clearly.
+REPO_DIR = Path(spx_config.REPO)
 SCHEDULE = REPO_DIR / "schedule.yaml"
-STATE_FILE = REPO_DIR / ".cache" / "continuous-state.json"
+# GLOBAL (account/machine-wide, NOT namespaced): the pause flag lives at repo root.
 PAUSED = REPO_DIR / ".paused"
-TICK_LOG_DIR = REPO_DIR / "logs" / "tick"
 TZ = ZoneInfo("America/Los_Angeles")
+
+
+def _state_file(slug: str) -> Path:
+    """Per-game continuous-state.json (cap counter, signal timestamps)."""
+    return Path(spx_config.cache_dir(slug)) / "continuous-state.json"
+
+
+def _tick_log_dir(slug: str) -> Path:
+    """Per-game tick log dir: logs/<slug>/tick/."""
+    return Path(spx_config.game_logs_dir(slug)) / "tick"
+
+
+def _continuous_log_dir(slug: str) -> Path:
+    """Per-game continuous log dir: logs/<slug>/continuous/."""
+    return Path(spx_config.game_logs_dir(slug)) / "continuous"
+
+
+def enabled_games() -> list:
+    """Enabled games from the registry (falls back to all if none flagged)."""
+    reg = spx_config.games()
+    return [g for g in reg if g.get("enabled")] or reg
 
 
 def sh(cmd: str, cwd: Path | None = None) -> str:
@@ -44,17 +67,6 @@ def sh(cmd: str, cwd: Path | None = None) -> str:
         return r.stdout.strip()
     except Exception:
         return ""
-
-
-def resolve_game_dir() -> Path | None:
-    """Read schedule.yaml's `game_dir:` line."""
-    if not SCHEDULE.exists():
-        return None
-    for line in SCHEDULE.read_text().splitlines():
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m:
-            return Path(os.path.expanduser(m.group(1)))
-    return None
 
 
 def fmt_etime(seconds: int) -> str:
@@ -119,14 +131,14 @@ def parse_schedule_yaml() -> list[tuple[str, str, str]]:
 
 # ─── Section 1: Right Now ─────────────────────────────────────────────────
 
-def section_right_now(now: datetime, game_dir: Path | None) -> None:
+def section_right_now(now: datetime, games: list) -> None:
     print("## Right now\n")
     print(f"- **Time**: {now:%Y-%m-%d %H:%M:%S %Z}")
 
-    # Paused?
+    # Paused? — GLOBAL flag at repo root (governs every game).
     if PAUSED.exists():
         print(f"- **System: ⏸️  PAUSED** — `.paused` flag set. No agents will fire, "
-              "no items will ship until you `rm ~/SpraxelAiCompany/.paused`.")
+              f"no items will ship until you `rm {PAUSED}`.")
     else:
         print("- **System: ▶️  running**")
 
@@ -160,36 +172,47 @@ def section_right_now(now: datetime, game_dir: Path | None) -> None:
     else:
         print("- **In flight**: nothing")
 
-    # Wrapper state file
-    if STATE_FILE.exists():
-        try:
-            s = json.loads(STATE_FILE.read_text())
-            shipped = s.get("shipped_since_last_signal", "?")
-            last_sig = s.get("last_signal_ts", "?")
-            print(f"- **Cap counter**: {shipped}/10 shipped since last CEO signal at {last_sig}")
-        except Exception:
-            pass
+    # Per-game state: cap counter + most-recent item attempted. When a single
+    # game is enabled the lines read exactly as before (no game prefix); with
+    # multiple games each line is prefixed with the game slug.
+    multi = len(games) > 1
+    for g in games:
+        slug, gd = g["slug"], (Path(g["dir"]) if g["dir"] else None)
+        pfx = f" [{slug}]" if multi else ""
 
-    # Current item from continuous log
-    if game_dir is not None:
-        continuous_log = REPO_DIR / "logs" / "continuous" / f"{now:%Y-%m-%d}.log"
-        # Walk back through recent log files for the last "→ '...' on" line.
-        recent_logs = sorted((REPO_DIR / "logs" / "continuous").glob("*.log"))[-3:]
-        last_item = ""
-        for lp in reversed(recent_logs):
+        # Cap counter — PER-GAME continuous-state.json.
+        sf = _state_file(slug)
+        if sf.exists():
             try:
-                lines = lp.read_text().splitlines()
+                s = json.loads(sf.read_text())
+                shipped = s.get("shipped_since_last_signal", "?")
+                last_sig = s.get("last_signal_ts", "?")
+                print(f"- **Cap counter{pfx}**: {shipped}/10 shipped since last CEO signal at {last_sig}")
             except Exception:
-                continue
-            for ln in reversed(lines):
-                m = re.search(r"continuous: → '([^']+)' on ", ln)
-                if m:
-                    last_item = m.group(1)
+                pass
+
+        # Most-recent item attempted — from the PER-GAME continuous log dir.
+        if gd is not None:
+            clog_dir = _continuous_log_dir(slug)
+            try:
+                recent_logs = sorted(clog_dir.glob("*.log"))[-3:]
+            except Exception:
+                recent_logs = []
+            last_item = ""
+            for lp in reversed(recent_logs):
+                try:
+                    lines = lp.read_text().splitlines()
+                except Exception:
+                    continue
+                for ln in reversed(lines):
+                    m = re.search(r"continuous: → '([^']+)' on ", ln)
+                    if m:
+                        last_item = m.group(1)
+                        break
+                if last_item:
                     break
             if last_item:
-                break
-        if last_item:
-            print(f"- **Most recent item attempted**: \"{last_item[:80]}{'…' if len(last_item) > 80 else ''}\"")
+                print(f"- **Most recent item attempted{pfx}**: \"{last_item[:80]}{'…' if len(last_item) > 80 else ''}\"")
 
     print()
 
@@ -219,8 +242,7 @@ def commit_counts(game_dir: Path, since: str) -> dict:
     }
 
 
-def section_last_24h(now: datetime, game_dir: Path | None) -> None:
-    print("## Last 24 hours\n")
+def _section_last_24h_one(now: datetime, slug: str, game_dir: Path | None) -> None:
     if not game_dir or not game_dir.exists():
         print("- (game_dir not resolvable)\n")
         return
@@ -229,12 +251,13 @@ def section_last_24h(now: datetime, game_dir: Path | None) -> None:
     print(f"- **Escalations**: {c['escalations']}")
     print(f"- **CEO commits**: {c['ceo_commits']}")
 
-    # Crew agents fired (from tick log)
+    # Crew agents fired (from the PER-GAME tick log)
+    tick_log_dir = _tick_log_dir(slug)
     today = now.strftime("%Y-%m-%d")
     yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
     dispatches = []
     for d in (yesterday, today):
-        log = TICK_LOG_DIR / f"{d}.log"
+        log = tick_log_dir / f"{d}.log"
         if not log.exists():
             continue
         for line in log.read_text().splitlines():
@@ -261,8 +284,7 @@ def section_last_24h(now: datetime, game_dir: Path | None) -> None:
     print()
 
 
-def section_last_week(now: datetime, game_dir: Path | None) -> None:
-    print("## Last 7 days\n")
+def _section_last_week_one(now: datetime, slug: str, game_dir: Path | None) -> None:
     if not game_dir or not game_dir.exists():
         print("- (game_dir not resolvable)\n")
         return
@@ -301,6 +323,26 @@ def section_last_week(now: datetime, game_dir: Path | None) -> None:
                 title = re.sub(r"^.*?feat:\s*", "", rest)
                 print(f"    - `{sha}` {title[:90]}{'…' if len(title) > 90 else ''}")
     print()
+
+
+def section_last_24h(now: datetime, games: list) -> None:
+    print("## Last 24 hours\n")
+    multi = len(games) > 1
+    for g in games:
+        gd = Path(g["dir"]) if g["dir"] else None
+        if multi:
+            print(f"### {g['slug']}\n")
+        _section_last_24h_one(now, g["slug"], gd)
+
+
+def section_last_week(now: datetime, games: list) -> None:
+    print("## Last 7 days\n")
+    multi = len(games) > 1
+    for g in games:
+        gd = Path(g["dir"]) if g["dir"] else None
+        if multi:
+            print(f"### {g['slug']}\n")
+        _section_last_week_one(now, g["slug"], gd)
 
 
 # ─── Section 4: Next 20 scheduled events ───────────────────────────────────
@@ -370,14 +412,17 @@ def section_next_20(now: datetime) -> None:
 
 def main() -> int:
     now = datetime.now(TZ)
-    game_dir = resolve_game_dir()
+    games = enabled_games()
     print(f"# Spraxel status — {now:%a %Y-%m-%d %H:%M:%S %Z}\n")
-    if game_dir:
-        print(f"Game: `{game_dir}`\n")
-    section_right_now(now, game_dir)
-    section_last_24h(now, game_dir)
-    section_last_week(now, game_dir)
-    section_next_20(now)
+    if len(games) == 1:
+        g = games[0]
+        print(f"Game: `{g['dir']}`\n")
+    elif games:
+        print("Games: " + ", ".join(f"`{g['slug']}`" for g in games) + "\n")
+    section_right_now(now, games)
+    section_last_24h(now, games)
+    section_last_week(now, games)
+    section_next_20(now)   # GLOBAL: schedule.yaml is account/machine-wide
     return 0
 
 

@@ -112,6 +112,18 @@ def game_dir(game=None, company=None):
     return _resolve_game(game, company)[1]
 
 
+# ── Namespaced state layout (single source of truth; gctx.sh mirrors this) ──────
+# Per-game operational state is namespaced by slug so multiple games never collide.
+# Framework-global state (sonnet-cap, token/$ accounting, last-tick-wall, .paused)
+# stays under the flat .cache / repo root — it reflects the one account / machine.
+def state_dir(slug):       return os.path.join(REPO, "state", slug)
+def locks_dir(slug):       return os.path.join(state_dir(slug), "locks")
+def cache_dir(slug):       return os.path.join(state_dir(slug), "cache")
+def game_logs_dir(slug):   return os.path.join(REPO, "logs", slug)
+def worktrees_dir(slug):   return os.path.join(REPO, ".worktrees", slug)
+def global_cache():        return os.path.join(REPO, ".cache")
+
+
 def load(game=None):
     """Return the merged config: COMPANY_CONFIG.yaml overlaid by <game_dir>/GAME_CONFIG.yaml.
 
@@ -166,6 +178,19 @@ def main(argv):
         if not gd:
             return 1
         print(gd)
+        return 0
+    if cmd == "paths":
+        if not rest:
+            sys.stderr.write("usage: spx_config.py paths <slug>\n")
+            return 2
+        slug = rest[0]
+        print(f"GAME_DIR\t{game_dir(slug)}")
+        print(f"STATE_DIR\t{state_dir(slug)}")
+        print(f"LOCKS_DIR\t{locks_dir(slug)}")
+        print(f"CACHE_DIR\t{cache_dir(slug)}")
+        print(f"GAME_LOGS_DIR\t{game_logs_dir(slug)}")
+        print(f"WORKTREES_DIR\t{worktrees_dir(slug)}")
+        print(f"GLOBAL_CACHE\t{global_cache()}")
         return 0
     if cmd == "dump":
         print(json.dumps(load(game), indent=2))

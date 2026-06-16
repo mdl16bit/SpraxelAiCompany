@@ -30,23 +30,61 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-# Reuse the existing cron matcher.
+# Reuse the existing cron matcher + the multi-game config/layout helpers.
 sys.path.insert(0, str(Path(__file__).parent))
 from cron_match import cron_match
+import spx_config
 
-REPO_DIR = Path.home() / "SpraxelAiCompany"
+# REPO_DIR is the framework root (one dir above scripts/), == spx_config.REPO.
+REPO_DIR = Path(spx_config.REPO)
 SCHEDULE = REPO_DIR / "schedule.yaml"
-STATE_FILE = REPO_DIR / ".cache" / "continuous-state.json"
+
+# ── GLOBAL state (account/machine-wide, NOT namespaced by game) ──────────────
+# Token/$ accounting and the pause flag reflect the one account / one machine.
 TOKEN_USAGE_FILE = REPO_DIR / ".cache" / "token-usage.json"
 PAUSED = REPO_DIR / ".paused"
-TR_PENDING = REPO_DIR / ".cache" / "test-runner-pending"
-TR_ACTIVE = REPO_DIR / ".cache" / "test-runner-active"
-TR_PROGRESS = REPO_DIR / ".cache" / "test-runner-progress.json"
-INTERACTIVE_DEV_ACTIVE = REPO_DIR / ".cache" / "interactive-dev-active"
-TICK_LOG_DIR = REPO_DIR / "logs" / "tick"
-CONTINUOUS_LOG_DIR = REPO_DIR / "logs" / "continuous"
-TEST_RUNNER_LOG_DIR = REPO_DIR / "logs" / "test_runner"
 TZ = ZoneInfo("America/Los_Angeles")
+
+
+# ── PER-GAME state (namespaced under state/<slug>/ and logs/<slug>/) ─────────
+# These were flat .cache/… and logs/… paths in the single-game layout; they now
+# resolve through spx_config's per-game helpers.
+def _state_file(slug: str) -> Path:          # cap counter, signal timestamps
+    return Path(spx_config.cache_dir(slug)) / "continuous-state.json"
+
+
+def _tr_pending(slug: str) -> Path:
+    return Path(spx_config.cache_dir(slug)) / "test-runner-pending"
+
+
+def _tr_active(slug: str) -> Path:
+    return Path(spx_config.cache_dir(slug)) / "test-runner-active"
+
+
+def _tr_progress(slug: str) -> Path:
+    return Path(spx_config.cache_dir(slug)) / "test-runner-progress.json"
+
+
+def _interactive_dev_active(slug: str) -> Path:
+    return Path(spx_config.cache_dir(slug)) / "interactive-dev-active"
+
+
+def _tick_log_dir(slug: str) -> Path:
+    return Path(spx_config.game_logs_dir(slug)) / "tick"
+
+
+def _continuous_log_dir(slug: str) -> Path:
+    return Path(spx_config.game_logs_dir(slug)) / "continuous"
+
+
+def _test_runner_log_dir(slug: str) -> Path:
+    return Path(spx_config.game_logs_dir(slug)) / "test_runner"
+
+
+def enabled_games() -> list:
+    """Enabled games from the registry (falls back to all if none flagged)."""
+    reg = spx_config.games()
+    return [g for g in reg if g.get("enabled")] or reg
 
 # Target render width. The layout is two top-level columns: a LEFT column with
 # the status/queue/throughput/agenda panels, and a RIGHT column with recent
@@ -84,9 +122,15 @@ def sh(cmd: str, cwd: Path | None = None) -> str:
         return ""
 
 
-def _spx_get(key: str, default: str = "") -> str:
-    """Read a MERGED-config value (COMPANY_CONFIG + game GAME_CONFIG) via spx_config."""
-    val = sh(f'python3 "{REPO_DIR}/scripts/spx_config.py" get {key}')
+def _spx_get(key: str, default: str = "", slug: str | None = None) -> str:
+    """Read a MERGED-config value (COMPANY_CONFIG + game GAME_CONFIG) via spx_config.
+
+    `slug` selects which game's GAME_CONFIG.yaml is overlaid (default: current
+    game). Continuous/system-level keys are the same across games, so most
+    callers omit it; per-game presentational keys (dashboard.*) may pass it.
+    """
+    g = f" --game {slug}" if slug else ""
+    val = sh(f'python3 "{REPO_DIR}/scripts/spx_config.py" get {key}{g}')
     return val if val else default
 
 
@@ -177,12 +221,12 @@ def _compose_columns(left: list, right: list, left_w: int, gutter: int,
     return out
 
 
-def recent_tick_dispatches(n: int = 10) -> list:
+def recent_tick_dispatches(slug: str, n: int = 10) -> list:
     """The last N tick runs that actually dispatched an agent (idle
     'dispatched=[] errors=[]' ticks are skipped). Newest first.
-    Returns [(hh:mm:ss, what_dispatched, errors)]."""
+    Returns [(hh:mm:ss, what_dispatched, errors)]. Reads the PER-GAME tick log."""
     try:
-        files = sorted(TICK_LOG_DIR.glob("*.log"))
+        files = sorted(_tick_log_dir(slug).glob("*.log"))
     except Exception:
         return []
     rows: list = []
@@ -212,14 +256,16 @@ def _schedule_int(key: str, default: int) -> int:
         return default
 
 
-def test_runner_status(now: datetime) -> dict | None:
+def test_runner_status(now: datetime, slug: str) -> dict | None:
     """Status of the batch test runner, or None when idle. All reads are cheap
-    (flag mtime, progress.json, today's log) — never invokes the suite.
+    (flag mtime, progress.json, today's log) — never invokes the suite. Reads
+    PER-GAME runner flags + log.
     Keys: state ('running'|'pending'), elapsed_s, budget_min, ran, total,
     fail_count, fails (recent test names)."""
-    if TR_ACTIVE.exists():
+    tr_active = _tr_active(slug)
+    if tr_active.exists():
         state = "running"
-    elif TR_PENDING.exists():
+    elif _tr_pending(slug).exists():
         state = "pending"
     else:
         return None
@@ -227,16 +273,16 @@ def test_runner_status(now: datetime) -> dict | None:
            "ran": None, "total": None, "fail_count": 0, "fails": []}
     if state == "running":
         try:
-            start = datetime.fromtimestamp(TR_ACTIVE.stat().st_mtime, TZ)
+            start = datetime.fromtimestamp(tr_active.stat().st_mtime, TZ)
             out["elapsed_s"] = int((now - start).total_seconds())
         except Exception:
             pass
     try:
-        out["ran"] = len(json.loads(TR_PROGRESS.read_text()).get("ran", []))
+        out["ran"] = len(json.loads(_tr_progress(slug).read_text()).get("ran", []))
     except Exception:
         pass
     try:
-        lines = (TEST_RUNNER_LOG_DIR / f"{now:%Y-%m-%d}.log").read_text().splitlines()
+        lines = (_test_runner_log_dir(slug) / f"{now:%Y-%m-%d}.log").read_text().splitlines()
     except Exception:
         lines = []
     for ln in reversed(lines):                      # total = last "suite: N tests"
@@ -371,11 +417,11 @@ def worker_phase(worker_id: int) -> tuple[str, int | None]:
     return ("idle", None)
 
 
-def worker_commits(worker_id: int) -> tuple[int, int] | None:
+def worker_commits(worker_id: int, slug: str) -> tuple[int, int] | None:
     """(commits_ahead_of_origin/master, seconds_since_last_commit) for the worker's
-    feat branch, read from its worktree — a live "is it actually making progress?"
-    signal now that devs commit incrementally. None if no worktree."""
-    wt = Path(__file__).resolve().parent.parent / ".worktrees" / f"worker-{worker_id}"
+    feat branch, read from its PER-GAME worktree — a live "is it actually making
+    progress?" signal now that devs commit incrementally. None if no worktree."""
+    wt = Path(spx_config.worktrees_dir(slug)) / f"worker-{worker_id}"
     if not wt.is_dir():
         return None
     n_out = sh(f"git -C {wt} rev-list --count origin/master..HEAD 2>/dev/null")
@@ -388,14 +434,6 @@ def worker_commits(worker_id: int) -> tuple[int, int] | None:
     ts = sh(f"git -C {wt} log -1 --format=%ct HEAD 2>/dev/null").strip()
     age = (int(time.time()) - int(ts)) if ts.isdigit() else 0
     return (n, age)
-
-
-def resolve_game_dir() -> Path | None:
-    if not SCHEDULE.exists(): return None
-    for line in SCHEDULE.read_text().splitlines():
-        m = re.match(r"\s*game_dir:\s*(\S+)", line)
-        if m: return Path(os.path.expanduser(m.group(1)))
-    return None
 
 
 def parse_schedule_yaml() -> list[tuple[str, str]]:
@@ -603,24 +641,26 @@ def pending_ceo_actions(game_dir: Path | None, n: int = 10) -> list[tuple[str, s
     return out[:n]
 
 
-def last_log_line(game_dir: Path | None) -> tuple[str, str]:
+def last_log_line(slug: str) -> tuple[str, str]:
     """Last meaningful `continuous:` line across ALL per-worker logs.
 
     Returns (worker_label, line). worker_label is "w1" / "w2" / "w3" /
     "—" for legacy single-wrapper logs. Picks the line with the most
     recent file mtime across the per-worker logs so the dashboard shows
-    the truly newest event, not the legacy daily-aggregate file.
+    the truly newest event, not the legacy daily-aggregate file. Reads the
+    PER-GAME continuous log dir.
     """
+    clog_dir = _continuous_log_dir(slug)
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     yesterday = (datetime.now(TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
     # Collect candidate log files (today's per-worker + yesterday's + legacy).
     candidates: list[tuple[Path, str]] = []
     for stamp in (today, yesterday):
-        for p in CONTINUOUS_LOG_DIR.glob(f"{stamp}-w*.log"):
+        for p in clog_dir.glob(f"{stamp}-w*.log"):
             m = re.search(r"-w(\d+)\.log$", p.name)
             wid = f"w{m.group(1)}" if m else "—"
             candidates.append((p, wid))
-        legacy = CONTINUOUS_LOG_DIR / f"{stamp}.log"
+        legacy = clog_dir / f"{stamp}.log"
         if legacy.exists():
             candidates.append((legacy, "—"))
     if not candidates:
@@ -735,18 +775,16 @@ def last_n_ships(game_dir: Path | None, n: int = 20) -> list[tuple[str, str, str
     return rows
 
 
-def read_config_int(game_dir: Path | None, dotted_key: str, default: int) -> int:
-    """Resolve a numeric config value via scripts/spx_config.py.
+def read_config_int(slug: str | None, dotted_key: str, default: int) -> int:
+    """Resolve a numeric config value via spx_config (deep-merged COMPANY_CONFIG
+    + the game's GAME_CONFIG.yaml).
 
-    `dotted_key` is e.g. "dashboard.recent_ships". Values now live in
-    COMPANY_CONFIG.yaml / <game_dir>/GAME_CONFIG.yaml (deep-merged by the
-    loader), not in Philosophy.md. `game_dir` is unused (the loader reads it
-    from COMPANY_CONFIG itself) but kept for call-site compatibility. Falls
-    back to `default` on any error or missing key.
+    `dotted_key` is e.g. "dashboard.recent_ships". `slug` selects which game's
+    GAME_CONFIG override to honor (None = current game). Falls back to `default`
+    on any error or missing key.
     """
     try:
-        from spx_config import get as _cfg_get
-        val = _cfg_get(dotted_key, default=default)
+        val = spx_config.get(dotted_key, default=default, game=slug)
         return int(val)
     except Exception:
         return default
@@ -780,160 +818,151 @@ def queue_composition(game_dir: Path | None) -> dict:
     return out
 
 
-def render(now: datetime, game_dir: Path | None) -> str:
-    # `lines` is the LEFT column body; the header spans the full width and the
-    # RIGHT column (tick activity, ships, last log line) is composed in at the end.
-    lines = []
-    # Read configurable dashboard counts via the config loader (with defaults).
-    recent_ships_n = read_config_int(game_dir, "dashboard.recent_ships", 15)
-    ceo_actions_n  = read_config_int(game_dir, "dashboard.ceo_actions", 10)
-    tick_dispatch_n = read_config_int(game_dir, "dashboard.tick_dispatches", 10)
-    title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
-    bar = "─" * (WIDTH)
-    head = [f"{BOLD}{CYAN}{title}{RESET}", f"{DIM}{bar}{RESET}", ""]
+def _token_usage_lines(lines: list) -> None:
+    """Append the GLOBAL token/$ usage block to `lines`. Reads token-usage.json
+    from the GLOBAL cache (REPO/.cache) — account/machine-wide, NOT per-game."""
+    tu = token_usage_status()
+    if not tu:
+        return
+    calc = tu.get("calculated_ts", "?")
+    # strip seconds for compactness: "2026-06-14 21:10:38 PDT" -> "2026-06-14 21:10 PDT"
+    parts = calc.split(" ")
+    calc_short = f"{parts[0]} {parts[1][:5]} {parts[2]}" if len(parts) == 3 else calc
+    sub = tu.get("subscription", {})
+    api = tu.get("api_credit", {})
+    lines.append(f"  Token usage    {DIM}(calc {calc_short}){RESET}")
 
-    # System status row
-    if _spx_get("continuous.force_interactive_developers").lower() == "true":
-        # force_interactive_developers mode: show TWO independent dimensions —
-        #  (1) system pause (.paused) still governs the crew agents, and
-        #  (2) whether a /spraxel-develop run is currently EXECUTING (a fresh
-        #      heartbeat marker, touched each item by the skill).
-        base = f"{YELLOW}⏸  PAUSED{RESET}" if PAUSED.exists() else f"{GREEN}▶  RUNNING{RESET}"
-        try:
-            stale = int(_spx_get("continuous.interactive_dev_heartbeat_stale_secs", "1800"))
-        except ValueError:
-            stale = 1800
-        executing = (
-            INTERACTIVE_DEV_ACTIVE.exists()
-            and (time.time() - INTERACTIVE_DEV_ACTIVE.stat().st_mtime) <= stale
+    # Composition line for a pool — most of any pool's token total is cheap
+    # cache_read (the cached prompt re-read every turn), not real output. They
+    # all cost (cache_read is just billed cheaply), so this is presentational:
+    # it stops the headline token count from looking alarming. Shown under
+    # whichever pool actually has tokens this window.
+    def _composition_line(pool):
+        bd = pool.get("token_breakdown") or {}
+        tot = pool.get("total_tokens") or 0
+        cr = bd.get("cache_read", 0)
+        if not (tot and cr):
+            return None
+        pct = round(100 * cr / tot)
+        return (
+            f"    {'':<12} {DIM}↳ {_fmt_tok(cr)} ({pct}%) cache reads (billed cheap) · "
+            f"{_fmt_tok(bd.get('output', 0))} output · "
+            f"{_fmt_tok(bd.get('cache_write', 0))} cache-write{RESET}"
         )
-        dev_part = f"{GREEN}executing{RESET}" if executing else f"{GRAY}idle{RESET}"
-        status = f"{base} {DIM}(interactive-dev){RESET} · develop: {dev_part}"
-        if TR_ACTIVE.exists():
-            status += f" · {BLUE}test runner running{RESET}"
-        elif TR_PENDING.exists():
-            status += f" · {BLUE}test runner scheduled{RESET}"
-    elif PAUSED.exists():
-        status = f"{YELLOW}⏸  PAUSED{RESET}"
-    elif TR_ACTIVE.exists():
-        status = f"{BLUE}▶  running — test runner running{RESET}"
-    elif TR_PENDING.exists():
-        status = f"{BLUE}▶  running — test runner scheduled{RESET}"
+
+    # Headline count = UNCACHED tokens (input + output + cache_write) — i.e.
+    # total minus the cheap cache_read re-reads. That's the "real work" volume;
+    # the cache_read share is shown on the ↳ composition line below.
+    def _uncached(pool):
+        bd = pool.get("token_breakdown") or {}
+        return (pool.get("total_tokens") or 0) - bd.get("cache_read", 0)
+
+    lines.append(
+        f"    {'Subscription':<12} {GREEN}{_fmt_tok(_uncached(sub)):>8}{RESET} tokens"
+        f" {DIM}(uncached) this week · {_reset_note(sub)}{RESET}"
+    )
+    sub_comp = _composition_line(sub)
+    if sub_comp:
+        lines.append(sub_comp)
+    cap = api.get("cap_usd") or 0
+    spent = api.get("est_usd") or 0
+    if cap:
+        frac = spent / cap if cap else 0
+        cc = RED if frac > 0.85 else (YELLOW if frac > 0.60 else GREEN)
+        dollars = f"{cc}~${spent:,.0f} / ${cap:,.0f}{RESET}"
     else:
-        status = f"{GREEN}▶  running{RESET}"
-    lines.append(f"  Status         {status}")
+        dollars = f"{GREEN}~${spent:,.0f}{RESET}"
+    lines.append(
+        f"    {'API credit':<12} {GREEN}{_fmt_tok(_uncached(api)):>8}{RESET} tokens"
+        f" {DIM}(uncached){RESET}  {dollars}  {DIM}this month · {_reset_note(api)}{RESET}"
+    )
+    api_comp = _composition_line(api)
+    if api_comp:
+        lines.append(api_comp)
+    lines.append("")
 
-    # Sonnet-cap auto-fallback (only shown while active)
-    cap_status = sh(f'python3 "{REPO_DIR}/scripts/sonnet_cap.py" status')
-    if cap_status.startswith("CAPPED"):
-        lines.append(f"  Models         {YELLOW}⚠ Sonnet capped → Opus{RESET} {DIM}{cap_status[len('CAPPED → using Opus '):]}{RESET}")
 
-    # Tick daemon
-    tick_loaded = bool(sh("launchctl list | grep com.spraxel.tick"))
-    tick_line = f"{GREEN}✓ loaded{RESET}" if tick_loaded else f"{RED}✗ NOT LOADED{RESET}"
-    lines.append(f"  Tick daemon    {tick_line}")
+def _next_agents_lines(now: datetime, lines: list) -> None:
+    """Append the GLOBAL 'Next 10 agents to execute' block. The schedule
+    (schedule.yaml) is account/machine-wide, so this is rendered once."""
+    lines.append(f"  {BOLD}▸ Next 10 agents to execute{RESET}")
+    fires = next_n_fires(now, 10)
+    if not fires:
+        lines.append(f"    {DIM}(no upcoming runs found){RESET}")
+        return
 
-    # Wrappers (one per parallel-dev worker). The "uptime" is the wrapper
-    # process lifetime — NOT how long each worker has been on its current
-    # item. The per-worker phase elapsed in "Current items" is more useful
-    # for spotting stuck dev sessions.
-    wrappers = real_wrappers()
-    wrapper_pids = list(wrappers.values())
-    if wrapper_pids:
-        n = len(wrapper_pids)
-        ets = sorted([process_etime(p) or 0 for p in wrapper_pids], reverse=True)
-        max_age = fmt_etime(ets[0])
-        wrapper_line = f"{GREEN}{n} worker(s){RESET} {DIM}wrapper proc up {max_age}{RESET}"
+    def _fire_cell(ts, name, cap: int) -> tuple[str, int]:
+        # Absolute date+time, 24h, e.g. "20260602 13:00 PST". Whole cell is
+        # colored by proximity: today=yellow, tomorrow=orange, later=dim date.
+        prefix = f"{ts:%Y%m%d %H:%M} PST"
+        nm = name[:cap] + ("…" if len(name) > cap else "")
+        vis = len(prefix) + 2 + len(nm)
+        if ts.date() == now.date():
+            return f"{YELLOW}{prefix}  {nm}{RESET}", vis          # today
+        if ts.date() == (now + timedelta(days=1)).date():
+            return f"{ORANGE}{prefix}  {nm}{RESET}", vis          # tomorrow
+        return f"{DIM}{prefix}{RESET}  {nm}", vis                 # later days
+
+    if len(fires) <= 5:
+        for ts, name in fires:
+            cell, _ = _fire_cell(ts, name, LEFT_W - 28)
+            lines.append(f"    {cell}")
     else:
-        wrapper_line = f"{GRAY}not running{RESET}" if PAUSED.exists() else f"{RED}⚠ not running{RESET}"
-    lines.append(f"  Wrappers       {wrapper_line}")
+        # prefix ("20260602 13:00 PST  ") is 20 cols; fill the rest of the column.
+        ROWS, CAP, CELL_W = 5, _COL_W - 22, _COL_W
+        left, right = fires[:ROWS], fires[ROWS:]
+        for i in range(len(left)):
+            lcell, lvis = _fire_cell(left[i][0], left[i][1], CAP)
+            if i < len(right):
+                rcell, _ = _fire_cell(right[i][0], right[i][1], CAP)
+                pad = " " * max(1, CELL_W - lvis)
+                lines.append(f"    {lcell}{pad}{rcell}")
+            else:
+                lines.append(f"    {lcell}")
 
-    # Cap counter
+
+def _cap_counter_line(now: datetime, slug: str) -> str:
+    """The 'Cap counter' row for a game — reads the PER-GAME continuous-state.json."""
     cap_line = "?"
-    if STATE_FILE.exists():
+    state_file = _state_file(slug)
+    if state_file.exists():
         try:
-            s = json.loads(STATE_FILE.read_text())
+            s = json.loads(state_file.read_text())
             shipped = s.get("shipped_since_last_signal", "?")
             last_sig = s.get("last_signal_ts", "?")
             try:
-                # Parse last_signal_ts to compute age
                 ts = datetime.strptime(last_sig, "%Y-%m-%d %H:%M:%S %Z").replace(tzinfo=TZ)
                 age = now - ts
                 age_str = fmt_etime(int(age.total_seconds()))
             except Exception:
                 age_str = ""
-            cap_target = read_config_int(game_dir, "continuous.target_per_batch", 5)
+            cap_target = read_config_int(slug, "continuous.target_per_batch", 5)
             color = YELLOW if str(shipped) == str(cap_target) else GREEN
             cap_line = f"{color}{shipped}/{cap_target}{RESET} {DIM}since {last_sig} ({age_str} ago){RESET}"
         except Exception:
             pass
-    lines.append(f"  Cap counter    {cap_line}")
-    lines.append("")
+    return f"  Cap counter    {cap_line}"
 
-    # Token usage — subscription pool (interactive) vs API-credit pool (headless).
-    # Refreshed ~daily by scripts/token_usage.py (zero Claude tokens); cached JSON.
-    tu = token_usage_status()
-    if tu:
-        calc = tu.get("calculated_ts", "?")
-        # strip seconds for compactness: "2026-06-14 21:10:38 PDT" -> "2026-06-14 21:10 PDT"
-        parts = calc.split(" ")
-        calc_short = f"{parts[0]} {parts[1][:5]} {parts[2]}" if len(parts) == 3 else calc
-        sub = tu.get("subscription", {})
-        api = tu.get("api_credit", {})
-        lines.append(f"  Token usage    {DIM}(calc {calc_short}){RESET}")
 
-        # Composition line for a pool — most of any pool's token total is cheap
-        # cache_read (the cached prompt re-read every turn), not real output. They
-        # all cost (cache_read is just billed cheaply), so this is presentational:
-        # it stops the headline token count from looking alarming. Shown under
-        # whichever pool actually has tokens this window.
-        def _composition_line(pool):
-            bd = pool.get("token_breakdown") or {}
-            tot = pool.get("total_tokens") or 0
-            cr = bd.get("cache_read", 0)
-            if not (tot and cr):
-                return None
-            pct = round(100 * cr / tot)
-            return (
-                f"    {'':<12} {DIM}↳ {_fmt_tok(cr)} ({pct}%) cache reads (billed cheap) · "
-                f"{_fmt_tok(bd.get('output', 0))} output · "
-                f"{_fmt_tok(bd.get('cache_write', 0))} cache-write{RESET}"
-            )
-
-        # Headline count = UNCACHED tokens (input + output + cache_write) — i.e.
-        # total minus the cheap cache_read re-reads. That's the "real work" volume;
-        # the cache_read share is shown on the ↳ composition line below.
-        def _uncached(pool):
-            bd = pool.get("token_breakdown") or {}
-            return (pool.get("total_tokens") or 0) - bd.get("cache_read", 0)
-
-        lines.append(
-            f"    {'Subscription':<12} {GREEN}{_fmt_tok(_uncached(sub)):>8}{RESET} tokens"
-            f" {DIM}(uncached) this week · {_reset_note(sub)}{RESET}"
-        )
-        sub_comp = _composition_line(sub)
-        if sub_comp:
-            lines.append(sub_comp)
-        cap = api.get("cap_usd") or 0
-        spent = api.get("est_usd") or 0
-        if cap:
-            frac = spent / cap if cap else 0
-            cc = RED if frac > 0.85 else (YELLOW if frac > 0.60 else GREEN)
-            dollars = f"{cc}~${spent:,.0f} / ${cap:,.0f}{RESET}"
-        else:
-            dollars = f"{GREEN}~${spent:,.0f}{RESET}"
-        lines.append(
-            f"    {'API credit':<12} {GREEN}{_fmt_tok(_uncached(api)):>8}{RESET} tokens"
-            f" {DIM}(uncached){RESET}  {dollars}  {DIM}this month · {_reset_note(api)}{RESET}"
-        )
-        api_comp = _composition_line(api)
-        if api_comp:
-            lines.append(api_comp)
-        lines.append("")
+def _per_game_panels(now: datetime, slug: str, game_dir: Path | None,
+                     wrapper_pids: list) -> tuple[list, list, list]:
+    """Build (left_pre, left_post, right) pre-rendered line lists for ONE game:
+      left_pre : Test runner, Current items, Work queue, Throughput
+      left_post: CEO action items
+      right    : Recent tick dispatches, Last N shipped, Last log line
+    The split lets the caller splice the GLOBAL 'Next 10 agents' block between
+    Throughput and CEO actions (its historical position). All reads here are
+    PER-GAME (resolved through the slug)."""
+    ceo_actions_n  = read_config_int(slug, "dashboard.ceo_actions", 10)
+    recent_ships_n = read_config_int(slug, "dashboard.recent_ships", 15)
+    tick_dispatch_n = read_config_int(slug, "dashboard.tick_dispatches", 10)
+    lines: list = []
+    post: list = []
+    right: list = []
 
     # Test runner — only while active/pending (it runs exclusively, pausing the
     # dev workers, so it explains an otherwise-idle "Current items" below).
-    trs = test_runner_status(now)
+    trs = test_runner_status(now, slug)
     if trs:
         if trs["state"] == "running":
             el = fmt_etime(trs["elapsed_s"]) if trs["elapsed_s"] is not None else "?"
@@ -1013,7 +1042,7 @@ def render(now: datetime, game_dir: Path | None) -> str:
             # Commit progress: "+Nc <age>" = N commits on the branch, last one
             # <age> ago. Green if a commit landed recently, yellow if it's been
             # a while (possible stall), so you can see real progress at a glance.
-            commits = worker_commits(wid)
+            commits = worker_commits(wid, slug)
             cdisp = ""
             if commits and commits[0] > 0:
                 n, cage = commits
@@ -1049,47 +1078,12 @@ def render(now: datetime, game_dir: Path | None) -> str:
     lines.append(f"    Escalations:  {YELLOW}{escalations_today(game_dir):>3}{RESET} {DIM}(today, CEO-bound){RESET}")
     lines.append("")
 
-    # Next 10 scheduled runs (two columns of 5, column-major — left = first 5)
-    lines.append(f"  {BOLD}▸ Next 10 agents to execute{RESET}")
-    fires = next_n_fires(now, 10)
-    if not fires:
-        lines.append(f"    {DIM}(no upcoming runs found){RESET}")
-    else:
-        def _fire_cell(ts, name, cap: int) -> tuple[str, int]:
-            # Absolute date+time, 24h, e.g. "20260602 13:00 PST". Whole cell is
-            # colored by proximity: today=yellow, tomorrow=orange, later=dim date.
-            prefix = f"{ts:%Y%m%d %H:%M} PST"
-            nm = name[:cap] + ("…" if len(name) > cap else "")
-            vis = len(prefix) + 2 + len(nm)
-            if ts.date() == now.date():
-                return f"{YELLOW}{prefix}  {nm}{RESET}", vis          # today
-            if ts.date() == (now + timedelta(days=1)).date():
-                return f"{ORANGE}{prefix}  {nm}{RESET}", vis          # tomorrow
-            return f"{DIM}{prefix}{RESET}  {nm}", vis                 # later days
-
-        if len(fires) <= 5:
-            for ts, name in fires:
-                cell, _ = _fire_cell(ts, name, LEFT_W - 28)
-                lines.append(f"    {cell}")
-        else:
-            # prefix ("20260602 13:00 PST  ") is 20 cols; fill the rest of the column.
-            ROWS, CAP, CELL_W = 5, _COL_W - 22, _COL_W
-            left, right = fires[:ROWS], fires[ROWS:]
-            for i in range(len(left)):
-                lcell, lvis = _fire_cell(left[i][0], left[i][1], CAP)
-                if i < len(right):
-                    rcell, _ = _fire_cell(right[i][0], right[i][1], CAP)
-                    pad = " " * max(1, CELL_W - lvis)
-                    lines.append(f"    {lcell}{pad}{rcell}")
-                else:
-                    lines.append(f"    {lcell}")
-    lines.append("")
-
-    # Next N CEO action items (things blocking on you)
-    lines.append(f"  {BOLD}▸ Next {ceo_actions_n} CEO action items{RESET}")
+    # Next N CEO action items (things blocking on you) — goes in `post`, AFTER
+    # the global 'Next 10 agents' block the caller splices in.
+    post.append(f"  {BOLD}▸ Next {ceo_actions_n} CEO action items{RESET}")
     actions = pending_ceo_actions(game_dir, ceo_actions_n)
     if not actions:
-        lines.append(f"    {DIM}(none — queue is clear){RESET}")
+        post.append(f"    {DIM}(none — queue is clear){RESET}")
     else:
         # Color by category.
         color_map = {
@@ -1117,30 +1111,28 @@ def render(now: datetime, game_dir: Path | None) -> str:
             # One column — unchanged look, wide titles.
             for kind, title in actions:
                 cell, _ = _ceo_cell(kind, title, LEFT_W - 20)
-                lines.append(f"    {cell}")
+                post.append(f"    {cell}")
         else:
             # Two columns of five (column-major) so >5 items don't overflow
             # the window. Left col = first 5, right col = next 5.
             # "[kind] " prefix is ~12 cols; fill the rest of the column.
             ROWS, CAP, CELL_W = 5, _COL_W - 14, _COL_W
-            left, right = actions[:ROWS], actions[ROWS:]
+            left, right_cells = actions[:ROWS], actions[ROWS:]
             for i in range(len(left)):
                 lcell, lvis = _ceo_cell(left[i][0], left[i][1], CAP)
-                if i < len(right):
-                    rcell, _ = _ceo_cell(right[i][0], right[i][1], CAP)
+                if i < len(right_cells):
+                    rcell, _ = _ceo_cell(right_cells[i][0], right_cells[i][1], CAP)
                     pad = " " * max(1, CELL_W - lvis)
-                    lines.append(f"    {lcell}{pad}{rcell}")
+                    post.append(f"    {lcell}{pad}{rcell}")
                 else:
-                    lines.append(f"    {lcell}")
-    lines.append("")
+                    post.append(f"    {lcell}")
+    post.append("")
 
     # ===== RIGHT COLUMN — recent tick activity + ships + last log line =====
-    right: list = []
-
-    # Recent tick dispatches (NEW) — what the scheduler actually fired, newest
-    # first. Idle ticks (dispatched=[]) are filtered out so this shows signal.
+    # Recent tick dispatches — what the scheduler actually fired for this game,
+    # newest first. Idle ticks (dispatched=[]) are filtered out.
     right.append(f"  {BOLD}▸ Recent tick dispatches (last {tick_dispatch_n}){RESET}")
-    tdisp = recent_tick_dispatches(tick_dispatch_n)
+    tdisp = recent_tick_dispatches(slug, tick_dispatch_n)
     if not tdisp:
         right.append(f"    {DIM}(no agent dispatches in recent ticks){RESET}")
     else:
@@ -1163,16 +1155,148 @@ def render(now: datetime, game_dir: Path | None) -> str:
             right.append(f"    {DIM}{sha} {age_col}{RESET}  {subj}")
     right.append("")
 
-    # Most recent log line — across all per-worker continuous logs.
+    # Most recent log line — across all per-worker continuous logs for this game.
     right.append(f"  {BOLD}▸ Last log line{RESET}")
-    wid, last = last_log_line(game_dir)
+    wid, last = last_log_line(slug)
     last_s = last[:RIGHT_W - 8] + ("…" if len(last) > RIGHT_W - 8 else "")
     right.append(f"    {DIM}{wid:>3s}  {last_s}{RESET}")
     right.append("")
 
-    # Lay the two columns side by side under the full-width header.
-    body = _compose_columns(lines, right, LEFT_W, GUTTER, RIGHT_W)
-    return "\n".join(head + body)
+    return lines, post, right
+
+
+def render(now: datetime, games: list) -> str:
+    """Render the dashboard. GLOBAL panels (status, models, tick daemon,
+    wrappers, token/$ usage, scheduled agents) are rendered ONCE; per-game
+    panels are rendered for each enabled game. With a single enabled game the
+    output reads as it always has."""
+    single = len(games) <= 1
+    # The "primary" game drives the global status-row test-runner decoration and
+    # the single-game cap-counter row.
+    primary = games[0] if games else {"slug": None, "dir": ""}
+    p_slug = primary["slug"]
+    p_dir = Path(primary["dir"]) if primary.get("dir") else None
+
+    title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
+    bar = "─" * (WIDTH)
+    head = [f"{BOLD}{CYAN}{title}{RESET}", f"{DIM}{bar}{RESET}", ""]
+
+    # ── GLOBAL status panel (rendered once) ──
+    lines: list = []
+
+    # Whether ANY game has its (per-game) test runner active/pending — drives the
+    # global status-row decoration. Single-game: just the primary game's flags.
+    def _tr_state(slug):
+        if slug is None:
+            return None
+        if _tr_active(slug).exists():
+            return "running"
+        if _tr_pending(slug).exists():
+            return "pending"
+        return None
+    tr_any = None
+    for g in games:
+        st = _tr_state(g["slug"])
+        if st == "running":
+            tr_any = "running"; break
+        if st == "pending":
+            tr_any = "pending"
+
+    # System status row
+    if _spx_get("continuous.force_interactive_developers").lower() == "true":
+        # force_interactive_developers mode: show TWO independent dimensions —
+        #  (1) system pause (.paused) still governs the crew agents, and
+        #  (2) whether a /spraxel-develop run is currently EXECUTING (a fresh
+        #      heartbeat marker, touched each item by the skill).
+        base = f"{YELLOW}⏸  PAUSED{RESET}" if PAUSED.exists() else f"{GREEN}▶  RUNNING{RESET}"
+        try:
+            stale = int(_spx_get("continuous.interactive_dev_heartbeat_stale_secs", "1800"))
+        except ValueError:
+            stale = 1800
+        ida = _interactive_dev_active(p_slug) if p_slug else None
+        executing = (
+            ida is not None and ida.exists()
+            and (time.time() - ida.stat().st_mtime) <= stale
+        )
+        dev_part = f"{GREEN}executing{RESET}" if executing else f"{GRAY}idle{RESET}"
+        status = f"{base} {DIM}(interactive-dev){RESET} · develop: {dev_part}"
+        if tr_any == "running":
+            status += f" · {BLUE}test runner running{RESET}"
+        elif tr_any == "pending":
+            status += f" · {BLUE}test runner scheduled{RESET}"
+    elif PAUSED.exists():
+        status = f"{YELLOW}⏸  PAUSED{RESET}"
+    elif tr_any == "running":
+        status = f"{BLUE}▶  running — test runner running{RESET}"
+    elif tr_any == "pending":
+        status = f"{BLUE}▶  running — test runner scheduled{RESET}"
+    else:
+        status = f"{GREEN}▶  running{RESET}"
+    lines.append(f"  Status         {status}")
+
+    # Sonnet-cap auto-fallback (only shown while active)
+    cap_status = sh(f'python3 "{REPO_DIR}/scripts/sonnet_cap.py" status')
+    if cap_status.startswith("CAPPED"):
+        lines.append(f"  Models         {YELLOW}⚠ Sonnet capped → Opus{RESET} {DIM}{cap_status[len('CAPPED → using Opus '):]}{RESET}")
+
+    # Tick daemon
+    tick_loaded = bool(sh("launchctl list | grep com.spraxel.tick"))
+    tick_line = f"{GREEN}✓ loaded{RESET}" if tick_loaded else f"{RED}✗ NOT LOADED{RESET}"
+    lines.append(f"  Tick daemon    {tick_line}")
+
+    # Wrappers (one per parallel-dev worker). The "uptime" is the wrapper
+    # process lifetime — NOT how long each worker has been on its current
+    # item. The per-worker phase elapsed in "Current items" is more useful
+    # for spotting stuck dev sessions.
+    wrappers = real_wrappers()
+    wrapper_pids = list(wrappers.values())
+    if wrapper_pids:
+        n = len(wrapper_pids)
+        ets = sorted([process_etime(p) or 0 for p in wrapper_pids], reverse=True)
+        max_age = fmt_etime(ets[0])
+        wrapper_line = f"{GREEN}{n} worker(s){RESET} {DIM}wrapper proc up {max_age}{RESET}"
+    else:
+        wrapper_line = f"{GRAY}not running{RESET}" if PAUSED.exists() else f"{RED}⚠ not running{RESET}"
+    lines.append(f"  Wrappers       {wrapper_line}")
+
+    # Cap counter — PER-GAME. For a SINGLE game it sits right here (identical to
+    # the historical layout); for MULTI-game it's rendered inside each game's
+    # section below (prefixed with the slug), so we skip it here.
+    if single:
+        lines.append(_cap_counter_line(now, p_slug) if p_slug else "  Cap counter    ?")
+    lines.append("")
+
+    # Token usage — GLOBAL (account/machine-wide token-usage.json). Rendered once.
+    _token_usage_lines(lines)
+
+    if single:
+        # SINGLE-GAME: weave the one game's panels into the same single LEFT/RIGHT
+        # columns the dashboard has always used — output reads exactly as before.
+        # LEFT order: [global status..token usage] + pre + [global schedule] + post
+        gpre, gpost, gright = _per_game_panels(now, p_slug, p_dir, wrapper_pids)
+        lines.extend(gpre)
+        _next_agents_lines(now, lines)
+        lines.append("")
+        lines.extend(gpost)
+        body = _compose_columns(lines, gright, LEFT_W, GUTTER, RIGHT_W)
+        return "\n".join(head + body)
+
+    # MULTI-GAME: render the GLOBAL schedule once under the global status panel,
+    # then one composed two-column section per game (each prefixed by its slug).
+    _next_agents_lines(now, lines)
+    blocks = ["\n".join(_compose_columns(lines, [], LEFT_W, GUTTER, RIGHT_W))]
+    for g in games:
+        gslug = g["slug"]
+        gdir = Path(g["dir"]) if g["dir"] else None
+        gpre, gpost, gright = _per_game_panels(now, gslug, gdir, wrapper_pids)
+        # Per-game header + the per-game cap counter, then the game's panels
+        # (the global schedule is NOT repeated per game).
+        sec: list = ["", f"  {BOLD}{CYAN}━━ {gslug} ━━{RESET}",
+                     _cap_counter_line(now, gslug), ""]
+        sec.extend(gpre)
+        sec.extend(gpost)
+        blocks.append("\n".join(_compose_columns(sec, gright, LEFT_W, GUTTER, RIGHT_W)))
+    return "\n".join(head + blocks)
 
 
 def _sleep_or_quit(interval: float) -> bool:
@@ -1202,8 +1326,8 @@ def main() -> int:
                    help="refresh interval in seconds (default: 5)")
     args = p.parse_args()
 
-    game_dir = resolve_game_dir()
-
+    # Re-read the game registry each refresh so enabling/adding a game shows up
+    # without a restart.
     # Put the terminal in cbreak mode so a single 'q' keypress is readable
     # without Enter (mirrors Ctrl+C as a quit). Restored on exit.
     old_tty = None
@@ -1218,7 +1342,7 @@ def main() -> int:
         while True:
             now = datetime.now(TZ)
             sys.stdout.write(CLEAR_SCREEN)
-            sys.stdout.write(render(now, game_dir))
+            sys.stdout.write(render(now, enabled_games()))
             sys.stdout.write(f"\n{DIM}  refresh every {args.interval}s · press q or Ctrl+C to exit{RESET}\n")
             sys.stdout.flush()
             if _sleep_or_quit(args.interval):

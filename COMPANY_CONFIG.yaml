@@ -12,9 +12,26 @@
 # (`schedule.yaml` is a back-compat symlink to this file; legacy readers parse it.)
 # ============================================================================
 
-# Path to the game repo. Crew agents read/write WORK.md here. A game's
-# GAME_CONFIG.yaml lives at <game_dir>/GAME_CONFIG.yaml.
-game_dir: ~/GameProjects/infiltrators
+# Game registry. Each ENABLED game runs concurrently; per-game operational state
+# is namespaced under state/<slug>/, logs/<slug>/, .worktrees/<slug>/. A game's
+# GAME_CONFIG.yaml lives at <dir>/GAME_CONFIG.yaml.
+# (Back-compat: if `games:` is absent, a legacy single `game_dir:` scalar is
+#  honored and synthesized into a one-entry registry.)
+games:
+  infiltrators:
+    dir: ~/GameProjects/infiltrators
+    enabled: true
+  # newgame:
+  #   dir: ~/GameProjects/newgame
+  #   enabled: true
+
+# Framework-global limits (shared across ALL games — they reflect the one
+# Anthropic account / one machine, so they are never namespaced per game).
+global:
+  # Max concurrent dev workers across all games COMBINED (a shared pool). Stops a
+  # second game from doubling machine load / token burn. Per-game dev_concurrency
+  # still applies, but the sum can never exceed this.
+  max_total_dev_workers: 4
 
 # Crew agents: scheduled, write to WORK.md / MORNING.md / .factory/.
 # All cron expressions are America/Los_Angeles (see scripts/cron_match.py).
