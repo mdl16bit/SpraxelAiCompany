@@ -38,31 +38,33 @@ Scripts live in `~/SpraxelAiCompany/scripts/` (abbreviated below): `interactive_
 8. Init `shipped=0, escalated=0, retried=0`.
 
 ## 1. Build loop — per item (a–e) until STOP
-**STOP when:** ONE-SHOT → shipped `cap` OR queue dry;
-CONTINUOUS → `interactive_dev_step.sh cap-status --game "$SLUG"` shows `shipped >= cap` OR queue dry
-(delegate_all: ignore the cap test — only a dry queue ends the epoch). Use the **shared** `cap-status`
-(not a local count) so a poke's reset frees the next epoch.
+**STOP when:** ONE-SHOT → shipped `cap` or queue dry; CONTINUOUS → `cap-status --game "$SLUG"` shows
+`shipped >= cap` or queue dry (delegate_all: only a dry queue ends the epoch). Use the shared
+`cap-status`, not a local count, so a poke's reset frees the next epoch.
 
 a. **Claim**: `interactive_dev_step.sh claim-one --game "$SLUG"`. `EMPTY` → dry, stop (cap NOT hit).
-   Else parse JSON `title, details, branch, worktree, is_test_failure, test_ref` (re-read fresh each item — crew agents may edit WORK.md between items).
+   Else parse JSON `title, details, branch, worktree, is_test_failure, test_ref` fresh each iteration.
 
-b. **Develop** — fresh dev subagent (Agent tool, `model: sonnet`, or opus if capped). A fresh
-   subagent per item = clean context:
-   *"Follow `agents/spraxel-developer.md` exactly. Implement ONLY this item — Title `<title>`,
-   Details `<details>`. Work in worktree `<worktree>` on `<branch>` with incremental commits; do NOT
-   merge/push/touch WORK.md (canonical `$GAME/WORK.md` is read-only). If `[bug]`, add a regression
-   test under `test/unit/`. End with `COMMIT_SUBJECT: <subject>` + short body, and list any asset gap
-   as `MANUAL: [<art|sfx|writing|level|tuning>] <desc>` (don't edit WORK.md — I persist them
-   post-merge). If genuinely ambiguous, say so instead of guessing."*
-   - **delegate_all**: append *"No CEO — emit NO `MANUAL:` lines; ship working PLACEHOLDERS noted in
-     the body; never flag ambiguity, decide and record the assumption."*
+a2. **Destructive gate — NEVER ask the CEO.** If the item deletes/deprecates/removes/folds/consolidates
+   existing code or features (not purely additive), do NOT build it: `interactive_dev_step.sh fail-one
+   "<branch>" "<title>" escalate --detail "deferred: destructive — CEO sign-off"` then `continue` (tags
+   `[needs-ceo]`, so claim skips it + gates its epic). Build ADDITIVE items only.
+
+b. **Develop** — fresh dev subagent per item (Agent tool, `model: sonnet`, or opus if capped):
+   *"Follow `agents/spraxel-developer.md`. Implement ONLY this item (Title/Details). Work in
+   `<worktree>` on `<branch>`, incremental commits; do NOT merge/push/touch WORK.md (`$GAME/WORK.md`
+   is read-only). `[bug]` → add a `test/unit/` regression test. End with `COMMIT_SUBJECT: <subject>` +
+   body + any `MANUAL: [<art|sfx|writing|level|tuning>] <desc>` lines (don't edit WORK.md — I persist
+   them post-merge). If ambiguous, say so."*
+   - **delegate_all**: append *"No CEO — no `MANUAL:` lines; ship working PLACEHOLDERS (note in body);
+     never flag ambiguity, decide + record it."*
    - Dev flags ambiguity → (e) escalate. **Sonnet-cap**: if a sonnet dev subagent dies on a usage
      limit (or empty), `sonnet_cap.py set` then re-dispatch the SAME item on **opus** (stay until `is-capped` clears).
 
 c. **Independent review** — a SEPARATE subagent (Agent tool, `model: haiku`), independent of (b):
-   *"Follow `agents/spraxel-reviewer.md`. Review `git -C <worktree> diff master...HEAD` plus
-   `bash scripts/check_file_sizes.sh <worktree> HEAD master`. Item `<title>`. Verdict `clean` or
-   `blocking` (list each `[block]` as file:line + fix)."*
+   *"Follow `agents/spraxel-reviewer.md`. Review `git -C <worktree> diff master...HEAD` +
+   `bash scripts/check_file_sizes.sh <worktree> HEAD master`. Item `<title>`. Verdict `clean`/`blocking`
+   (each `[block]` = file:line + fix)."*
 
 d. **Review loop**: if `blocking`, re-dispatch the dev subagent with the findings (same worktree/branch),
    then re-review. Up to **2** fix rounds; still blocking → (e) with mode `retry`.
