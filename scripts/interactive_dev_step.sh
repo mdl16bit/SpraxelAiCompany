@@ -468,8 +468,29 @@ cmd_heartbeat() {
   esac
 }
 
+# ── post-batch-sweep ── /spraxel-develop §2: fire the full-test sweep iff the
+# batch cap was hit AND engine on-time >= test_runner.interactive_sweep_after_hours
+# AND no sweep is already in flight. All paths are the NAMESPACED per-game ones
+# (CACHE_DIR/GAME_LOGS_DIR via gctx) — the skill no longer hardcodes .cache paths.
+cmd_post_batch_sweep() {
+  local pending="$CACHE_DIR/test-runner-pending" active="$CACHE_DIR/test-runner-active"
+  if [ -e "$pending" ] || [ -e "$active" ]; then echo "sweep: already in flight — skip"; return 0; fi
+  local th; th=$(python3 "$REPO_DIR/scripts/spx_config.py" get test_runner.interactive_sweep_after_hours --game "$GAME_SLUG" 2>/dev/null)
+  if [ -z "$th" ] || [ "$th" = "0" ]; then echo "sweep: disabled (threshold 0) — skip"; return 0; fi
+  local secs; secs=$(python3 -c "import json;print(json.load(open('$CACHE_DIR/engine-uptime-since-test.json')).get('seconds',0))" 2>/dev/null || echo 0)
+  local hrs; hrs=$(python3 -c "print(round($secs/3600.0,1))")
+  if [ "$(python3 -c "print(1 if ($secs/3600.0)>=float('$th') else 0)")" != "1" ]; then
+    echo "sweep: ${hrs}h < ${th}h — skip"; return 0
+  fi
+  : > "$pending"
+  local tlog="$GAME_LOGS_DIR/test_runner"; mkdir -p "$tlog"
+  nohup bash "$REPO_DIR/scripts/test_runner.sh" --game "$GAME_SLUG" >> "$tlog/$(date +%F).log" 2>&1 &
+  echo "sweep: FIRED (${hrs}h >= ${th}h) — files [test_failure] items + resets the uptime counter"
+}
+
 case "${1:-}" in
-  heartbeat)      shift; cmd_heartbeat "$@" ;;
+  heartbeat)         shift; cmd_heartbeat "$@" ;;
+  post-batch-sweep)  shift; cmd_post_batch_sweep "$@" ;;
   claim-one)      shift; cmd_claim_one "$@" ;;
   finish-one)     shift; cmd_finish_one "$@" ;;
   fail-one)       shift; cmd_fail_one "$@" ;;

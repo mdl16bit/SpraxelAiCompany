@@ -14,7 +14,7 @@ continue/proceed/stop. A run ends ONLY on a CEO interrupt (Esc/message) or, in C
 
 Scripts live in `~/SpraxelAiCompany/scripts/` (abbreviated below): `interactive_dev_step.sh`
 (the helper — lock/merge/ship), `spx_config.py`, `sonnet_cap.py`, `workmd.py`. Specs:
-`agents/spraxel-developer.md`, `agents/spraxel-reviewer.md`. Heartbeat: `.cache/interactive-dev-active`.
+`agents/spraxel-developer.md`, `agents/spraxel-reviewer.md`. Heartbeat + sweep + all per-game state are handled by `interactive_dev_step.sh` subcommands (namespaced via gctx) — never hardcode `.cache/` paths.
 
 ## 0. Preflight
 1. **Pick the project** (multi-game). `SLUG=$(spx_config.py current --game "<named>")`
@@ -79,12 +79,11 @@ e. **Finish or fail**:
      **delegate_all**: use `retry` not `escalate` (no CEO); the poison-pill brake auto-`[cold]`s after `continuous.retry_escalate_threshold` attempts.
 
 ## 2. Post-batch test sweep (only when the cap was HIT)
-Skip on a dry-queue stop, or if a sweep is in flight (`.cache/test-runner-active` or `…/test-runner-pending` present). CONTINUOUS fires this once per epoch, before PARK.
-1. `th = get test_runner.interactive_sweep_after_hours --game "$SLUG"`; if 0/empty → skip.
-2. `hours = (.cache/engine-uptime-since-test.json → seconds) / 3600`.
-3. If `hours >= th`: `touch .cache/test-runner-pending` then
-   `nohup bash ~/SpraxelAiCompany/scripts/test_runner.sh --game "$SLUG" >> ~/SpraxelAiCompany/logs/test_runner/$(date +%F).log 2>&1 &`.
-   It runs the suite, files failures as `[test_failure]` items (built next run), and resets the uptime counter.
+On a cap-hit stop (NOT a dry queue), CONTINUOUS runs this once per epoch before PARK:
+`bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh post-batch-sweep --game "$SLUG"`
+The helper fires the full-test runner iff engine on-time ≥ `test_runner.interactive_sweep_after_hours`
+and no sweep is already in flight (else it no-ops); failures become `[test_failure]` items built next
+run. (All per-game state paths live in the helper — the skill hardcodes none.)
 
 ## 3. CONTINUOUS — PARK + auto-resume  (ONE-SHOT skips → §4)
 When an epoch hits the cap (or the queue went dry) and §2 has fired, PARK:
