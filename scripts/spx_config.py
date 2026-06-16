@@ -112,6 +112,59 @@ def game_dir(game=None, company=None):
     return _resolve_game(game, company)[1]
 
 
+# ── "Current game" resolution for interactive entry points ──────────────────
+# Priority (the CEO's intent): explicit > $SPRAXEL_GAME > the game whose folder
+# we're inside > the last game a skill/command operated on > the sole enabled
+# game > None (genuinely ambiguous → the caller should ASK).
+LAST_GAME_FILE = os.path.join(REPO, ".cache", "last-game")
+
+
+def _cwd_game(cwd, company=None):
+    """Slug of the registered game whose dir contains cwd, else None."""
+    cwd = os.path.abspath(cwd or os.getcwd())
+    for g in games(company):
+        d = os.path.abspath(g["dir"]) if g["dir"] else ""
+        if d and (cwd == d or cwd.startswith(d + os.sep)):
+            return g["slug"]
+    return None
+
+
+def current_game(explicit=None, cwd=None):
+    """Resolve the current game slug, or None if genuinely ambiguous."""
+    company = _company()
+    reg = games(company)
+    by_slug = {g["slug"]: g for g in reg}
+    enabled = [g for g in reg if g["enabled"]] or reg
+    if explicit:
+        return _resolve_game(explicit, company)[0]
+    env = os.environ.get("SPRAXEL_GAME")
+    if env and env in by_slug:
+        return env
+    cg = _cwd_game(cwd, company)
+    if cg:
+        return cg
+    try:
+        last = open(LAST_GAME_FILE).read().strip()
+        if last in by_slug and by_slug[last]["enabled"]:
+            return last
+    except Exception:
+        pass
+    if len(enabled) == 1:
+        return enabled[0]["slug"]
+    return None
+
+
+def set_current(slug):
+    """Record `slug` as the last-operated-on game (best-effort)."""
+    s = _resolve_game(slug)[0]
+    if not s:
+        return False
+    os.makedirs(os.path.dirname(LAST_GAME_FILE), exist_ok=True)
+    with open(LAST_GAME_FILE, "w") as f:
+        f.write(s + "\n")
+    return True
+
+
 # ── Namespaced state layout (single source of truth; gctx.sh mirrors this) ──────
 # Per-game operational state is namespaced by slug so multiple games never collide.
 # Framework-global state (sonnet-cap, token/$ accounting, last-tick-wall, .paused)
@@ -179,6 +232,21 @@ def main(argv):
             return 1
         print(gd)
         return 0
+    if cmd == "current":
+        # Print the resolved current-game slug, or exit 3 (ambiguous) listing the
+        # enabled slugs on stderr so the caller can ASK the CEO which one.
+        slug = current_game(explicit=game)
+        if slug:
+            print(slug)
+            return 0
+        sys.stderr.write("ambiguous: " + " ".join(
+            g["slug"] for g in games() if g["enabled"]) + "\n")
+        return 3
+    if cmd == "set-current":
+        if not rest:
+            sys.stderr.write("usage: spx_config.py set-current <slug>\n")
+            return 2
+        return 0 if set_current(rest[0]) else 1
     if cmd == "paths":
         if not rest:
             sys.stderr.write("usage: spx_config.py paths <slug>\n")

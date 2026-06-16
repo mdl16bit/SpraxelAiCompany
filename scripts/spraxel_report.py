@@ -411,8 +411,14 @@ def section_next_20(now: datetime) -> None:
 
 
 def main() -> int:
+    import argparse
+    p = argparse.ArgumentParser(description="Spraxel status snapshot")
+    p.add_argument("--game", default=None, help="report only this project/game slug")
+    args = p.parse_args()
     now = datetime.now(TZ)
     games = enabled_games()
+    if args.game:
+        games = [g for g in games if g["slug"] == args.game] or games
     print(f"# Spraxel status — {now:%a %Y-%m-%d %H:%M:%S %Z}\n")
     if len(games) == 1:
         g = games[0]

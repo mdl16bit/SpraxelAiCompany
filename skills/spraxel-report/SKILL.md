@@ -12,9 +12,27 @@ tick logs. No Claude tokens needed for the data gathering itself.
 
 ## What to do
 
-1. **Run the report**:
+0. **Select the target project** (the framework is multi-game now). Resolve WHICH
+   game this report is for before running anything. Priority: an explicit project
+   named in the CEO's message/args > the folder you're currently in > the last
+   project used > the sole enabled project; if it's genuinely ambiguous, ask.
    ```bash
-   python3 ~/SpraxelAiCompany/scripts/spraxel_report.py
+   # If the CEO named a project, pass it; otherwise let the resolver decide.
+   SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current --game "<named>") \
+     || SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current)
+   ```
+   - If `current` exits non-zero, it was **ambiguous** and printed the candidate
+     slugs on stderr. **Ask the CEO which project**, then set `SLUG` to their answer.
+   - Record it as last-used and resolve the project dir (not needed for the report
+     itself, but keeps the selection sticky for the next skill):
+     ```bash
+     python3 ~/SpraxelAiCompany/scripts/spx_config.py set-current "$SLUG"
+     GAME=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py game-dir "$SLUG")
+     ```
+
+1. **Run the report** for that project (`--game "$SLUG"`):
+   ```bash
+   python3 ~/SpraxelAiCompany/scripts/spraxel_report.py --game "$SLUG"
    ```
 
 2. **Print the output verbatim**. The script already produces markdown.
@@ -54,8 +72,8 @@ If the user asks for "just right now" or "just the schedule", you can
 filter the script's output (it's markdown sections):
 
 ```bash
-python3 ~/SpraxelAiCompany/scripts/spraxel_report.py | awk '/^## Right now/,/^## Last 24/'
-python3 ~/SpraxelAiCompany/scripts/spraxel_report.py | awk '/^## Next 20/,/^$/'
+python3 ~/SpraxelAiCompany/scripts/spraxel_report.py --game "$SLUG" | awk '/^## Right now/,/^## Last 24/'
+python3 ~/SpraxelAiCompany/scripts/spraxel_report.py --game "$SLUG" | awk '/^## Next 20/,/^$/'
 ```
 
 But by default, full report.

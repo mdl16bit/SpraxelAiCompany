@@ -26,16 +26,18 @@ if [ "${1:-}" = "--game" ] && [ -n "${2:-}" ]; then
 fi
 _gctx_want="${_gctx_want:-${SPRAXEL_GAME:-}}"
 
-# Resolve slug + dir via the single source of truth (spx_config.py).
+# Resolve the canonical slug via the single source of truth. `current` applies the
+# CEO-intent priority (explicit > $SPRAXEL_GAME > cwd-inside-a-game > last-used >
+# sole enabled > ambiguous). The daemon always passes --game, so it never relies on
+# the cwd/last-used fallbacks; a manual run from a game folder or with no games
+# enabled resolves naturally (or errors below if genuinely ambiguous).
+_SPX="$GCTX_REPO_DIR/scripts/spx_config.py"
 if [ -n "$_gctx_want" ]; then
-    GAME_DIR="$(python3 "$GCTX_REPO_DIR/scripts/spx_config.py" game-dir "$_gctx_want" 2>/dev/null || true)"
-    GAME_SLUG="$_gctx_want"
+    GAME_SLUG="$(python3 "$_SPX" current --game "$_gctx_want" 2>/dev/null || true)"
 else
-    # Default game = first line of `games` (sole / first enabled).
-    _gctx_line="$(python3 "$GCTX_REPO_DIR/scripts/spx_config.py" games 2>/dev/null | head -n1)"
-    GAME_SLUG="${_gctx_line%%	*}"            # text before first TAB
-    GAME_DIR="${_gctx_line#*	}"; GAME_DIR="${GAME_DIR%%	*}"  # text between 1st and 2nd TAB
+    GAME_SLUG="$(python3 "$_SPX" current 2>/dev/null || true)"
 fi
+GAME_DIR="$(python3 "$_SPX" game-dir "$GAME_SLUG" 2>/dev/null || true)"
 
 if [ -z "${GAME_SLUG:-}" ] || [ -z "${GAME_DIR:-}" ] || [ ! -d "$GAME_DIR" ]; then
     echo "gctx: could not resolve game (want='${_gctx_want:-<default>}' slug='${GAME_SLUG:-}' dir='${GAME_DIR:-}')" >&2
@@ -66,4 +68,4 @@ mkdir -p "$LOCKS_DIR" "$CACHE_DIR" 2>/dev/null || true
 export GLOBAL_CACHE="$REPO_DIR/.cache"
 export PAUSED_FLAG="$REPO_DIR/.paused"
 
-unset _GCTX_SELF _gctx_want _gctx_line
+unset _GCTX_SELF _gctx_want _SPX

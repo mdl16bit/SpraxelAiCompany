@@ -25,12 +25,20 @@ Run from the game repo's parent or via absolute paths. Edits files
 in-place. The CEO reviews + commits + pushes.
 """
 
+import os
 import re
 import sys
 from pathlib import Path
 from datetime import datetime
 
-REPO = Path("/Users/skinnyluigi/GameProjects/infiltrators")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import spx_config
+
+# Game-aware: pass `--game <slug>` (else the current game) instead of hardcoding.
+_game = None
+if "--game" in sys.argv:
+    _game = sys.argv[sys.argv.index("--game") + 1]
+REPO = Path(spx_config.game_dir(_game or spx_config.current_game()))
 WORK_MD = REPO / "WORK.md"
 ESC_MD = REPO / ".factory" / "escalations.md"
 

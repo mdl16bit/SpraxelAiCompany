@@ -13,17 +13,34 @@ shippable WORK.md items. Interactive entry point for the CEO: just type
 
 When the user invokes this skill:
 
+0a. **Select the target project** (the framework is multi-game now). Resolve WHICH
+   project's intake you're draining before touching any files. Priority: an explicit
+   project named in the CEO's message/args > the folder you're currently in > the last
+   project used > the sole enabled project; if it's genuinely ambiguous, ask.
+   ```bash
+   # If the CEO named a project, pass it; otherwise let the resolver decide.
+   SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current --game "<named>") \
+     || SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current)
+   ```
+   - If `current` exits non-zero, it was **ambiguous** and printed the candidate slugs
+     on stderr. **Ask the CEO which project**, then set `SLUG` to their answer.
+   - Record last-used and resolve the project dir (every game path below builds from `$GAME`):
+     ```bash
+     python3 ~/SpraxelAiCompany/scripts/spx_config.py set-current "$SLUG"
+     GAME=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py game-dir "$SLUG")
+     ```
+
 0. **Signal the continuous loop** that the CEO is interacting:
    ```bash
-   bash ~/SpraxelAiCompany/scripts/checkin.sh
+   bash ~/SpraxelAiCompany/scripts/checkin.sh --game "$SLUG"
    ```
    This resets the ship-counter so the loop starts shipping the next batch
    of 10 once new items land from this dictation pass.
 
-1. **Find the intake sources**:
-   - `~/GameProjects/<game>/.factory/inbox/raw.md` — anything the CEO
+1. **Find the intake sources** (all under the resolved `$GAME`):
+   - `$GAME/.factory/inbox/raw.md` — anything the CEO
      dumped today (typed or pasted from dictation).
-   - `~/GameProjects/<game>/.factory/inbox/dictation/*.md` — speech-to-text
+   - `$GAME/.factory/inbox/dictation/*.md` — speech-to-text
      files dropped from a phone, Voice Memos export, etc.
    - Plus whatever the user typed in the current Claude Code conversation.
 
@@ -81,14 +98,14 @@ When the user invokes this skill:
       ```
       # feature-type → carries [untriaged]:
       python3 ~/SpraxelAiCompany/scripts/workmd.py append \
-        ~/GameProjects/<game>/WORK.md --section todo \
+        "$GAME/WORK.md" --section todo \
         "[untriaged] [kind] pN <title>" \
         --detail "<detail 1>" \
         --detail "⚠️ concern (balance): <one-line reason>"
 
       # bug or MANUAL → NO [untriaged]:
       python3 ~/SpraxelAiCompany/scripts/workmd.py append \
-        ~/GameProjects/<game>/WORK.md --section todo \
+        "$GAME/WORK.md" --section todo \
         "[bug] pN <title>"
       ```
 
@@ -97,15 +114,15 @@ When the user invokes this skill:
    "skip" or "defer", leave the raw note in `raw.md` with a `[needs-ceo]`
    prefix line and move on.
 
-4. **After processing**, move drained sources:
-   - `raw.md` → wipe to empty (preserve any `[needs-ceo]` lines).
-   - Dictation files → `dictation/processed/<ts>-<slug>.md`.
+4. **After processing**, move drained sources (all under `$GAME/.factory/inbox/`):
+   - `$GAME/.factory/inbox/raw.md` → wipe to empty (preserve any `[needs-ceo]` lines).
+   - Dictation files → `$GAME/.factory/inbox/dictation/processed/<ts>-<slug>.md`.
 
-5. **Commit** WORK.md with the producer bot identity:
+5. **Commit** WORK.md with the producer bot identity (in the resolved project repo):
    ```bash
    git -c user.email=producer-bot@spraxel.ai -c user.name='Spraxel Producer' \
-     -C ~/GameProjects/<game> commit -am "producer: appended <N> items"
-   git -C ~/GameProjects/<game> push
+     -C "$GAME" commit -am "producer: appended <N> items"
+   git -C "$GAME" push
    ```
 
 6. **Print a summary**: "Producer: appended N items, deferred M items.

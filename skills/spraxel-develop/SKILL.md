@@ -21,17 +21,33 @@ Paths (absolute):
 
 ## 0. Preflight
 
+0. **Select the target project** (the framework is multi-game now). Resolve WHICH
+   project you'll build for before any other preflight. Priority: an explicit
+   project named in the CEO's message/args > the folder you're currently in > the
+   last project used > the sole enabled project; if it's genuinely ambiguous, ask.
+   ```bash
+   # If the CEO named a project, pass it; otherwise let the resolver decide.
+   SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current --game "<named>") \
+     || SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current)
+   ```
+   - If `current` exits non-zero, it was **ambiguous** and printed the candidate slugs
+     on stderr. **Ask the CEO which project**, then set `SLUG` to their answer.
+   - Record last-used: `python3 ~/SpraxelAiCompany/scripts/spx_config.py set-current "$SLUG"`.
+   - All config reads below that select a game (the `get` calls) take `--game "$SLUG"`,
+     and every helper call takes `--game "$SLUG"` so the whole run stays on this project.
+
 1. **Mode gate** — read `continuous.force_interactive_developers`:
-   `python3 ~/SpraxelAiCompany/scripts/spx_config.py get continuous.force_interactive_developers`
+   `python3 ~/SpraxelAiCompany/scripts/spx_config.py get continuous.force_interactive_developers --game "$SLUG"`
    (the loader prints `True`/`False`, capitalized — treat case-insensitively).
    If it is NOT true, STOP immediately and tell the CEO: "force_interactive_developers
    is false — headless devs are live; enable the mode (set it true in COMPANY_CONFIG or
    the game's GAME_CONFIG) before running /spraxel-develop, or you'll race the headless
    pool." Do not proceed.
 2. **Resolve params + MODE**:
-   - `game_dir` = `spx_config get game_dir` (expand a leading `~`).
-   - `target` = `spx_config get continuous.target_per_batch` (5) — the cap size.
-   - `delegate_all` = `spx_config get policy.delegate_all` (treat `True` case-insensitively).
+   - `game_dir` (`$GAME`) = `spx_config game-dir "$SLUG"` — the resolved project's
+     absolute dir; build every game path below (e.g. `"$GAME/WORK.md"`) from it.
+   - `target` = `spx_config get continuous.target_per_batch --game "$SLUG"` (5) — the cap size.
+   - `delegate_all` = `spx_config get policy.delegate_all --game "$SLUG"` (treat `True` case-insensitively).
    - **MODE** (the whole behavior split):
      - A **number was passed** (`/spraxel-develop 3`) → **ONE-SHOT** mode. `cap = that number`.
        Build `cap` items, then STOP. No parking, no auto-resume. (ONE-SHOT always honors its
@@ -41,23 +57,23 @@ Paths (absolute):
        **DELEGATE-ALL override**: if `delegate_all` is true, work is UNCAPPED — set `cap = ∞`
        (treat the cap-hit stop test as never true; you only ever stop a CONTINUOUS epoch when the
        queue goes dry). The loop runs forever until the CEO stops the session or touches `.paused`.
-   - Reviewer model = **haiku** (`models.reviewer`) — unaffected by the Sonnet cap.
-   - Dev model = **sonnet** (`models.developer`) **UNLESS the Sonnet cap is hit**: run
+   - Reviewer model = **haiku** (`models.reviewer --game "$SLUG"`) — unaffected by the Sonnet cap.
+   - Dev model = **sonnet** (`models.developer --game "$SLUG"`) **UNLESS the Sonnet cap is hit**: run
      `python3 ~/SpraxelAiCompany/scripts/sonnet_cap.py is-capped` — if it exits 0, use
      **opus** for the dev subagents instead (the shared Sonnet→Opus fallback). Re-check this
      at the top of EACH item (the flag can flip mid-run as crew agents probe Sonnet).
 3. **Heartbeat ON**: `touch ~/SpraxelAiCompany/.cache/interactive-dev-active`. Re-touch it at the
    top of every BUILD iteration (the dashboard reads its freshness for "develop: executing").
    Always remove it when the run ends (§4).
-4. **Clear stale claims**: `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh release-claims`
+4. **Clear stale claims**: `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh release-claims --game "$SLUG"`
    — releases any orphan `[wip:0]` left by a previously interrupted item (e.g. you pressed Esc
    mid-build) so it becomes eligible again and nothing is stranded.
 5. **CONTINUOUS mode only — fresh start**:
-   `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh reset-signal` (counter→0, watermark→
+   `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh reset-signal --game "$SLUG"` (counter→0, watermark→
    current master) so the first epoch builds a full `cap`. (ONE-SHOT mode: skip this — it builds
    exactly its N regardless of the counter.)
 6. **DELEGATE-ALL only — clear stray gates**: if `delegate_all` is true, run
-   `python3 ~/SpraxelAiCompany/scripts/workmd.py auto-clear-gates "<game_dir>/WORK.md"` so any
+   `python3 ~/SpraxelAiCompany/scripts/workmd.py auto-clear-gates "$GAME/WORK.md"` so any
    `[escalated]`/`[needs-ceo]` left on the queue becomes buildable (the loop never waits on a CEO).
    Re-run this at the top of each CONTINUOUS epoch. No-op when delegate_all is false.
 7. Initialize `shipped=0`, `escalated=0`, `retried=0`.
@@ -67,7 +83,7 @@ Paths (absolute):
 Re-`touch` the heartbeat marker at the start of each iteration. **STOP building the current batch when:**
 - **ONE-SHOT**: you have shipped `cap` items, OR the queue is dry (`claim-one` → `EMPTY`). Then do
   §2 (sweep, if cap hit) and §4 (stop) — you're done.
-- **CONTINUOUS**: `interactive_dev_step.sh cap-status` shows `shipped >= cap` (cap hit), OR the
+- **CONTINUOUS**: `interactive_dev_step.sh cap-status --game "$SLUG"` shows `shipped >= cap` (cap hit), OR the
   queue is dry. Then do §2 (sweep, if cap hit) and §3 (PARK).
   **DELEGATE-ALL**: ignore the cap-hit half of this test entirely (`cap = ∞`) — only the dry queue
   ends an epoch. You'll keep building without parking until there's genuinely nothing to claim.
@@ -79,7 +95,7 @@ items you shipped this run.
 a. **Claim** the next item (syncs master, claims under the master-push lock, pushes the
    `[wip:0]` tag):
    ```
-   bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh claim-one
+   bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh claim-one --game "$SLUG"
    ```
    - Output `EMPTY` → the queue is dry. Stop the loop (go to step 3); note the cap was NOT hit.
    - Otherwise parse the JSON: `title`, `details`, `branch`, `worktree`, `is_test_failure`,
@@ -94,7 +110,7 @@ b. **Develop** — dispatch a fresh **dev subagent via the Agent tool** (`model:
    > `<details>`
    > Work inside the git worktree `<worktree>` on branch `<branch>` (already checked out).
    > Make incremental commits there. Do NOT merge, do NOT push, do NOT touch WORK.md.
-   > The canonical WORK.md is `<game_dir>/WORK.md` (read-only for you). If this is a
+   > The canonical WORK.md is `$GAME/WORK.md` (read-only for you). If this is a
    > `[bug]`, you MUST add a never-again regression test under `test/unit/` (per the spec).
    > When done, print a final line `COMMIT_SUBJECT: <conventional-commit subject>` and a
    > short body. **If the feature introduces any asset gap (a new entity/pickup needing real
@@ -134,22 +150,22 @@ d. **Review loop**: if `blocking`, dispatch the dev subagent again with the find
 e. **Finish or fail**:
    - **Clean** → merge + ship + push under the lock:
      ```
-     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh finish-one "<branch>" "<title>" --subject "<COMMIT_SUBJECT from the dev>"
+     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh finish-one "<branch>" "<title>" --subject "<COMMIT_SUBJECT from the dev>" --game "$SLUG"
      ```
      - Prints `SHIPPED: …` (rc 0) → first, **persist any `[manual]` asset follow-ups the
        dev reported** in its handoff (the dev must NOT edit WORK.md; finish-one discards any
        branch WORK.md change, so these would otherwise be lost). For EACH follow-up the dev
        named (e.g. "needs a real sprite for the new pickup"), run:
        ```
-       bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh append-manual "[manual] [<art|sfx|writing|level|tuning>] <short desc>" --detail "Spawned by: <item title>"
+       bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh append-manual "[manual] [<art|sfx|writing|level|tuning>] <short desc>" --detail "Spawned by: <item title>" --game "$SLUG"
        ```
        Then update the cap counter the SAME way the headless worker does. If the item counts
        toward the cap — i.e. NOT (`is_test_failure` true AND `spx_config get
-       continuous.cap_excludes_test_fixes` true) — increment BOTH your local `shipped` AND the
+       continuous.cap_excludes_test_fixes --game "$SLUG"` true) — increment BOTH your local `shipped` AND the
        **shared** cap counter so the dashboard "Cap counter X/N" reflects interactive ships
        identically to headless ones:
        ```
-       bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh bump-cap
+       bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh bump-cap --game "$SLUG"
        ```
        (A `[test_failure]` fix under `cap_excludes_test_fixes` counts toward neither — same
        exclusion the headless main loop applies.) `continue`.
@@ -157,12 +173,12 @@ e. **Finish or fail**:
        run `fail-one … retry` (below), `retried += 1`, `continue`.
    - **Still blocking / merge failure** → bounce to the queue as `[retry]`:
      ```
-     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh fail-one "<branch>" "<title>" retry --detail "<one-line reason: reviewer blocks or merge conflict>"
+     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh fail-one "<branch>" "<title>" retry --detail "<one-line reason: reviewer blocks or merge conflict>" --game "$SLUG"
      ```
      `retried += 1`, `continue`.
    - **Genuine ambiguity / needs a CEO decision** → escalate and move on (NEVER ask the CEO inline):
      ```
-     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh fail-one "<branch>" "<title>" escalate --detail "<what decision is needed and why>"
+     bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh fail-one "<branch>" "<title>" escalate --detail "<what decision is needed and why>" --game "$SLUG"
      ```
      `escalated += 1`, `continue`.
      **DELEGATE-ALL**: there is no CEO to escalate to — use `retry` instead of `escalate` here
@@ -176,14 +192,14 @@ Run this when the batch stopped because the **cap was hit** (ONE-SHOT: shipped `
 in flight (`~/SpraxelAiCompany/.cache/test-runner-active` and `…/test-runner-pending` both absent).
 In CONTINUOUS mode this fires once per epoch, right before you PARK (§3).
 
-1. Threshold = `spx_config get test_runner.interactive_sweep_after_hours` (merged; infiltrators=48).
+1. Threshold = `spx_config get test_runner.interactive_sweep_after_hours --game "$SLUG"` (merged; infiltrators=48).
    If it is `0` or empty → skip the sweep.
 2. Engine-active hours since the last full test run:
    read `~/SpraxelAiCompany/.cache/engine-uptime-since-test.json` → `seconds / 3600`.
 3. If `hours >= threshold`: kick off the same batch runner the system uses (fire-and-forget):
    ```
    touch ~/SpraxelAiCompany/.cache/test-runner-pending
-   nohup bash ~/SpraxelAiCompany/scripts/test_runner.sh >> ~/SpraxelAiCompany/logs/test_runner/$(date +%Y-%m-%d).log 2>&1 &
+   nohup bash ~/SpraxelAiCompany/scripts/test_runner.sh --game "$SLUG" >> ~/SpraxelAiCompany/logs/test_runner/$(date +%Y-%m-%d).log 2>&1 &
    ```
    It runs the whole suite, files any failures as `[test_failure]` items, and resets the
    uptime counter on completion. Those `[test_failure]` items are built by the NEXT
@@ -199,16 +215,20 @@ the session self-resume on a poke:
 1. **Schedule a wake-up and END THE TURN** (so control returns to the CEO and the loop self-resumes):
    - Call **ScheduleWakeup** with `delaySeconds: 90`, a short `reason` (e.g. "parked at cap —
      polling for a CEO poke"), and a `prompt` that re-enters THIS resume logic, e.g.:
-     > "[/spraxel-develop CONTINUOUS — auto-wake] You are mid-run, parked at the cap. Run
-     > `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh poked`. If it exits 0 (a CEO
-     > poke — it prints the reason), run `interactive_dev_step.sh release-claims` then
-     > `reset-signal`, then resume building the next batch (§1). If it exits 1, ScheduleWakeup
+     > "[/spraxel-develop CONTINUOUS — auto-wake] You are mid-run on project `$SLUG`, parked at
+     > the cap. Run `bash ~/SpraxelAiCompany/scripts/interactive_dev_step.sh poked --game $SLUG`.
+     > If it exits 0 (a CEO poke — it prints the reason), run
+     > `interactive_dev_step.sh release-claims --game $SLUG` then `reset-signal --game $SLUG`,
+     > then resume building the next batch (§1) on project `$SLUG`. If it exits 1, ScheduleWakeup
      > again (~90s) with this same prompt and end the turn."
+     (Bake the resolved `$SLUG` into the prompt text — it's a fresh re-entry, so the variable
+     won't be in scope on wake; the project must be named explicitly.)
    - Then tell the CEO: "Parked at the cap (`<cap-status>`). I'll resume automatically when you
      poke the system — a non-bot commit on master, a `checkin.sh`, or **saving TRIAGE.md** — or
      interrupt me (Esc / a message) to stop or redirect." End the turn.
-2. **On wake** (the prompt above fires): `release-claims`, then `interactive_dev_step.sh poked`:
-   - **exit 0** (poked) → `reset-signal`, then go to §1 and build the next batch (a fresh epoch).
+2. **On wake** (the prompt above fires): re-resolve `SLUG` from the baked-in project name, then
+   `release-claims --game "$SLUG"`, then `interactive_dev_step.sh poked --game "$SLUG"`:
+   - **exit 0** (poked) → `reset-signal --game "$SLUG"`, then go to §1 and build the next batch (a fresh epoch).
    - **exit 1** (no poke) → re-PARK (step 1 again: ScheduleWakeup ~90s, end the turn).
 3. **Stopping**: the CEO interrupts (Esc while building, or a message any time) and tells you to
    stop. When that happens, do NOT schedule another wake-up — go to §4.

@@ -12,20 +12,36 @@ The CEO can run this **any time they sit down at the machine**. Two jobs:
 
 The CEO should never have to remember what to do — you compute it.
 
-## Step 0 — Signal the loop + gather the blocking board
+## Step 0 — Select the target project, signal the loop + gather the blocking board
 
-Run this first. It resets the ship-counter (so the overnight batch refills after
-the CEO interacts) and prints the fast "what needs you" board:
+The framework is multi-game now, so first resolve **which project** this check-in
+is for. Priority: an explicit project named in the CEO's message/args > the folder
+you're currently in > the last project used > the sole enabled project; if it's
+genuinely ambiguous, ask.
 
 ```bash
-bash ~/SpraxelAiCompany/scripts/checkin.sh
+# If the CEO named a project, pass it; otherwise let the resolver decide.
+SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current --game "<named>") \
+  || SLUG=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py current)
+```
+- If `current` exits non-zero, it was **ambiguous** and printed the candidate slugs
+  on stderr. **Ask the CEO which project**, then set `SLUG` to their answer.
+- Record last-used and resolve the project dir:
+  ```bash
+  python3 ~/SpraxelAiCompany/scripts/spx_config.py set-current "$SLUG"
+  GAME=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py game-dir "$SLUG")
+  ```
 
-SC=~/SpraxelAiCompany/schedule.yaml
-GAME=$(python3 -c "import re,os;m=re.search(r'game_dir:\s*(\S+)',open(os.path.expanduser('$SC')).read());print(os.path.expanduser(m.group(1)))")
+Then signal the loop. It resets the ship-counter (so the overnight batch refills
+after the CEO interacts) and prints the fast "what needs you" board:
+
+```bash
+bash ~/SpraxelAiCompany/scripts/checkin.sh --game "$SLUG"
+
 WORK="$GAME/WORK.md"
 NOW_H=$(date +%H); DOW=$(date +%u)   # DOW: 1=Mon … 6=Sat 7=Sun
 
-echo "=== game: $GAME | $(date '+%a %H:%M %Z') ==="
+echo "=== game: $SLUG ($GAME) | $(date '+%a %H:%M %Z') ==="
 
 echo ""; echo "### 🔴 BLOCKING (system is waiting on YOU) ###"
 echo "-- [needs-ceo] (candidate bug to validate, or Developer question) --"
@@ -78,7 +94,7 @@ if [ "$(date -r "$M" +%F 2>/dev/null)" = "$(date +%F)" ] && grep -q '^#' "$M" 2>
   echo "MORNING.md is fresh ($(date -r "$M" '+%H:%M')) — using it."
 else
   echo "MORNING.md missing/stale/cleared — regenerating via the briefer…"
-  bash ~/SpraxelAiCompany/scripts/run_agent.sh morning-briefer
+  bash ~/SpraxelAiCompany/scripts/run_agent.sh morning-briefer --game "$SLUG"
 fi
 # Save a dated snapshot (lands in reports/, which the Janitor auto-prunes >14d).
 mkdir -p "$GAME/.factory/local/reports"
