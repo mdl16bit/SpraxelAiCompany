@@ -64,7 +64,13 @@ b. **Develop** — fresh dev subagent per item (Agent tool, `model: sonnet`, or 
 c. **Independent review** — a SEPARATE subagent (Agent tool, `model: haiku`), independent of (b):
    *"Follow `agents/spraxel-reviewer.md`. Review `git -C <worktree> diff master...HEAD` +
    `bash scripts/check_file_sizes.sh <worktree> HEAD master`. Item `<title>`. Verdict `clean`/`blocking`
-   (each `[block]` = file:line + fix)."*
+   (each `[block]` = file:line + fix). WRITE your verdict as the FIRST line of
+   `<worktree>/.factory/reviews/<branch>.md` (overwrite) — `VERDICT: clean` or `VERDICT: blocking`,
+   then findings — BEFORE you finish, so the verdict is durable on disk."*
+   - **Read the verdict from that file**, not just the notification. Notifications can be lost (e.g.
+     across a context compaction); the file is the source of truth. If the notification never arrives,
+     poll the file — and NEVER infer a stall from file mtime (a stale mtime means *finished long ago*,
+     not *hung*); confirm via the verdict file or the agent's transcript tail (`stop_reason: end_turn`).
 
 d. **Review loop**: if `blocking`, re-dispatch the dev subagent with the findings (same worktree/branch),
    then re-review. Up to **2** fix rounds; still blocking → (e) with mode `retry`.

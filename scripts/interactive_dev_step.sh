@@ -242,7 +242,30 @@ cmd_finish_one() {
       fi
     fi
     if git "${BOT_ID[@]}" commit --quiet -m "$commit_message" && git push --quiet origin master; then
-      python3 "$WORKMD" ship "$GAME_DIR/WORK.md" "$title" >/dev/null 2>&1 || true
+      # Strike the shipped item from Todo. `ship` is a case-insensitive SUBSTRING
+      # match on title, so an abbreviated/paraphrased "$title" can silently match
+      # nothing — which would leave the item [wip:0] in Todo to be re-claimed
+      # forever. So: try "$title"; if it didn't strike, fall back to THIS worker's
+      # actual [wip:WORKER_ID] claim (the item we just merged), excluding
+      # escalated/needs-ceo/cold lines; and if even that fails, fail LOUDLY.
+      if ! python3 "$WORKMD" ship "$GAME_DIR/WORK.md" "$title" >/dev/null 2>&1; then
+        claimed=$(python3 - "$GAME_DIR/WORK.md" "$WORKER_ID" "$WORKMD" <<'PY'
+import sys, json, subprocess
+path, wid, workmd = sys.argv[1], sys.argv[2], sys.argv[3]
+wm = json.loads(subprocess.check_output([sys.executable, workmd, "parse", path]))
+for it in wm.get("todo", []):
+    t = it.get("title", "")
+    low = t.lower()
+    if f"[wip:{wid}]" in low and not any(x in low for x in ("[escalated]", "[needs-ceo]", "[cold]")):
+        print(t); break
+PY
+)
+        if [ -n "$claimed" ] && python3 "$WORKMD" ship "$GAME_DIR/WORK.md" "$claimed" >/dev/null 2>&1; then
+          echo "finish: shipped via [wip:$WORKER_ID] fallback (passed title did not match)" >&2
+        else
+          echo "finish: WARNING — could not strike shipped item from Todo (title='$title'); WORK.md may re-claim it" >&2
+        fi
+      fi
       python3 "$WORKMD" reconcile-epics "$GAME_DIR/WORK.md" >/dev/null 2>&1 || true
       git add WORK.md 2>/dev/null
       git "${BOT_ID[@]}" commit --quiet -m "chore(work): mark '$short_title' as shipped" 2>/dev/null
