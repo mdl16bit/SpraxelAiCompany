@@ -241,6 +241,26 @@ cmd_finish_one() {
         exit 2
       fi
     fi
+    # Parse/import gate: rebuild the engine's script cache against the STAGED
+    # squash before it lands. A squash that fails to parse (e.g. a stale dangling
+    # line, an unresolved class_name) would leave master un-bootable — the exact
+    # failure that the "don't break the game" rule exists to prevent. Bail to retry
+    # (exit 2) on any parse/compile/load error so the dev fixes it on the branch.
+    # Skipped for non-engine projects (no dev.godot_binary) or a missing binary.
+    _gbin=$(python3 "$SPX" get dev.godot_binary --game "$GAME_SLUG" 2>/dev/null || true)
+    if [ -n "$_gbin" ] && [ -x "$_gbin" ]; then
+      _implog=$(mktemp 2>/dev/null || echo /tmp/finish_import.$$)
+      "$_gbin" --headless --import --path "$GAME_DIR" >"$_implog" 2>&1 || true
+      if grep -qiE 'Parse Error|Compile Error|Failed to (load|parse) script|Compilation failed' "$_implog"; then
+        echo "MERGE_GATE: squash fails to parse/import — not landing on master:" >&2
+        grep -iE 'Parse Error|Compile Error|Failed to (load|parse) script|Compilation failed' "$_implog" | head -5 >&2
+        rm -f "$_implog"
+        git reset --hard origin/master --quiet 2>/dev/null || true
+        git clean -fd --quiet 2>/dev/null || true
+        exit 2
+      fi
+      rm -f "$_implog"
+    fi
     if git "${BOT_ID[@]}" commit --quiet -m "$commit_message" && git push --quiet origin master; then
       # Strike the shipped item from Todo. `ship` is a case-insensitive SUBSTRING
       # match on title, so an abbreviated/paraphrased "$title" can silently match
