@@ -51,20 +51,36 @@ a2. **Destructive gate — NEVER ask the CEO.** If the item deletes/deprecates/r
    `[needs-ceo]`, so claim skips it + gates its epic). Build ADDITIVE items only.
 
 b. **Develop** — fresh dev subagent per item (Agent tool, `model: sonnet`, or opus if capped):
-   *"Follow `agents/spraxel-developer.md`. Implement ONLY this item (Title/Details). Work in
-   `<worktree>` on `<branch>`, incremental commits; do NOT merge/push/touch WORK.md (`$GAME/WORK.md`
-   is read-only). `[bug]` → add a `test/unit/` regression test. End with `COMMIT_SUBJECT: <subject>` +
-   body + any `MANUAL: [<art|sfx|writing|level|tuning>] <desc>` lines (don't edit WORK.md — I persist
-   them post-merge). If ambiguous, say so."*
+   *"Follow `agents/spraxel-developer.md`. Implement ONLY this item (Title/Details). Work ONLY inside
+   `<worktree>` on `<branch>`, incremental commits. **WORK.md is OFF-LIMITS: never edit, append to, or
+   run `workmd.py` against ANY WORK.md — not the copy in `<worktree>`, and NOT the canonical
+   `$GAME/WORK.md` you might find via `git worktree list` — for ANY reason, even if your own self-check
+   or the developer spec mentions filing MANUAL/asset-gap items. WORK.md is owned SOLELY by the loop
+   driver, who persists your MANUAL lines post-merge.** Do NOT merge, push, switch the canonical
+   checkout's branch, or run your own reviewer/merge step — just build on the branch in the worktree.
+   `[bug]` → add a `test/unit/` regression test. End with `COMMIT_SUBJECT: <subject>` + body + any
+   `MANUAL: [<art|sfx|writing|level|tuning>] <desc>` lines (these lines ARE how follow-ups reach
+   WORK.md — I file them; you must not). If ambiguous, say so."*
    - **delegate_all**: append *"No CEO — no `MANUAL:` lines; ship working PLACEHOLDERS (note in body);
      never flag ambiguity, decide + record it."*
    - Dev flags ambiguity → (e) escalate. **Sonnet-cap**: if a sonnet dev subagent dies on a usage
      limit (or empty), `sonnet_cap.py set` then re-dispatch the SAME item on **opus** (stay until `is-capped` clears).
 
+b2. **WORK.md sanity guard (run after the dev settles, before review).** If a dev ignored the rule and
+   left the canonical WORK.md dirty, discard it so it can't confuse the reviewer or leak into the ship:
+   `git -C "$GAME" checkout -- WORK.md 2>/dev/null || true`. The dev's `MANUAL:` lines (from its final
+   message) are the source of truth — you persist them in (e) via `append-manual`. This is
+   belt-and-suspenders: `claim-one`/`finish-one`/`append-manual` each `reset --hard origin/master`
+   under the master-push lock, so a stray write is auto-healed regardless — but discarding it here keeps
+   the review honest.
+
 c. **Independent review** — a SEPARATE subagent (Agent tool, `model: haiku`), independent of (b):
    *"Follow `agents/spraxel-reviewer.md`. Review `git -C <worktree> diff master...HEAD` +
    `bash scripts/check_file_sizes.sh <worktree> HEAD master`. Item `<title>`. Verdict `clean`/`blocking`
-   (each `[block]` = file:line + fix). WRITE your verdict as the FIRST line of
+   (each `[block]` = file:line + fix). **FLOW NOTE — interactive loop: MANUAL/asset-gap follow-ups are
+   filed by the loop driver post-merge, NOT by the dev in the branch. Do NOT raise a blocking finding
+   for "MANUAL items missing from WORK.md" — that is not a code concern here. Judge ONLY the code
+   (correctness, the diff, file-size caps).** WRITE your verdict as the FIRST line of
    `<worktree>/.factory/reviews/<branch>.md` (overwrite) — `VERDICT: clean` or `VERDICT: blocking`,
    then findings — BEFORE you finish, so the verdict is durable on disk."*
    - **Read the verdict from that file**, not just the notification. Notifications can be lost (e.g.

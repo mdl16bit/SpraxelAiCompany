@@ -100,12 +100,17 @@ a schedule.
       (Reason: GAME.md feeds the future tutorial system; gaps now mean
       un-tutorialable features later.)
    6. **Asset-gap audit + MANUAL follow-ups** — **SKIP this entire check when
-      `policy.delegate_all` is true** (resolve it first:
-      `python3 ~/SpraxelAiCompany/scripts/spx_config.py get policy.delegate_all`).
+      `policy.delegate_all` is true OR when your prompt says this is the
+      INTERACTIVE / CONTINUOUS `/spraxel-develop` loop.** (Resolve delegate_all:
+      `python3 ~/SpraxelAiCompany/scripts/spx_config.py get policy.delegate_all`.)
       In delegate mode developers ship working placeholders instead of filing
-      `[manual]` items, so a missing MANUAL item is **not** a block — do not
-      require any. (Still review the placeholder for correctness like any other
-      code.) When delegate_all is false, enforce as written:
+      `[manual]` items; in the interactive loop the **loop driver files MANUAL
+      items post-merge** (the dev is forbidden from touching WORK.md). In BOTH
+      cases a missing MANUAL item is **not** a block — do not require any, and
+      never emit a `[block]` for "MANUAL items missing from WORK.md". (Still
+      review any placeholder for correctness like any other code.) Only when
+      delegate_all is false AND this is the headless overnight flow, enforce as
+      written:
       check the diff for any of these triggers and require a matching
       `[manual] [<category>] <thing>` item appended to `WORK.md ## Todo` in the
       same diff:
@@ -123,9 +128,9 @@ a schedule.
       **How to verify**: run `grep -iE '\[manual\]|^MANUAL' WORK.md | tail -20` and
       check whether the new items reference the spawning item (look for
       `Spawned by:` detail lines pointing at the current commit's title).
-      Missing required MANUAL items is a block. The dev spec's
-      "Follow-up CEO tasks" section has the full rule + the workmd.py
-      append recipe.
+      Missing required MANUAL items is a block **only in the headless overnight
+      flow** (per the skip rule above). The dev spec's "Follow-up CEO tasks"
+      section has the full rule + the workmd.py append recipe.
 
    7. **`scripts/scenarios/<slug>.gd` exists** for the headless branch
       to instantiate. Block if step 2's headless branch references a

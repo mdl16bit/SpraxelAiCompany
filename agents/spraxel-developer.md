@@ -454,6 +454,18 @@ actually stick.
 > feature must work end-to-end with zero human input. Skip the rest of this
 > section.
 
+> **INTERACTIVE / CONTINUOUS-DEV MODE:** if your prompt says you're driven by the
+> `/spraxel-develop` loop (a loop driver squash-merges your branch), then **WORK.md
+> is OFF-LIMITS — do NOT run `workmd.py` and do NOT edit any WORK.md**, neither the
+> worktree copy nor the canonical `$WORK_MD_PATH` you can reach via `git worktree
+> list`. Instead, list each follow-up as a `MANUAL: [<category>] <desc>` line in
+> your FINAL message; the loop driver persists them post-merge under the master-push
+> lock. A worktree dev running `workmd.py append` against the canonical WORK.md
+> leaves the main checkout dirty and races the loop's (and crew agents') commits —
+> the exact bug this rule prevents. Finding the canonical path is NOT an invitation
+> to write it. (The "How to append" command below applies ONLY to the headless
+> overnight flow.)
+
 If shipping your item REQUIRES CEO input as a follow-up — art, music, sfx,
 voice acting, level design, copy/storyline, narrative decisions, gameplay
 balance calls — **you must append a tagged item to WORK.md `## Todo` before
