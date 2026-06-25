@@ -134,3 +134,15 @@ When a [test_failure] says 'truncated stub — missing if is_headless block', th
 2026-06-24: kit-economy (epic T-b6fc seq 1) — character.gd and debug_boot.gd are both at exactly 1500 lines. Add 4 lines → remove 4 blank lines (delegate functions section). class_name KitEconomy requires both git add -f for .gd.uid AND a manual entry in .godot/global_script_class_cache.cfg (headless runs don't populate it). GDScript lambda-captures-primitive limitation: always use Array slot pattern (e.g. [0] or [false]) when a lambda must mutate a value readable by the outer scope — plain bool/int captured by lambdas update only the lambda's local copy.
 
 2026-06-24: kit-economy-routing (epic T-b6fc seq 2) — dispatch chokepoint is _use_ability_slot in character_ability_dispatch.gd (334 lines). Kit gate fires AFTER slot cooldown check but BEFORE call(fn); if fn returns false (self-reject), refund via KitEconomy.restore(). debug_boot.gd at 1499 after collapsing a double blank line + inlining the _demo_kit_economy helper onto its match line. No new class_name; no .uid needed for new .gd files that aren't classes.
+
+2026-06-24: kit-economy-regen (epic T-b6fc seq 3) — HUD sub-module pattern (KitMeter extends RefCounted) in scripts/ui/hud/kit_meter.gd; requires .gd.uid git add -f + global_script_class_cache.cfg entry. hud.gd at 1500: collapse the double-blank before _on_active_changed and remove leading blank before sub-module comment block to reclaim 2 lines for 4 new delegation lines (var + build + on_active_changed + tick). Regen in character_physics.gd _physics_process tail (603 lines — very safe). KitEconomy.tick_regen(c: Character, ...) is typed — scenario/GUT tests must NOT pass a MockChar RefCounted; instead test math directly with arithmetic or via KitEconomy.restore() on a real Character.
+
+- 2026-06-24: AcrobatPartnerHoist — logic in ability_acrobat_partner_hoist.gd (slot=-1, uses run(c)), dispatched via slot2_acrobat.gd (slot=2). Both need uid committed. character.gd exactly at 1500 after removing blank line near stub. debug_boot at 1498 after collapsing 4 two-line stubs.
+
+## 2026-06-24: ward_08 campaign level
+
+Campaign level authoring pattern: mirror foundry_06.tscn structure. ArchetypeHatch archetype_required=7 for MEDIC. Character.new() in scenarios causes node-not-found storms — always use `CharacterScene.instantiate() as Node2D` + `.set("archetype", ...)` then `await get_tree().physics_frame` (per archetype_hatch.gd scenario pattern). debug_boot.gd was at 1498 lines — save 3 by collapsing 2-line demo funcs to 1-line to add 3 new lines.
+
+## 2026-06-24: sublevel_09 campaign level (child 2/3 of archetype-gate levels epic E-4ee2)
+
+Level 09 mirrors ward_08 exactly. DEMOLITIONIST=5 (fourth in enum after NONE=0,HACKER=1,ACROBAT=2,BRUISER=3,SNIPER=4). debug_boot.gd was at 1498 after ward_08: removed one blank line between _quit_safety_net and _demo_portrait_dropin to stay at 1500 cap after adding 3 lines (2 match arm + 1 function). Headless scenario passes cleanly.
