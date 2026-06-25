@@ -146,3 +146,4 @@ Campaign level authoring pattern: mirror foundry_06.tscn structure. ArchetypeHat
 ## 2026-06-24: sublevel_09 campaign level (child 2/3 of archetype-gate levels epic E-4ee2)
 
 Level 09 mirrors ward_08 exactly. DEMOLITIONIST=5 (fourth in enum after NONE=0,HACKER=1,ACROBAT=2,BRUISER=3,SNIPER=4). debug_boot.gd was at 1498 after ward_08: removed one blank line between _quit_safety_net and _demo_portrait_dropin to stay at 1500 cap after adding 3 lines (2 match arm + 1 function). Headless scenario passes cleanly.
+- gala_10 (campaign level 10): archetype_hatch uses `can_interact(character)` not `can_use(character)` — scenarios detecting the hatch by `has_method("can_use")` will fail; use `has_method("can_interact")` instead. GDScript 4 `Object.get()` takes 1 arg only — no default value param like Python dict.get(k,d).
