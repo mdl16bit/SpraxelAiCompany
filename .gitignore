@@ -20,3 +20,7 @@ state/
 # when the main game-repo checkout is on a feature branch. Removed at the
 # end of each agent run; only present here transiently.
 .worktrees/
+
+# Reviewer output — ephemeral per-branch findings written by spraxel-reviewer;
+# regenerated each review, never meant to be committed.
+.factory/reviews/
