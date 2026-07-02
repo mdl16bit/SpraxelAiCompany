@@ -216,6 +216,19 @@ if 0 < delta <= 120:
 json.dump({"seconds": secs, "last_tick_ts": now}, open(f, "w"))
 PY
 
+  # ── Escalations sync (this game) — keep the derived escalations.md current ──
+  # Pure-local, zero-Claude-token regeneration of .factory/escalations.md from
+  # the [escalated] items in WORK.md. The headless continuous_dev.sh loop does
+  # this every iteration, but in force_interactive_developers mode that loop
+  # never runs, so escalations.md drifts stale between /spraxel-develop sessions
+  # (the CEO's derived escalations surface + the dashboard/briefer input). Doing
+  # it here — every UNPAUSED tick, for every game — keeps it always in sync.
+  # Idempotent, cheap (a local WORK.md parse), backgrounded, never fatal.
+  if [ -f "$work_md" ]; then
+    ( python3 "$REPO_DIR/scripts/workmd.py" sync-escalations "$work_md" \
+        --escalations "$game_dir/.factory/escalations.md" >/dev/null 2>&1 || true ) &
+  fi
+
   # ── Crew agents (PM, Triager, Designer, …) — cron-fired for THIS game ───────
   # Drift-proof: cron_due catches a slot the 60s tick drifted past (dedup via a
   # per-GAME stamp so a slot fires at most once per game). Falls back to a plain

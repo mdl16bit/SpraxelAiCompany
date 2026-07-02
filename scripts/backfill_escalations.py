@@ -153,10 +153,14 @@ def main():
 
     print(f"backfilling {len(entries)} historical escalations...")
 
-    # 1. Append [escalated] items to WORK.md ## Todo (idempotent).
-    todo_marker = "\n## Todo\n"
-    if todo_marker not in work_text:
-        print(f"WARN: could not find ## Todo section in WORK.md, skipping WORK.md restore", file=sys.stderr)
+    # 1. Append [escalated] items to the active-work section (idempotent).
+    #    [escalated] items are active work, so they go at the top of
+    #    "## Up-and-coming work" (renamed from the legacy "## Todo" in the
+    #    2026-07 reformat); fall back to the legacy heading for un-migrated files.
+    todo_marker = next((m for m in ("\n## Up-and-coming work\n", "\n## Todo\n")
+                        if m in work_text), None)
+    if todo_marker is None:
+        print(f"WARN: could not find the active-work section in WORK.md, skipping WORK.md restore", file=sys.stderr)
     else:
         todo_idx = work_text.find(todo_marker) + len(todo_marker)
         addition_lines = []

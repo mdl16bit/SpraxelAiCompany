@@ -96,6 +96,51 @@ MANUAL_PREFIX_RE = re.compile(r"^\s*MANUAL\b\s*[-:–—]?\s*", re.I)
 # ready (needs scoping / blocked on something / deliberately deferred).
 FUTURE_PREFIX_RE = re.compile(r"^\s*FUTURE\b\s*[-:–—]?\s*", re.I)
 
+# ── WORK.md section layout (2026-07 reformat) ────────────────────────────────
+# The file reads top→bottom in the order the CEO works it:
+#   1. ## Up-and-coming work      — active/near-term Todo (built next; decisions pending)
+#   2. ## Finished since last release — what shipped this release (the old "current")
+#   3. ## Next work                — deferred backlog ([future]/[cold]/[manual])
+#   4. ## Shipped (previous releases) — historical archive footer (the old "shipped")
+# INTERNAL MODEL IS UNCHANGED: WorkMd still exposes .shipped/.current/.todo, so
+# every consumer/mutation keeps working. `todo` = up-and-coming items followed by
+# next-work items (active first). serialize() partitions todo via _is_deferred();
+# parse() merges the two rendered groups back into one todo list (active first).
+H_UPCOMING = "## Up-and-coming work"
+H_FINISHED = "## Finished since last release"
+H_NEXT = "## Next work"
+H_ARCHIVE_DEFAULT = "## Shipped (previous releases)"
+
+
+def _is_deferred(it: "WorkItem") -> bool:
+    """True if an item belongs in the bottom 'Next work' section rather than the
+    top 'Up-and-coming' section: parked/later backlog — [future], [cold], or
+    [manual] (CEO-only asset gaps). Everything else in Todo (untriaged, buildable
+    features/bugs, epics, retries, escalations, needs-ceo, concerns, ideas) is
+    active work and renders at the TOP."""
+    return it.is_future or it.is_cold or it.is_manual
+
+
+def _heading_bucket(heading: str) -> str:
+    """Map an H2 section heading to an internal bucket. Recognizes BOTH the new
+    layout and the legacy one (so parse() can read an un-migrated file):
+      'archive'  → shipped        (## Shipped (previous releases) ...)
+      'finished' → current        (## Finished since last release / ## Shipped since last release)
+      'upcoming' → todo (active)  (## Up-and-coming work / legacy ## Todo)
+      'next'     → todo (deferred) (## Next work)
+    Unknown headings default to 'upcoming' so no items are ever silently dropped."""
+    h = heading.strip().lower()
+    h = re.sub(r"^#+\s*", "", h)
+    if h.startswith("shipped (previous releases)") or h.startswith("shipped previous releases") \
+       or "archived to work_v" in h:
+        return "archive"
+    if h.startswith("finished since") or h.startswith("shipped since"):
+        return "finished"
+    if h.startswith("next work"):
+        return "next"
+    # "up-and-coming work", legacy "todo", or anything unrecognized → active.
+    return "upcoming"
+
 
 @dataclass
 class WorkItem:
@@ -299,6 +344,9 @@ class WorkMd:
     # Divider literals (preserve user-chosen separator length).
     divider_a: str
     divider_b: str
+    # Heading for the bottom "Next work" (deferred) section. Defaulted so older
+    # callers that build a WorkMd without it (and the lenient fallback) still work.
+    next_heading: str = H_NEXT
 
     def to_dict(self) -> dict:
         return {
@@ -360,61 +408,72 @@ def parse(path: str | Path) -> WorkMd:
     text = path.read_text()
     lines = text.splitlines()
 
-    # Locate dividers.
-    divider_idx = [i for i, ln in enumerate(lines) if DIVIDER_RE.match(ln)]
-    if len(divider_idx) < 2:
-        # Lenient: synthesize empty sections if dividers missing.
-        # Treat everything as Todo.
+    # ── Heading-driven parse (tolerant of section order + divider count) ──────
+    # Header = everything before the first H2. Then each H2 opens a section that
+    # runs until the next H2; divider lines ("----"/"====") inside a section body
+    # are structural separators and are dropped (re-emitted on serialize). Each
+    # heading maps to an internal bucket via _heading_bucket(); this reads BOTH
+    # the new 4-section layout AND the legacy shipped/current/todo one.
+    h2_idx = [i for i, ln in enumerate(lines) if SECTION_HEADING_RE.match(ln)]
+
+    # Preserve the user's chosen divider literals if present (else canonical).
+    divs = [ln for ln in lines if DIVIDER_RE.match(ln)]
+    divider_a = divs[0] if divs else "-" * 50
+    divider_b = (divs[1] if len(divs) > 1 else divs[0]) if divs else "=" * 50
+
+    if not h2_idx:
+        # Degenerate file (no sections): keep everything as header, empty buckets.
         return WorkMd(
-            path=path,
-            header=lines,
-            shipped=[],
-            current=[],
-            todo=[],
-            shipped_heading="## Shipped (previous releases)",
-            current_heading="## Shipped since last release",
-            todo_heading="## Todo",
-            divider_a="-" * 50,
-            divider_b="=" * 50,
+            path=path, header=lines, shipped=[], current=[], todo=[],
+            shipped_heading=H_ARCHIVE_DEFAULT, current_heading=H_FINISHED,
+            todo_heading=H_UPCOMING, divider_a=divider_a, divider_b=divider_b,
+            next_heading=H_NEXT,
         )
 
-    # Use first two dividers (extras inside sections are tolerated as item details by ignoring).
-    div_a, div_b = divider_idx[0], divider_idx[1]
+    header = lines[:h2_idx[0]]
+    upcoming: list[WorkItem] = []
+    nextw: list[WorkItem] = []
+    current: list[WorkItem] = []
+    shipped: list[WorkItem] = []
+    archive_heading = None
+    finished_heading = None
+    upcoming_heading = None
+    next_heading = None
 
-    # Header: everything before the first H2 (## ...) — the section heading.
-    # H1 (# Title) and prose stay in the header.
-    header_end = 0
-    for i, ln in enumerate(lines):
-        if SECTION_HEADING_RE.match(ln):
-            header_end = i
-            break
+    for k, idx in enumerate(h2_idx):
+        end = h2_idx[k + 1] if k + 1 < len(h2_idx) else len(lines)
+        heading = lines[idx]
+        body = [b for b in lines[idx + 1:end] if not DIVIDER_RE.match(b)]
+        items = list(_iter_items(body, idx + 2))
+        bucket = _heading_bucket(heading)
+        if bucket == "archive":
+            shipped += items
+            archive_heading = archive_heading or heading
+        elif bucket == "finished":
+            current += items
+            finished_heading = finished_heading or heading
+        elif bucket == "next":
+            nextw += items
+            next_heading = next_heading or heading
+        else:  # "upcoming" (or legacy "## Todo" / anything unrecognized)
+            upcoming += items
+            upcoming_heading = upcoming_heading or heading
 
-    # Find the H2 heading inside each section range.
-    def section_heading(start: int, end: int, default: str) -> tuple[str, int]:
-        for i in range(start, end):
-            if SECTION_HEADING_RE.match(lines[i]):
-                return lines[i], i + 1  # content starts after heading
-        return default, start
-
-    shipped_heading, shipped_body_start = section_heading(header_end, div_a, "## Shipped (previous releases)")
-    current_heading, current_body_start = section_heading(div_a + 1, div_b, "## Shipped since last release")
-    todo_heading, todo_body_start = section_heading(div_b + 1, len(lines), "## Todo")
-
-    shipped_lines = lines[shipped_body_start:div_a]
-    current_lines = lines[current_body_start:div_b]
-    todo_lines = lines[todo_body_start:]
-
+    # Internal `todo` = active items first, then deferred — the same order they
+    # render (top section then bottom section), so top_n/claim keep picking active
+    # work first. serialize() re-partitions via _is_deferred().
     return WorkMd(
         path=path,
-        header=lines[:header_end],
-        shipped=list(_iter_items(shipped_lines, shipped_body_start + 1)),
-        current=list(_iter_items(current_lines, current_body_start + 1)),
-        todo=list(_iter_items(todo_lines, todo_body_start + 1)),
-        shipped_heading=shipped_heading,
-        current_heading=current_heading,
-        todo_heading=todo_heading,
-        divider_a=lines[div_a],
-        divider_b=lines[div_b],
+        header=header,
+        shipped=shipped,
+        current=current,
+        todo=upcoming + nextw,
+        shipped_heading=archive_heading or H_ARCHIVE_DEFAULT,
+        current_heading=finished_heading or H_FINISHED,
+        todo_heading=upcoming_heading or H_UPCOMING,
+        divider_a=divider_a,
+        divider_b=divider_b,
+        next_heading=next_heading or H_NEXT,
     )
 
 
@@ -427,26 +486,37 @@ def _emit_item(it: WorkItem) -> list[str]:
 
 
 def serialize(wm: WorkMd) -> str:
+    """Emit the 2026-07 layout, top→bottom:
+        header
+        ## Up-and-coming work        (active Todo items — not _is_deferred)
+        ## Finished since last release (wm.current)
+        ## Next work                 (deferred Todo items — _is_deferred)
+        ## Shipped (previous releases) (wm.shipped — archive footer)
+    The three working headings are normalized to canonical text (so a legacy
+    file migrates cleanly on first write); the archive heading is preserved
+    verbatim (it carries the '— archived to WORK_v*.md …' note)."""
     lines: list[str] = []
     lines.extend(wm.header)
     if wm.header and wm.header[-1].strip():
         lines.append("")
-    lines.append(wm.shipped_heading)
-    for it in wm.shipped:
-        lines.extend(_emit_item(it))
-    lines.append("")
-    lines.append(wm.divider_a)
-    lines.append(wm.current_heading)
-    for it in wm.current:
-        lines.extend(_emit_item(it))
-    lines.append("")
-    lines.append(wm.divider_b)
-    lines.append(wm.todo_heading)
-    for it in wm.todo:
-        lines.extend(_emit_item(it))
-    if not lines[-1].endswith("\n"):
-        lines.append("")  # trailing newline
-    return "\n".join(lines) + "\n"
+    div = wm.divider_b or ("=" * 50)
+    active = [it for it in wm.todo if not _is_deferred(it)]
+    deferred = [it for it in wm.todo if _is_deferred(it)]
+
+    def emit(heading: str, items: list[WorkItem], divider: bool) -> None:
+        lines.append(heading)
+        for it in items:
+            lines.extend(_emit_item(it))
+        lines.append("")
+        if divider:
+            lines.append(div)
+
+    emit(H_UPCOMING, active, divider=True)
+    emit(H_FINISHED, wm.current, divider=True)
+    emit(H_NEXT, deferred, divider=True)
+    emit(wm.shipped_heading or H_ARCHIVE_DEFAULT, wm.shipped, divider=False)
+
+    return "\n".join(lines).rstrip("\n") + "\n"
 
 
 # ---- locking ----
