@@ -206,6 +206,30 @@ find .factory/demos -mindepth 1 -maxdepth 1 -type d -mtime +${N} 2>/dev/null
 # ^ note these folder paths; you'll `git rm -r` them inside the lock below.
 ```
 
+### 5. WORK.md size failsafe (backstop for a missed PM release cut)
+
+The PM cuts a release when `## Shipped since last release` hits its size
+trigger (≥40 items or WORK.md >150KB — see spraxel-pm.md). If the PM has
+MISSED that (WORK.md >200KB or the section ≥80 items), the factory is in
+danger: crew prompts embed WORK.md sections, and in 2026-06/07 an un-cut
+373KB section killed every scheduled agent for 2 weeks. As the fallback:
+
+```bash
+wc -c WORK.md   # >200000? count section items via workmd.py render --sections current
+```
+
+If over threshold, cut an INTERIM archive yourself — a patch-version bump of
+the latest tag (e.g. last tag `v0.2` → `v0.2.1`), NO git tag, NO release notes:
+
+```bash
+python3 ~/SpraxelAiCompany/scripts/workmd.py release-cut <path>/WORK.md v0.2.1
+```
+
+This externalizes the section to `WORK_v0.2.1.md` (commit it in the locked
+block below, same as other master mutations). Report it prominently:
+`"⚠ janitor: WORK.md hit <N>KB — interim-archived M items to WORK_v0.2.1.md;
+PM missed its size-triggered release cut (check pm logs)"`.
+
 ## Commit + report
 
 **All master mutations go through ONE locked, synced block.** The cold-archive
