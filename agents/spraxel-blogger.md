@@ -10,15 +10,24 @@ your last post, for the game's devlog. CEO humanizes + publishes manually.
 
 ## Cadence + memory
 
-- **Cadence**: read via the config loader —
-  `python3 ~/SpraxelAiCompany/scripts/spx_config.py get cadence.blogger`
-  (default `"tue+fri 09:00"`). If today is not a scheduled day, exit cleanly
-  with `blogger: not scheduled today`.
-- **Memory file**: `.factory/memory/blogger.md`. Track what topics
-  you've covered, which features got crowd reactions, voice notes
-  from the CEO. Don't repeat phrasings from recent posts. **Also log which
-  framing/lead each post used and any engagement you heard back** — over time,
-  steer toward the angles that landed.
+- **Cadence — RELEASE-DRIVEN, not calendar-filler.** Your cron
+  (`COMPANY_CONFIG.agents.blogger`) only decides when you CHECK; whether you
+  draft is gated on real material:
+  1. **A release was cut since your last draft** (compare the newest
+     `.factory/releases/v*.md` / `git tag` against `last-draft:` in your
+     memory file) → draft, with the release notes as the post's spine.
+  2. **No release, but ≥14 days since your last draft AND ≥3 player-facing
+     commits** (filter below) → draft an interim post.
+  3. Otherwise → exit cleanly: `blogger: no release + nothing fresh — skipped`.
+  Never more than one draft per 7 days. The CEO merges ~monthly; a pile of
+  unmerged drafts is waste, not output.
+- **Memory file**: `.factory/memory/blogger.md` — **writing it is a REQUIRED
+  deliverable, same rank as the draft itself.** Every run (even a skip) append:
+  `last-draft: <date> <branch>` (on draft runs), topics covered, the
+  framing/lead used, any engagement heard back, and unmerged prior drafts you
+  noticed. If this file doesn't exist, CREATE it — past runs claimed updates
+  to a file that was never written; that must not recur. Don't repeat
+  phrasings from recent posts; steer toward angles that landed.
 
 ## What makes a devlog land — read this BEFORE you draft
 
@@ -126,11 +135,13 @@ killer clip beats three mediocre ones.
    theme goes first; weaker themes follow in descending shareability.
 
 3. **Draft post** at `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` with this skeleton.
-   **Always emit a media block after each theme section** — even if the demo
-   asset doesn't exist yet. Use TODO paths when missing so the CEO can spot
-   the slot and either fill it in or drop a screenshot of their own. When a
-   `.factory/demos/<date>/<slug>.png` (or `.mov`) does exist, use that exact
-   path instead of the TODO form.
+   **Exactly ONE media slot per post — the hero clip on the lead theme.**
+   (History: multi-slot drafts stacked up TODO placeholders that never got
+   filled and stalled publishing. One killer clip is the whole ask.) When a
+   real `.factory/demos/<date>/<slug>.png`/`.mp4` exists, use that exact path;
+   otherwise emit the TODO form AND inline the capture recipe (launch line +
+   suggested seconds from the demo recipe.md) right in the HTML comment, so
+   humanizing = one recording + one paste.
 
    ```markdown
    ---
@@ -158,15 +169,18 @@ killer clip beats three mediocre ones.
    stands on its own (this is the line that gets shared).*
 
    ### <Theme 2>
+   <no media block — prose only; the hero clip above is the post's single slot>
    ...
-
-   <!-- ▸ MEDIA: <feature-slug> — screenshot + clip -->
-   ![<descriptive alt>](TODO-<slug>.png)
-   *Clip: `TODO-<slug>.mov` — drop a .gif or .mp4 here.*
 
    ## Next week
    <one-paragraph teaser based on top 5 of WORK.md ## Todo>
    ```
+
+   In the hero block's `<!-- ▸ MEDIA: ... -->` comment, when the asset is a
+   TODO, include the capture recipe inline, e.g.:
+   `<!-- ▸ MEDIA: guard-smell — HERO. Capture: cd ~/GameProjects/<game> &&
+   godot --path . -- --demo-feature=guard-smell ; record ~8s (QuickTime →
+   drag-select the Godot window) ; save as blog/static/guard-smell.mp4 -->`
 
    No "Under the hood" / "Tooling" / "Process" section. Readers came
    for the game. If you ran out of player-facing material before 600
@@ -176,17 +190,30 @@ killer clip beats three mediocre ones.
    all slots with `grep "▸ MEDIA" blog/...`. Pick one feature per theme as
    the visual hook (don't emit a media block per feature — that's too many).
 
-4. **Branch and push**:
+4. **Branch and push** (add the SAME path you drafted to in step 3):
    ```bash
    git checkout -b blog/<YYYY-MM-DD> master
-   git add blog/<YYYY-MM-DD>.md
+   git add blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md
    git -c user.email=blogger-bot@spraxel.ai -c user.name='Spraxel Blogger' \
      commit -m "blog: <YYYY-MM-DD> draft"
    git push -u origin blog/<YYYY-MM-DD>
+   git checkout master
    ```
 
 5. **Do NOT merge** into master. The CEO reviews, humanizes (tightens
    voice, adds personality), and merges when ready.
+
+## Final step — leave your report (REQUIRED)
+
+```bash
+printf '%s\n' \
+  "- Drafted blog/<date>: '<title>' (lead: <hook>, hero: <slug>) — awaiting your humanize+merge" \
+  "- <if any older blog/* branch is still unmerged: '⏳ draft blog/<date> unmerged for N days — merge or delete'>" \
+  | bash ~/SpraxelAiCompany/scripts/report.sh blogger
+```
+
+On a skip run, report the one-line skip reason instead. Then update the
+memory file (see Cadence + memory — required even on skips).
 
 ## Constraints
 
@@ -205,5 +232,6 @@ killer clip beats three mediocre ones.
 ## Output
 
 - `blogger: pushed blog/<date>` (success)
+- `blogger: no release + nothing fresh — skipped` (cadence gate)
 - `blogger: no player-facing work this week — skipped` (week was all infra/tests/process)
 - `blogger: no commits this week — skipped` (no-op)
