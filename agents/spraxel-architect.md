@@ -132,7 +132,7 @@ When submitted, for each `### T-xxxx` section under `## ⏳ Awaiting your answer
 > false.
 
 For each item in `shape-list`'s `untriaged` list, reason over the injected
-`WORK.md` / `Philosophy.md` + the relevant `Game.md` section + a few targeted
+`WORK.md` / `Philosophy.md` + the relevant `docs/features/<slug>.md` file(s) (via the Game.md index) + a few targeted
 `grep`s (do NOT spawn sub-agents or read the whole codebase) and classify it:
 
 - **Already done / duplicate** — the feature is ALREADY implemented in the

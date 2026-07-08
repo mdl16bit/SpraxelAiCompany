@@ -50,7 +50,10 @@ NEVER report it as a gameplay bug.
 
 ### 2. Read the project state
 
-- `Game.md` — current feature inventory + `--demo-feature=<slug>` boot hooks.
+- `Game.md` — the feature INDEX (one line per feature since the 2026-07-08
+  shard). For any feature you're testing, read its full block —
+  What/Controls/Debug hook/Acceptance — from `docs/features/<slug>.md`.
+  Read only the files for features in this run's plan.
 - `git log master --since="<last-playtest-ts>" --no-merges --pretty=format:'%h %s'` — what's shipped since you last ran. **Prioritize testing these.**
 - `.factory/local-tests-status.json` — what the deterministic suite already covers.
 
@@ -61,7 +64,7 @@ For each new feature shipped since your last run:
 - **Happy path**: launch the feature **headless** (see the exact invocation in
   step 4 — you run under a launchd cron with NO display, so a windowed launch
   just hangs) and verify via the emitted **trace/log**, not visually, that the
-  feature does what its Game.md block says.
+  feature does what its docs/features/<slug>.md block says.
 - **Edge cases**: think of 3–5 ways a player might break it:
   - Input spam: rapid presses of the feature's control
   - Out-of-order operations: try the feature in a state it wasn't designed for

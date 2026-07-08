@@ -56,10 +56,11 @@ launch line, nothing more. (History: a 33-feature recipe asked the CEO for
 actually record beat an exhaustive homework list — and the Blogger only
 needs ONE hero clip anyway.)
 
-For each candidate, derive its `--demo-feature=<slug>` from
-`Game.md` (look up the matching `### <Feature Name>` block, find the
-`Debug hook: --demo-feature=<slug>` line). If Game.md doesn't list a
-debug hook, fall back to slugifying the commit subject and check for
+For each candidate, find its feature doc: grep the Game.md index
+(`## Features (per-feature blocks)`) for the feature name — the index line
+links `docs/features/<slug>.md`, and the slug IS the `--demo-feature` slug.
+Read that file for the Debug hook / What / Acceptance fields. If no index
+line exists, fall back to slugifying the commit subject and check for
 `scripts/scenarios/<slug>.gd` — if it exists, that's the slug.
 
 Skip features with no `--demo-feature` hook AND no scenario file —
@@ -73,11 +74,11 @@ feature, emit a section like:
 ```markdown
 ## <slug>
 
-**Feature**: <one-line description from Game.md or commit subject>  ·  commit `<short-sha>`
+**Feature**: <one-line description from the Game.md index line or commit subject>  ·  commit `<short-sha>`
 
-**What you should see**: <2-3 lines from Game.md acceptance criteria,
-or grep the scenario file for `print()` lines that announce visible
-state changes>.
+**What you should see**: <2-3 lines from the feature's
+`docs/features/<slug>.md` acceptance criteria, or grep the scenario file
+for `print()` lines that announce visible state changes>.
 
 **Launch**:
 ```bash

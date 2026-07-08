@@ -102,13 +102,17 @@ a schedule.
       to include the new interactable. If none, the commit body must
       say `sample-level integration: N/A — <reason>`. Missing both is
       a block.
-   5. **`GAME.md` updated** for any `[game-feature]` or player-facing
-      `[feature]`. The block must include ALL fields from the
-      developer-spec template: What / Controls / **First encounter** /
-      **Tutorial prompt** / Debug hook / Trace events / Test scenario /
-      Unit test / Acceptance. A missing or incomplete block is a block.
-      (Reason: GAME.md feeds the future tutorial system; gaps now mean
-      un-tutorialable features later.)
+   5. **Feature doc present** for any `[game-feature]` or player-facing
+      `[feature]` — since the 2026-07-08 shard this means BOTH:
+      (a) `docs/features/<slug>.md` in the diff with ALL fields from the
+      developer-spec template: What it does / Controls / **First
+      encounter** / **Tutorial prompt** / Debug hook / Trace events /
+      Test scenario / Unit test / Acceptance; AND (b) one index line in
+      Game.md under `## Features (per-feature blocks)` pointing at it.
+      A feature block appended into Game.md itself is a **block** (that
+      pattern grew Game.md to 498KB). Missing/incomplete file or missing
+      index line is a block. (Reason: the catalog feeds the future
+      tutorial system; gaps now mean un-tutorialable features later.)
    6. **Asset-gap audit + MANUAL follow-ups** — **SKIP this entire check when
       `policy.delegate_all` is true OR when your prompt says this is the
       INTERACTIVE / CONTINUOUS `/spraxel-develop` loop.** (Resolve delegate_all:

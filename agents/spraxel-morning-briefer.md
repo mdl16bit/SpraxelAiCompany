@@ -78,8 +78,8 @@ create it with `mkdir -p .factory/local`.
    ```
    Prefer:
    - Items just shipped overnight (newest in `## Shipped since last release`).
-   - Items whose Game.md block has a `Debug hook (--demo-feature=<slug>)` field.
-   - If overnight shipped fewer than 10, pad with items from previous nights that haven't been tested yet (track this via a `tested:` marker in Game.md, or just pick recent shipped items).
+   - Items whose feature doc (`docs/features/<slug>.md`, via the Game.md index) has a `Debug hook (--demo-feature=<slug>)` field.
+   - If overnight shipped fewer than 10, pad with items from previous nights that haven't been tested yet (just pick recent shipped items not yet marked tested in your memory file).
 
 4. **List the 10** with launch commands, controls, and a reject hatch.
    **The CEO must be able to test every feature with zero guesswork.** Each
@@ -88,18 +88,18 @@ create it with `mkdir -p .factory/local`.
 
    - **commit sha**: find the `feat: <title>` commit via
      `git log master --grep="<title>" --format='%h'` (use the short sha).
-   - **what it does**: one plain-English sentence pulled from Game.md's
+   - **what it does**: one plain-English sentence pulled from the feature's `docs/features/<slug>.md`
      `What it does` line or the commit body's first sentence. Don't make
      up — quote.
-   - **controls**: locate the matching `### <Feature Name>` block in
-     Game.md and copy the keybinds/inputs. If Game.md has no entry, grep
-     the scenario file at `scripts/scenarios/<slug>.gd` for
+   - **controls**: read the feature's `docs/features/<slug>.md` (via the
+     Game.md index) and copy the keybinds/inputs. If there is no feature
+     doc, grep the scenario file at `scripts/scenarios/<slug>.gd` for
      `Input.is_key_pressed`, `is_action_pressed`, or comment-block lines
      mentioning keys. Last resort: `git show <sha> -- scripts/` and grep
      the diff for `is_action_pressed`. If you genuinely find nothing,
      write `Controls: (none discovered — see <file>)` — pointer beats
      fabrication.
-   - **verify**: 2-3 lines of what to look for. Pull from Game.md's
+   - **verify**: 2-3 lines of what to look for. Pull from the feature doc's
      `Acceptance` bullets where present; from the dev's scenario
      `_assert` messages otherwise.
    - **launch — REQUIRED, MUST be runnable.** Decide the launch path
@@ -109,7 +109,7 @@ create it with `mkdir -p .factory/local`.
         in `_launch_demo`). If present, emit:
         `Launch:   godot --demo-feature=<slug>`
      2. **No demo hook but the feature ships inside a sample level** —
-        find which level via Game.md's `First encounter:` field or by
+        find which level via the feature doc's `First encounter:` field or by
         grepping the diff for `scenes/levels/sample/*.tscn` additions.
         Emit specific instructions: `Launch:   godot, then Main Menu →
         Mission Select → <mission name> (e.g. "Warehouse Job")`.

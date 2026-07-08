@@ -258,7 +258,7 @@ turn into real work, leave alone to defer).
 
 Things to look for:
 
-- **Feature category overload.** Scan Game.md's per-feature blocks. If
+- **Feature category overload.** Scan the Game.md feature index (blocks live in docs/features/). If
   one category has 3+ similar mechanics (e.g., four kinds of distraction
   item), the design is bloating. Concern: which one is redundant?
 - **Missing fundamentals.** What core systems are still empty? A stealth
@@ -339,7 +339,7 @@ How to escalate, by where the conflicting work lives:
     "[escalated] Philosophy conflict — <feature> vs '<tenet>'" \
     --detail "severity: <minor|moderate|major>" \
     --detail "philosophy: <exact must_not_include / must_include / tenet line>" \
-    --detail "shipped: <Game.md feature block or commit sha>" \
+    --detail "shipped: <docs/features/<slug>.md or commit sha>" \
     --detail "why it conflicts: <specific>" \
     --detail "remedy: <amend / reject (workmd reject.sh) / accept as exception>"
   ```

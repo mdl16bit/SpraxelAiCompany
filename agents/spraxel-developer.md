@@ -238,18 +238,23 @@ actually stick.
    `sample-level integration: N/A — engine-only`. The Reviewer will check
    this rationale.
 
-4. **Update Game.md — MANDATORY for any player-facing change.** Game.md is the
-   game's living instruction manual AND the data source for a future tutorial
-   system that will pop up hints on first-encounter of every skill / mechanic /
-   UI affordance. Every player-facing feature must have a complete block.
-   Reviewer blocks merge if this is missing or stale.
+4. **Write the feature doc — MANDATORY for any player-facing change.** The
+   feature catalog is the game's living instruction manual AND the data source
+   for a future tutorial system. **The contract (since the 2026-07-08 shard —
+   Game.md once hit 498KB from appended blocks):**
+   - Create **`docs/features/<kebab-slug>.md`** (slug = your `--demo-feature`
+     slug) containing the full block below.
+   - Add **one index line** to Game.md under `## Features (per-feature blocks)`:
+     `- [<Feature Name>](docs/features/<slug>.md) — <the What-it-does sentence>`
+   - **NEVER append a feature block into Game.md itself.** Reviewer blocks
+     merge if the file or the index line is missing or stale.
 
    For `[game-feature]` items and `[feature]` items that touch player-facing
-   UX (HUD, controls, audio cue, visual indicator), append a `### <Feature
-   Name>` block with ALL of these fields:
+   UX (HUD, controls, audio cue, visual indicator), the file must have ALL of
+   these fields:
 
    ```markdown
-   ### <Feature Name>
+   # <Feature Name>
    - **What it does**: <one player-facing sentence — no implementation detail>
    - **Controls**: <every key/mouse/gamepad input the player uses for this>
    - **First encounter**: <when does the player first see this feature in
@@ -267,11 +272,12 @@ actually stick.
 
    ```
 
-   `[bug]` and `[chore]` items: skip Game.md unless the fix changes player-
-   facing behavior (then update the relevant existing block).
+   `[bug]` and `[chore]` items: skip the feature doc unless the fix changes
+   player-facing behavior (then update the relevant existing
+   `docs/features/<slug>.md`).
 
    `[feature]` items that are purely internal (build pipeline, agent specs,
-   refactors): skip Game.md.
+   refactors): skip the feature doc.
 
 5. **Write a GUT unit test — ALWAYS, no exceptions.** Every commit must
    add or update at least one test file under `test/unit/`. The test must

@@ -204,7 +204,9 @@ A zero-output run is the worst outcome — it gives the system no signal. Always
 ## DEFAULT: token efficiency
 
 - Don't re-read `Philosophy.md` within a session. Cache after first read.
-- Don't load full `Game.md` unless your task references it. Read only the relevant feature section.
+- `Game.md` is an INDEX (one line per feature) — feature blocks live in
+  `docs/features/<slug>.md`. Read only the feature files your task touches;
+  never bulk-read `docs/features/`.
 - Don't load the whole WORK.md if you only need the top — `workmd.py top -n N` returns just what you need.
 - Don't redundantly summarize. One concise status line is enough.
 
