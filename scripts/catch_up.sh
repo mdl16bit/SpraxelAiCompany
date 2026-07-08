@@ -66,18 +66,12 @@ ORDER="playtester triager designer demo_creator pm architect janitor blogger ass
 # run_agent slug → schedule.yaml key (the key uses underscores for some).
 sched_key() { case "$1" in morning-briefer) echo morning_briefer ;; *) echo "$1" ;; esac; }
 
-# The cron for a given schedule key, from schedule.yaml's agents: block.
+# The cron for a given schedule key — via the ONE config loader (a regex
+# parser here used to require exact inline-flow YAML and broke silently on
+# any reformat).
 cron_for() {
-  python3 - "$SCHEDULE" "$1" <<'PY'
-import re, sys
-text = open(sys.argv[1]).read(); key = sys.argv[2]
-m = re.search(r"^agents:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
-if m:
-    for line in m.group(1).splitlines():
-        mm = re.match(r"\s*(\w+):\s*\{[^}]*cron:\s*\"([^\"]+)\"", line)
-        if mm and mm.group(1) == key:
-            print(mm.group(2)); break
-PY
+  python3 "$SCRIPTS_DIR/spx_config.py" agents 2>/dev/null \
+    | awk -F'|' -v k="$1" '$1==k{print $2}'
 }
 
 # Did a cron slot for this expr occur TODAY at or before now? (exit 0 = yes)

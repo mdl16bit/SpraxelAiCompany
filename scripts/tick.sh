@@ -105,40 +105,19 @@ fi
 
 # ── Global config read once (applies across games) ───────────────────────────
 # Crew-agent cron entries: lines of `name|cron` (shared schedule for all games).
-agent_entries=$(python3 - "$SCHEDULE" <<'PY'
-import sys, re
-with open(sys.argv[1]) as f:
-    text = f.read()
-m = re.search(r"^agents:\s*\n((?:[ \t]+\S.*\n?)*)", text, re.M)
-if m:
-    for line in m.group(1).splitlines():
-        mm = re.match(r"\s*(\w+):\s*\{[^}]*cron:\s*\"([^\"]+)\"", line)
-        if mm:
-            print(f"{mm.group(1)}|{mm.group(2)}")
-PY
-)
+# via the ONE config loader — the old regex parser required exact inline-flow
+# YAML (`name: { cron: "…" }`) and would silently stop ALL cron dispatch on a
+# reformat to block style.
+agent_entries=$(python3 "$SPX" agents 2>/dev/null)
 
 # GLOBAL total-worker ceiling (shared pool across all games). Per-game
 # dev_concurrency + force_interactive are read inside the loop (a game may be
 # headless while another is interactive).
 max_total_workers=$(python3 "$SPX" get global.max_total_dev_workers --default 9999 2>/dev/null); max_total_workers=${max_total_workers:-9999}
 
-# test-runner trigger config (shared).
-tr_cfg=$(python3 - "$SCHEDULE" <<'PY'
-import sys, re
-text = open(sys.argv[1]).read()
-def block(name):
-    m = re.search(rf"^{name}:\s*\n((?:(?:[ \t]+.*)?\n)*?)(?=^\S|\Z)", text, re.M)
-    return m.group(1) if m else ""
-def val(blk, key, default):
-    m = re.search(rf"^\s+{key}:\s*(\d+)", blk, re.M)
-    return m.group(1) if m else str(default)
-print(val(block("continuous"), "target_per_batch", 10),
-      val(block("test_runner"), "force_after_engine_hours", 100))
-PY
-)
-tr_target=$(echo "$tr_cfg" | awk '{print $1}')
-tr_force_hours=$(echo "$tr_cfg" | awk '{print $2}')
+# test-runner trigger config (shared) — via the loader.
+tr_target=$(python3 "$SPX" get continuous.target_per_batch --default 10 2>/dev/null); tr_target=${tr_target:-10}
+tr_force_hours=$(python3 "$SPX" get test_runner.force_after_engine_hours --default 100 2>/dev/null); tr_force_hours=${tr_force_hours:-100}
 tr_force_secs=$(( tr_force_hours * 3600 ))
 
 # ── GLOBAL dev-worker ceiling accounting ─────────────────────────────────────

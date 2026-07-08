@@ -122,53 +122,30 @@ trace "step: lock acquired for worker $WORKER_ID"
 # Resolve game_dir + target. game_dir comes from gctx (sourced above).
 game_dir="$GAME_DIR"
 trace "step: game_dir parsed: '$game_dir'"
-# Read all continuous.* knobs from schedule.yaml in one pass, with defaults.
-# Emits "KEY=VAL" lines we eval'd into shell vars below.
-_continuous_yaml_vars=$(python3 - "$SCHEDULE" <<'PY'
-import sys, re
-defaults = {
-    "target_per_batch":       10,
-    "retry_per_item":          1,
-    "dev_concurrency":         1,
-    "max_fail_streak":         3,
-    "fail_backoff_seconds":    1800,
-    "poll_interval_seconds":   60,
-    "idle_threshold":          5,
-    "idle_sleep_seconds":      300,
-    "max_dev_minutes":         90,   # absolute backstop for the progress watchdog
-    "dev_stall_minutes":       15,   # kill only after this long with NO file writes
+# Read all continuous.* knobs via the ONE config loader (COMPANY_CONFIG +
+# GAME_CONFIG deep-merge). The old inline regex parser read schedule.yaml
+# only — silently IGNORING per-game GAME_CONFIG overrides — and required an
+# exact YAML shape (a reformat dropped knobs without any error). Runs once
+# per worker spawn, so the extra python startups are negligible.
+_cget() {
+  local v
+  v=$(python3 "$REPO_DIR/scripts/spx_config.py" get "continuous.$1" --default "$2" --game "$GAME_SLUG" 2>/dev/null)
+  printf '%s' "${v:-$2}"
 }
-try:
-    text = open(sys.argv[1]).read()
-except Exception:
-    text = ""
-# Pull the continuous: block — up to the next top-level (non-indented) key.
-# Allow blank lines + comment lines inside the block (previous regex
-# stopped at the first blank line, silently dropping every knob defined
-# after that — including dev_concurrency).
-m = re.search(r"^continuous:\s*\n((?:(?:[ \t]+.*)?\n)*?)(?=^\S|\Z)", text, re.M)
-block = m.group(1) if m else ""
-# Also accept the legacy `overnight.target_items` as a fallback for target_per_batch.
-if not re.search(r"^\s+target_per_batch:", block, re.M):
-    om = re.search(r"^overnight:\s*\n((?:(?:[ \t]+.*)?\n)*?)(?=^\S|\Z)", text, re.M)
-    if om:
-        mm = re.search(r"\s*target_items:\s*(\d+)", om.group(1))
-        if mm:
-            defaults["target_per_batch"] = int(mm.group(1))
-for key, default in defaults.items():
-    mm = re.search(rf"^\s+{re.escape(key)}:\s*(\d+)", block, re.M)
-    val = int(mm.group(1)) if mm else default
-    print(f"{key.upper()}={val}")
-# Boolean knob (the int loop above only reads digits): cap_excludes_test_fixes
-# accepts true/false/1/0/yes/on; default false. Emitted as 1/0 for the shell.
-_bm = re.search(r"^\s+cap_excludes_test_fixes:\s*([A-Za-z0-9]+)", block, re.M)
-_bval = _bm.group(1).strip().lower() if _bm else ""
-print("CAP_EXCLUDES_TEST_FIXES=" + ("1" if _bval in ("true", "1", "yes", "on") else "0"))
-PY
-)
-eval "$_continuous_yaml_vars"
-unset _continuous_yaml_vars
-# Map UPPER_CASE → existing var names + new shell vars used by the main loop.
+TARGET_PER_BATCH=$(_cget target_per_batch 10)
+RETRY_PER_ITEM=$(_cget retry_per_item 1)
+DEV_CONCURRENCY=$(_cget dev_concurrency 1)
+MAX_FAIL_STREAK=$(_cget max_fail_streak 3)
+FAIL_BACKOFF_SECONDS=$(_cget fail_backoff_seconds 1800)
+POLL_INTERVAL_SECONDS=$(_cget poll_interval_seconds 60)
+IDLE_THRESHOLD=$(_cget idle_threshold 5)
+IDLE_SLEEP_SECONDS=$(_cget idle_sleep_seconds 300)
+MAX_DEV_MINUTES=$(_cget max_dev_minutes 90)     # absolute backstop for the progress watchdog
+DEV_STALL_MINUTES=$(_cget dev_stall_minutes 15) # kill only after this long with NO file writes
+case "$(_cget cap_excludes_test_fixes false | tr '[:upper:]' '[:lower:]')" in
+  true|1|yes|on) CAP_EXCLUDES_TEST_FIXES=1 ;;
+  *)             CAP_EXCLUDES_TEST_FIXES=0 ;;
+esac
 target_per_batch=$TARGET_PER_BATCH
 # Delegate-all mode: work is UNCAPPED (never park at the cap) and stray CEO gates
 # are auto-cleared each iteration so the loop runs forever until .paused.

@@ -263,6 +263,15 @@ def main(argv):
     if cmd == "dump":
         print(json.dumps(load(game), indent=2))
         return 0
+    if cmd == "agents":
+        # Crew cron registry as `name|cron` lines — the ONE parser for the
+        # agents: block (replaces the copy-pasted regex parsers that used to
+        # live in tick.sh / catch_up.sh and silently broke on block-style YAML).
+        for name, spec in (load(game).get("agents") or {}).items():
+            cron = (spec or {}).get("cron") if isinstance(spec, dict) else None
+            if cron:
+                print(f"{name}|{cron}")
+        return 0
     if cmd == "get":
         if not rest:
             sys.stderr.write("usage: spx_config.py get <dotted.key> [--default X] [--game SLUG]\n")
