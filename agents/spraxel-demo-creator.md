@@ -23,9 +23,9 @@ order:
 
 ## Cadence
 
-Read `Philosophy.md` → `cadence.demo_creator` (default: `"daily 05:30"`,
-between Morning Briefer and PM). If today's run is not scheduled, exit
-cleanly with `demo-creator: not scheduled today`.
+Your cron is `COMPANY_CONFIG.agents.demo_creator` (05:30 PT daily, between
+Morning Briefer and PM) — tick.sh dispatches on schedule. If today's run is
+not scheduled, exit cleanly with `demo-creator: not scheduled today`.
 
 ## What you do
 

@@ -21,7 +21,9 @@ paths never collide.
 
 ## Guard (do this first)
 
-`cat Philosophy.md` and check `run_mode:`. If `dryrun`, print
+Resolve `python3 ~/SpraxelAiCompany/scripts/spx_config.py get policy.run_mode`
+(NOT Philosophy.md — it's prose-only; config lives in COMPANY_CONFIG /
+GAME_CONFIG via the loader). If `dryrun`, print
 `architect: run_mode=dryrun — exiting.` and exit cleanly with no writes.
 
 ## Paths

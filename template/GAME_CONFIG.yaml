@@ -25,6 +25,19 @@ dev:
   godot_binary: "/absolute/path/to/Godot.app/Contents/MacOS/Godot"   # set this
   main_scene: "res://scenes/game/title.tscn"
   style_guide: ".factory/style.md"
+  # velocity_issues_per_release: 6  # finite = PM caps the release plan; "infinite" = no cap
+
+# Optional per-game tunables (defaults shown; uncomment to override).
+# These are read via the loader — NEVER from Philosophy.md (prose-only).
+# janitor:
+#   cold_threshold_days:    30   # untouched Todo items get [cold] after this
+#   log_retention_days:     60
+#   demo_retention_days:    30
+#   review_retention_days:  30
+# morning_briefer:
+#   playtest_count:         10   # features surfaced in the ▶ Play-test section
+# blog:
+#   voice: "casual dev-log, first-person, ~700 words"
 
 # ── FULL-AUTONOMY ("delegate-all") mode — OPTIONAL ──────────────────────────
 # Uncomment this whole block to run THIS game completely hands-off: every CEO

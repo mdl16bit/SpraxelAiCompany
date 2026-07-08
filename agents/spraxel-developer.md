@@ -107,8 +107,9 @@ actually stick.
      YOU solve, not the CEO's.
 
 2. **Read related context** narrowly. Inspect Game.md only if the item
-   touches an existing feature. Inspect `Philosophy.md` for the `run_mode`
-   gate (see _shared.md). Don't load the entire codebase.
+   touches an existing feature. The `run_mode` gate comes from the config
+   loader (`spx_config.py get policy.run_mode` — see _shared.md), never from
+   Philosophy.md (prose-only). Don't load the entire codebase.
 
    **Big-file read discipline (token cost — REQUIRED).** A few source files are
    huge and re-cost on every turn once they're in your context (each `Read` of a
