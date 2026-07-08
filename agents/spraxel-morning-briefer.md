@@ -61,6 +61,15 @@ create it with `mkdir -p .factory/local`.
    reports aren't re-summarized tomorrow. If there are no new reports, write the
    one-line empty case in that section.
 
+2c. **Crew-health line (REQUIRED, one line at the TOP of 📰 News).** tick.sh
+   maintains `~/SpraxelAiCompany/state/<slug>/cache/crew-health.txt` — one line
+   per crew agent whose last successful run is older than 2× its cron cadence.
+   - File empty/absent → write `🩺 Crew health: all agents green.`
+   - Otherwise → `🩺 Crew health: N agents STALE — <name (why)>, … Check
+     logs/<slug>/<agent>/.` List every stale agent. This line is the tripwire
+     that would have caught the 2026-06 two-week silent crew outage on day one —
+     never omit it.
+
 3. **Pick N features to play-test today** — where N =
    `morning_briefer.playtest_count` from the config loader (default 10 if missing).
    Read it via:
@@ -420,6 +429,7 @@ Commits: <first-sha> .. <last-sha> (`git log master --since=yesterday`).
 ## 📰 News since your last briefing
 <!-- Distilled from .factory/local/reports/*.md written since the last briefing
      (step 2b). Group by agent; lead with highest-signal. Bullets, not prose. -->
+🩺 Crew health: <all agents green | N agents STALE — name (why), …>   <!-- step 2c, never omit -->
 - **Architect:** <e.g. shaped 7 items — 4 epics (8 subtasks), 1 finalized, 1 follow-up>
 - **Developer (shipped):** <e.g. 12 features incl. X, Y, Z>
 - **Triager:** <e.g. 3 new [bug] candidates>
