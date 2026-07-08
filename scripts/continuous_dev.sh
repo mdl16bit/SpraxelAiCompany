@@ -806,6 +806,23 @@ commit. The wrapper squash-merges the resolved branch to master."
       fi
       attempt=0   # next loop iteration becomes attempt 1
       continue
+    elif [ "$dev_rc" -eq 143 ] || [ "$dev_rc" -eq 137 ]; then
+      # External SIGTERM/SIGKILL of the dev's run_agent — the long-untraced
+      # rc=143 kill (see run_agent.sh's signal-debug logger). The dev has
+      # often already finished and committed; discarding the branch loses a
+      # real ship. If the branch carries commits, proceed to review/merge
+      # with what's there (the reviewer still gates correctness; the
+      # commit-message builder falls back to the branch's last commit when
+      # the log lacks COMMIT_SUBJECT markers). No commits → normal failure.
+      _kill_commits=$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)
+      if [ "${_kill_commits:-0}" -gt 0 ]; then
+        echo "continuous: developer rc=$dev_rc (external kill) but branch has $_kill_commits commit(s) — recovering: proceeding to review/merge instead of discarding" >> "$item_log"
+      else
+        echo "continuous: developer rc=$dev_rc (external kill) with NO commits on the branch" >> "$item_log"
+        [ "$attempt" -lt 2 ] && continue
+        outcome=fail
+        break
+      fi
     elif [ "$dev_rc" -ne 0 ]; then
       echo "continuous: developer rc=$dev_rc on attempt $attempt" >> "$item_log"
       [ "$attempt" -lt 2 ] && continue
