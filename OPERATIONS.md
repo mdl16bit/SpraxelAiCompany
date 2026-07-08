@@ -2,6 +2,22 @@
 
 How to drive the offline Spraxel factory day-to-day.
 
+> **Handbook refreshed 2026-07-08.** Major deltas since the 2026-06-12 edition:
+> the dev loop is the always-on **`continuous_dev.sh`** (no more "overnight"
+> loop, no 23:00 trigger; `overnight_dev.sh` is deleted) and it ships until
+> `continuous.target_per_batch` (**8**) since your last signal, then parks;
+> **interactive-developer mode** (`continuous.force_interactive_developers: true`)
+> is the CURRENTLY ACTIVE way dev work runs — see "The two developer modes";
+> config is consolidated into **COMPANY_CONFIG.yaml + per-game GAME_CONFIG.yaml**
+> read via `scripts/spx_config.py` (Philosophy.md is prose-only now); the company
+> runs **multiple games concurrently** with state namespaced per game slug
+> (`.worktrees/<slug>/worker-<id>`, `state/<slug>/{locks,cache}`,
+> `logs/<slug>/<agent>/`); WORK.md has a new 4-section layout with release-cut
+> externalization to `WORK_v<version>.md`; **Game.md is now an index** with
+> feature blocks in `docs/features/<slug>.md`; and an hourly **crew-health
+> monitor** exists after the 2026-06→07 silent-outage (see "How the system
+> fails and how you find out").
+
 ---
 
 ## Mental model
@@ -16,36 +32,43 @@ git log.
 
 There are no GitHub Issues. There are no GitHub Actions. There are no
 Anthropic `/schedule` routines. There is one local daemon (`launchd`),
-one schedule file (`schedule.yaml`), and one CLI you run from your Mac
-(`claude -p`). Total recurring cost: $0 above your existing Claude Max plan.
+one config file (`COMPANY_CONFIG.yaml`, plus a per-game `GAME_CONFIG.yaml`
+overlay — `schedule.yaml` survives only as a back-compat symlink), and one
+CLI (`claude`). **Cost note (post-2026-06-15 billing split):** interactive
+Claude Code sessions stay on your subscription, but headless `claude -p`
+runs are **metered** API-credit spend. That's why dev work currently runs
+in interactive-developer mode (see "The two developer modes") and why
+`policy.budgets.daily_run_cap` (250) auto-pauses a runaway day.
 
 ---
 
 ## The system in one picture
 
 ```
-+-----------------------------------------------------------+
-|  launchd  (com.spraxel.tick.plist, every 60s)             |
-|         |                                                 |
-|         v                                                 |
-|  scripts/tick.sh                                          |
-|  reads schedule.yaml; ensures continuous_dev.sh is alive  |
-+-------+------------------------+--------------------------+
-        |                        |
-        v                        v
-run_agent.sh             continuous_dev.sh
-(crew: PM, Triager,      (long-running Developer loop;
- Designer, Janitor,       ships items until counter hits
- Blogger, Asset,          target_per_batch; sleeps until
- Morning Briefer)         CEO interacts; resumes)
-        |                        |
-        +---- claude -p ---------+
-                  |
-                  v
-            Max plan (flat fee, no per-token cost)
-                  |
-                  v
-        WORK.md / Game.md / Philosophy.md / commits
++---------------------------------------------------------------+
+|  launchd  (com.spraxel.tick.plist, every 60s)                 |
+|         |                                                     |
+|         v                                                     |
+|  scripts/tick.sh                                              |
+|  reads COMPANY_CONFIG.yaml (+ per-game GAME_CONFIG.yaml via   |
+|  spx_config.py); iterates the games: registry; per game:      |
+|  fires due crew agents, monitors crew health hourly, and      |
+|  keeps the dev loop alive (headless mode) or spawns NO        |
+|  workers (interactive mode — the default right now)           |
++-------+--------------------------+----------------------------+
+        |                          |
+        v                          v
+run_agent.sh               dev work, one of two modes:
+(crew: PM, Triager,        A) continuous_dev.sh workers
+ Designer, Architect,         (headless claude -p, METERED)
+ Playtester, Janitor,      B) /spraxel-develop in YOUR
+ Blogger, Asset, Demo,        Claude Code session
+ Morning Briefer)             (subscription-side) ← ACTIVE
+        |                          |
+        +---- claude ---------------+
+                  |     both ship until target_per_batch (8)
+                  v     since the last CEO signal, then park
+        WORK.md / Game.md index + docs/features/ / commits
                   |
                   v
         git push origin master   <-- only network egress
@@ -53,23 +76,65 @@ run_agent.sh             continuous_dev.sh
 
 ---
 
+## The two developer modes
+
+Since the **2026-06-15 billing split**, headless `claude -p` runs bill as
+metered API credits while interactive Claude Code sessions stay on the
+subscription. Development can therefore run in one of two modes, switched by
+ONE config key: **`continuous.force_interactive_developers`** (COMPANY_CONFIG,
+overridable per game in GAME_CONFIG).
+
+**Mode A — headless continuous loop** (`force_interactive_developers: false`).
+The classic setup: `tick.sh` keeps `continuous_dev.sh` alive, which runs
+`dev_concurrency` (3) parallel workers, each in its own worktree at
+`.worktrees/<slug>/worker-<id>/`, shipping items via headless `claude -p`
+(**metered** post-June-15). Fully unattended — this is what "the loop keeps
+building while you sleep" originally meant.
+
+**Mode B — interactive developers** (`force_interactive_developers: true` —
+**the CURRENTLY ACTIVE mode**, set in COMPANY_CONFIG and infiltrators'
+GAME_CONFIG). `tick.sh` forces `dev_concurrency` to 0 — it spawns **NO
+headless dev workers** (an already-running worker idles within ~60s). Crew
+agents are unchanged (still headless on schedule). YOU drive dev work from a
+Claude Code session with the **`/spraxel-develop`** skill
+(`skills/spraxel-develop/SKILL.md` + `scripts/interactive_dev_step.sh`): the
+session claims items one by one (claim → build → independent review →
+squash-merge → ship → push) using a **Sonnet dev subagent + Haiku review
+subagent** per item via the Agent tool — all **subscription-side**, not
+metered. It works in the `.worktrees/<slug>/interactive` worktree.
+`/spraxel-develop N` builds N items then stops; bare `/spraxel-develop`
+builds to the batch cap, then parks and self-resumes on a CEO poke (a
+non-bot commit, `checkin.sh`, or saving TRIAGE.md). It runs fully
+autonomously to the cap — it never pauses mid-run to ask you anything. A
+heartbeat marker keeps the dashboard showing `RUNNING (interactive-dev)`.
+If Sonnet hits its usage cap, `scripts/sonnet_cap.py` flips the dev subagent
+to Opus and re-probes Sonnet later (`policy.sonnet_cap_reprobe_secs`).
+
+Both modes share the same pipeline semantics (claim tags, Reviewer gate,
+`[retry]`, escalations) and the same **shared batch cap**:
+`continuous.target_per_batch` (**8**) ships since the last CEO signal, then
+the loop parks until you interact again. To switch modes, flip the config
+key; the next tick picks it up.
+
+---
+
 ## A day in the system
 
-**Continuous loop** (always on, paced by CEO interaction — no clock time):
+**Ship loop** (always on, paced by CEO interaction — no clock time):
 
 | Who | What |
 |-----|------|
-| **continuous_dev.sh** | Long-running Developer loop. **Runs as N parallel workers** (one process per worker id; default `dev_concurrency: 3` — see `schedule.yaml`). Each worker has its own persistent worktree at `.worktrees/worker-<id>/` and atomically claims items via `workmd.py claim --worker-id N` (tags the item `[wip:N]` so other workers skip it). Picks top eligible `## Todo` item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`/`[wip:*]`/`[untriaged]`/`[untriaged-proposal-active]`; picks up `[resume]` and `[retry]`). Branch → Developer → tests → Reviewer → squash-merge → push. **Cap counter is SHARED**: 10 ships across all workers combined drains the batch. Merges serialize via `master-push.lockdir` (~1 s critical section in `game_dir`). Failed items (tests/reviewer/merge): branch preserved on origin, item retagged **`[retry]`** in place with failure feedback in details — next dev fire picks them up silently. Does NOT escalate to CEO for dev-fixable failures. Runs `workmd.py sync-escalations` at start of every iter so `.factory/escalations.md` always reflects current `[escalated]` items. |
+| **the ship loop** (continuous_dev.sh workers, or `/spraxel-develop` in interactive mode — see "The two developer modes") | Long-running Developer loop. In headless mode it **runs as N parallel workers** (one process per worker id; default `dev_concurrency: 3` — see `COMPANY_CONFIG.yaml`), each with its own persistent worktree at `.worktrees/<slug>/worker-<id>/`; in interactive mode (**currently active**) a single `/spraxel-develop` session works in `.worktrees/<slug>/interactive`. Items are atomically claimed via `workmd.py claim --worker-id N` (tags the item `[wip:N]` so other claimants skip it). Picks top eligible up-and-coming item (skips `[idea]`/`[cold]`/`[manual]`/`[future]`/`[escalated]`/`[needs-ceo]`/`[concern]`/`[wip:*]`/`[untriaged]`/`[untriaged-proposal-active]`; picks up `[resume]` and `[retry]`). Branch → Developer → Reviewer → squash-merge → push. **Cap counter is SHARED**: **8** ships (`target_per_batch`) across all workers combined drains the batch. Merges serialize via the namespaced master-push lock (~1 s critical section). Failed items (tests/reviewer/merge): branch preserved on origin, item retagged **`[retry]`** in place with failure feedback in details — next dev fire picks them up silently (after `retry_escalate_threshold` (5) total attempts the poison-pill brake auto-escalates instead). Does NOT escalate to CEO for dev-fixable failures. Runs `workmd.py sync-escalations` each iter so `.factory/escalations.md` always reflects current `[escalated]` items. |
 
 Daily crew (all times America/Los_Angeles):
 
 | Time | Who | What |
 |------|-----|------|
-| 03:00 PT | **playtester** | Actively plays the game (beyond scripted tests). Writes bug candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
-| 04:00 PT | **triager** | Reads playtest findings + local-tests-status.json, appends `[needs-ceo] [bug]` items to `## Todo`. CEO validates before they become live bugs. |
-| 05:00 PT | **morning-briefer** | Writes `.factory/local/MORNING.md` (gitignored — CEO-local artifact). 10 features to play-test with launch + amend + reject one-liners, decisions to make, escalations, time-boxed routine. |
-| 05:30 PT | **demo-creator** | Always writes `.factory/demos/<date>/recipe.md` (launch + controls + suggested capture command per recently-shipped feature). Best-effort auto-capture via Godot `--write-movie` + ffmpeg → `.mp4` + `.png`. |
-| 06:00 PT | **pm** | Re-sorts top of `## Todo`. Biweekly Monday: tags `v0.N`, generates release notes, rolls WORK.md sections. |
+| 03:00 PT | **playtester** | Actively plays the game (beyond scripted tests). Runs an environment pre-flight first, then **classifies each finding `gameplay` / `harness` / `environment`** (only gameplay findings are bug candidates) and emits **hands-on test recipes** for the CEO. Writes to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
+| 04:00 PT | **triager** | Reads playtest findings + local-tests-status.json, appends `[needs-ceo] [bug]` items to `## Up-and-coming work`. CEO validates before they become live bugs. |
+| 05:00 PT | **morning-briefer** | Writes `.factory/local/MORNING.md` (gitignored — CEO-local artifact). Its 📰 News section **opens with a mandatory 🩺 crew-health line** (from `state/<slug>/cache/crew-health.txt`). 10 features to play-test with launch + amend + reject one-liners, decisions to make, escalations, time-boxed routine. |
+| 05:30 PT | **demo-creator** | Writes `.factory/demos/<date>/recipe.md` with FULL recipes for the **top 3** recently-shipped features only (the rest get a one-line "also shipped" list). Auto-captures only **capture-ready demo scenarios** via Godot `--write-movie` + ffmpeg → `.mp4` + `.png`; test-style auto-quit scenarios hit the rc=5 skip ledger instead of being retried forever. |
+| 06:00 PT | **pm** | Re-sorts the up-and-coming section. Release cuts fire on the **calendar** (`cadence.release` — biweekly; currently Saturdays for infiltrators) **or the size trigger, same day** (finished section ≥40 items or WORK.md >150KB): tags `v0.N`, generates release notes, `workmd.py release-cut` externalizes the finished section to `WORK_v<version>.md`. |
 | ~06:00 PT | **CEO (you)** | `/spraxel-inbox` → walk MORNING.md sections. ~38 minutes. |
 | 09:00 & 21:00 PT | **architect** | Shapes `[untriaged]` work: processes your answered `TRIAGE.md` questionnaires (finalize spec or follow-up), intakes new untriaged items (fast-pass or new questionnaire). Also fires reactively within ~60s of a new `[untriaged]` item. |
 
@@ -77,8 +142,8 @@ Weekly:
 
 | Time | Who | What |
 |------|-----|------|
-| Tue + Fri 04:30 PT | **designer** | Drops 4-6 `[idea]`-tagged items + 0-3 `[concern]` items into `## Todo`. Concerns flag game-wide issues (feature bloat, philosophical drift). |
-| Sat 09:00 PT | **blogger** | Drafts `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` from the week's `feat:` commits (player-facing filter — skips test/infra/process). Pushes `blog/<date>` branch; CEO humanizes + merges. |
+| Tue + Fri 04:30 PT | **designer** | Drops 4-6 `[idea]`-tagged items + 0-3 `[concern]` items into `## Up-and-coming work`. Concerns flag game-wide issues (feature bloat, philosophical drift). |
+| Tue + Fri 09:00 PT | **blogger** | Cron fires Tue+Fri but the cadence is **release-driven, not calendar-filler**: it drafts when a release was cut since the last post (release notes as the post's spine), or after ≥14 days + ≥3 fresh player-facing ships; otherwise it exits cleanly. Drafts `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` with **exactly ONE hero media slot** (the lead theme's clip). Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | Sun 01:00 PT | **janitor** | Cold-archives 30+ day stale items, prunes merged `feat/*` branches + 60+ day logs, sweeps orphan `feat/cont-*` branches whose WORK.md item is gone. |
 | 1st 07:00 PT | **asset-librarian** | Scans `assets/`, reports orphans + license gaps. |
 
@@ -93,7 +158,7 @@ Testing (no longer a 30-min cron — see "Testing" below):
 
 ## Reviewer findings — `.factory/reviews/<slug>.md`
 
-Before the overnight loop merges a feature, the **Reviewer** agent reads the
+Before the ship loop merges a feature, the **Reviewer** agent reads the
 dev's `git diff master...HEAD` and writes its findings to
 `.factory/reviews/<item-slug>.md` — one file per item, **gitignored (local-only)**,
 overwritten on each attempt (so it always reflects the latest verdict). Format:
@@ -130,24 +195,25 @@ do; the skill computes it.
 
 You visit the machine up to **three times a day**. The times are *guidance*
 (the system never blocks on a clock) and are **configurable** in
-`schedule.yaml` → `ceo_routine` — edit them to match your life:
+`COMPANY_CONFIG.yaml` → `ceo_routine` — edit them to match your life:
 
 | Visit | Default time | One-line purpose | Typical length |
 |-------|--------------|------------------|----------------|
 | **Morning** | ~06:15 | Full triage: play-test overnight ships, decide ideas, triage bugs, clear escalations | ~30-40 min |
 | **Afternoon** *(optional)* | ~13:00 | Quick unblock: clear `[needs-ceo]`/`[escalated]` so the loop never stalls; dump ideas | ~5 min |
-| **Evening** | ~22:00 | Top up: drain dictation, ensure WORK.md has 10+ eligible items for overnight | ~5 min |
+| **Evening** | ~22:00 | Top up: drain dictation, ensure WORK.md has 8+ eligible items for the next batch | ~5 min |
 
 Each visit below is a literal checklist — exact files to open, exact
-commands to run. Substitute `<game>` with the repo in
-`schedule.yaml` → `game_dir` (currently `infiltrators`).
+commands to run. Substitute `<game>` with a game from the
+`COMPANY_CONFIG.yaml` → `games:` registry (each enabled game runs
+concurrently; currently `infiltrators`).
 
 ---
 
 # ☀️ MORNING (~06:15, full triage)
 
 ### 05:00 AM — System has prepared your day (you're asleep)
-By the time you wake, the overnight crew has run: `playtester` (03:00) →
+By the time you wake, the early-morning crew has run: `playtester` (03:00) →
 `triager` (04:00) → `morning_briefer` (05:00, writes MORNING.md) →
 `demo_creator` (05:30) → `pm` (06:00, reorders Todo). Tue/Fri also get
 `designer` (04:30). You wake to a prepared digest.
@@ -158,7 +224,7 @@ By the time you wake, the overnight crew has run: `playtester` (03:00) →
 
 ```bash
 cd ~/GameProjects/<game>
-cat MORNING.md
+cat .factory/local/MORNING.md
 ```
 
 In Claude Code, type `/inbox` to open the walk-through skill (read-only view of MORNING.md).
@@ -219,7 +285,7 @@ WORK.md. See "Clearing the play-test list" below.
 
 ##### ✏️ Amend — keep it, but with feedback
 The feature is fundamentally right but needs tweaks (timing, polish, edge cases).
-The Developer will iterate on top of the existing code overnight.
+The Developer will iterate on top of the existing code on the next dev fire.
 
 ```bash
 bash ~/SpraxelAiCompany/scripts/amend.sh cutscene-engine \
@@ -227,13 +293,13 @@ bash ~/SpraxelAiCompany/scripts/amend.sh cutscene-engine \
 ```
 
 What it does:
-- Appends `[amend] Refine: <title>` to WORK.md `## Todo`
+- Appends `[amend] Refine: <title>` to WORK.md `## Up-and-coming work`
 - Includes the original sha as a pointer ("read this, then modify in place")
 - Includes your feedback verbatim as scope
 - Commits + pushes WORK.md
 - The feature **stays shipped on master** — nothing reverts
 
-The Developer picks it up next overnight automatically (no `[needs-ceo]` tag — your
+The Developer picks it up automatically on the next dev fire (no `[needs-ceo]` tag — your
 feedback IS the spec), reads the existing code at the referenced sha, and refines it.
 
 ##### ❌ Reject — get rid of it
@@ -247,11 +313,11 @@ bash ~/SpraxelAiCompany/scripts/reject.sh cutscene-engine \
 What it does:
 - `git revert` the `feat:` + paired `work: shipped` commits on master
 - `git push` — feature is gone from master
-- Appends `[reject] Re-implement: <title>` to WORK.md `## Todo`
+- Appends `[reject] Re-implement: <title>` to WORK.md `## Up-and-coming work`
 - Includes your reason as detail so Developer knows what to do differently
 - Commits + pushes
 
-Developer picks it up automatically next overnight. If revert hits conflicts
+Developer picks it up automatically on the next dev fire. If revert hits conflicts
 (later commits touched the same files), reject.sh bails with
 `git revert --continue` + push instructions printed — you resolve manually
 and re-run.
@@ -282,7 +348,7 @@ bash ~/SpraxelAiCompany/scripts/playtested.sh --reset    # undo today's marks, s
 
 - The tracker is `<game>/.factory/local/playtested.json` — **CEO-local,
   gitignored, keyed by today's date.** It auto-resets each day: yesterday's
-  checkmarks never carry over, so each fresh overnight batch shows up clean.
+  checkmarks never carry over, so each fresh batch shows up clean.
 - Marking is purely cosmetic (clears your action list). It does **not** touch
   the game, master, or WORK.md. `amend`/`reject` are the only verbs that
   change anything. Marking a feature tested is the explicit "✓ Accept" action.
@@ -292,7 +358,7 @@ bash ~/SpraxelAiCompany/scripts/playtested.sh --reset    # undo today's marks, s
 
 #### 3. ▶ Decide — Designer ideas (5 min)
 
-Designer drops appear in WORK.md `## Todo` with `[idea]` tag. Three actions:
+Designer drops appear in WORK.md `## Up-and-coming work` with `[idea]` tag. Three actions:
 
 ```bash
 # ACCEPT an idea  → converts [idea] to [untriaged] (sends it INTO shaping,
@@ -303,15 +369,13 @@ python3 $WORKMD promote $WORK "sleeping-gas grenade"
 # REJECT an idea  (delete the line entirely)
 python3 $WORKMD drop $WORK "radio-tower mission"
 
-# DEFER  (do nothing — [idea] tag stays, overnight keeps skipping)
+# DEFER  (do nothing — [idea] tag stays, the loop keeps skipping)
 ```
 
-Accepting an idea no longer drops it straight into the overnight queue — it
+Accepting an idea no longer drops it straight into the build queue — it
 enters the **shaping pipeline** (becomes `[untriaged]`). The Architect then
 either fast-passes it (if already concrete) or writes you a questionnaire in
 `TRIAGE.md`. You finish defining it in step 3b. Reject and defer are unchanged.
-
-The PM reorder summary in MORNING.md is informational — no action required. To see what PM changed:
 
 The PM reorder summary in MORNING.md is informational — no action required. To see what PM changed:
 
@@ -340,7 +404,7 @@ follow-up) and leaves partial ones for later. You don't run anything.
 
 #### 4. ▶ Bug triage (5 min)
 
-Triager + Playtester appended new candidate bugs overnight as **`[needs-ceo] [bug]`**.
+Triager + Playtester appended new candidate bugs before dawn as **`[needs-ceo] [bug]`**.
 ⚠️ They are NOT in the build queue yet — workers skip `[needs-ceo]` until you
 validate — so leaving one alone DEFERS it; it does not get fixed. Use the safe
 wrapper (`with_master_lock.sh` locks + syncs + commits + pushes; a bare
@@ -348,7 +412,7 @@ wrapper (`with_master_lock.sh` locks + syncs + commits + pushes; a bare
 
 ```bash
 WML=~/SpraxelAiCompany/scripts/with_master_lock.sh
-# ACCEPT — clear [needs-ceo] → live [bug] the overnight loop fixes
+# ACCEPT — clear [needs-ceo] → live [bug] the ship loop fixes
 bash $WML approve "_cache_scene_lights"
 # REJECT — false positive / duplicate / intended behavior
 bash $WML drop "duplicate-bug-title-substring"
@@ -364,6 +428,13 @@ Escalations are rare CEO-judgment calls. Most come from the dev loop; the
 `Philosophy.md` (tagged with a severity — minor/moderate/major). Triage each the
 same way: `resume` after editing (do via loop), do it yourself on the branch,
 amend/reject the offending feature, or drop the flag to dismiss.
+
+**The easiest way to answer:** each `[escalated]` item also surfaces in
+`.factory/local/TRIAGE.md` as an **`ESC · <title>` resolution ballot** (the
+Architect writes it, with concrete options just like a shaping questionnaire).
+Answer it there alongside your shaping answers and submit — the Architect
+applies your decision (retag/resume/drop) for you. The WORK.md-side flow
+below is the manual equivalent.
 
 **Important distinction (post 2026-05-27 redesign):** the wrapper has two
 different "the item didn't land" outcomes, and only ONE of them lands in
@@ -449,7 +520,7 @@ Then in Claude Code, run the producer skill to convert them:
 /spraxel-producer
 ```
 
-It reads `.factory/inbox/raw.md` (and any dictation files), classifies each note (`[bug]` / `[feature]` / `[game-feature]`), assigns priority, appends to WORK.md `## Todo`, commits.
+It reads `.factory/inbox/raw.md` (and any dictation files), classifies each note (`[bug]` / `[feature]` / `[game-feature]`), assigns priority, appends to WORK.md `## Up-and-coming work`, commits.
 
 #### 7. Commit your morning edits
 
@@ -480,8 +551,9 @@ WORKER_OPERATIONS.md §4.
 
 All four match on title substring (case-insensitive, first match wins). Be specific enough to uniquely match.
 
-During the day the system is quiet (just `local-tests` every 30 min on
-master, silent unless something breaks). Live your life — work on art,
+During the day the system is quiet (the batch test runner only fires when
+the ship cap drains or on the engine-hours fallback, silent unless
+something breaks). Live your life — work on art,
 music, design, level layout; manually edit WORK.md (CEO can do anything);
 drop ideas into `.factory/inbox/raw.md` whenever they hit you.
 
@@ -490,7 +562,7 @@ drop ideas into `.factory/inbox/raw.md` whenever they hit you.
 # 🌤️ AFTERNOON (~13:00, optional ~5-min unblock)
 
 **Purpose: make sure the loop isn't stalled waiting on you.** The only
-thing that *blocks* the overnight pipeline is an item that needs your
+thing that *blocks* the pipeline is an item that needs your
 judgment. Run the inbox; if it says "nothing blocking", you're done.
 
 ```bash
@@ -524,28 +596,32 @@ echo "guards should investigate the LAST noise, not the first" \
 
 # 🌙 EVENING (~22:00, ~5-min top-up)
 
-**Purpose: give the overnight batch fuel.** The 3 workers ship until the
-10-item cap, then sleep. If the eligible queue is thin, they'll drain it
-and idle. Two commands:
+**Purpose: give the next batch fuel.** The ship loop builds until the
+8-item cap (`target_per_batch`) since your last signal, then parks. If the
+eligible queue is thin, it drains it and idles. Two commands:
 
 ```bash
 # 1. Drain everything you dictated today into clean WORK.md items:
 #    (in Claude Code)
 /spraxel-producer
 
-# 2. Confirm there are 10+ eligible items queued for overnight:
+# 2. Confirm there are 8+ eligible items queued for the next batch:
 python3 ~/SpraxelAiCompany/scripts/workmd.py top ~/GameProjects/<game>/WORK.md -n 12
 ```
 
-If `top` shows fewer than ~10 eligible items (i.e., most of the top is
+If `top` shows fewer than ~8 eligible items (i.e., most of the top is
 `MANUAL`/`[idea]`/`[needs-ceo]`), add a few via dictation + `/spraxel-producer`,
 or promote some `[idea]`s. That's the whole evening visit.
 
-Then you're asleep. **3 parallel `continuous_dev.sh` workers** (each in
-its own worktree) ship items concurrently until the shared 10-item cap,
-then all three sleep until your next checkin. Adjust the worker count in
-`schedule.yaml` → `continuous.dev_concurrency` (1 = serial, 3 = default,
-more = burns the Max-plan weekly cap faster).
+How the batch actually builds depends on the mode (see "The two developer
+modes"): in headless mode, **parallel `continuous_dev.sh` workers** (each in
+its own `.worktrees/<slug>/worker-<id>` worktree) ship items concurrently
+until the shared 8-item cap, then sleep until your next checkin — adjust the
+worker count via `COMPANY_CONFIG.yaml` → `continuous.dev_concurrency`
+(1 = serial, 3 = default; `global.max_total_dev_workers` caps the sum across
+games). In **interactive mode (current)**, nothing builds unless a
+`/spraxel-develop` session is running — leave one parked and it self-resumes
+the next batch when you poke the system.
 
 ---
 
@@ -555,14 +631,18 @@ Most days look like the daily routine above. A few days have additions:
 
 ### Tuesday + Friday — Designer days
 
-After Designer fires at 05:00 PT, MORNING.md's **Decide** section will
+After Designer fires at 04:30 PT, MORNING.md's **Decide** section will
 have 4–6 fresh ranked ideas. Expect the Decide step to take **+5 min**
 on these days as you accept / reject / amend each.
 
-### Saturday — Blogger day (+10 min)
+### Tuesday + Friday — Blogger slots (+10 min when it drafts)
 
-Blogger fires at 09:00 PT Saturday. It **always pushes a `blog/<YYYY-MM-DD>` branch**
-containing a draft post at `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md`.
+Blogger's cron fires at 09:00 PT Tue+Fri, but it only actually drafts when
+there's something to say — **release-driven**: a release was cut since the
+last post (usual case), or ≥14 days have passed with ≥3 fresh player-facing
+ships; otherwise it exits cleanly and you do nothing. When it drafts, it
+pushes a `blog/<YYYY-MM-DD>` branch containing a draft post at
+`blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md`.
 The branch + draft are **not** on `master` — by design, drafts get a review pass
 before they land. Your job is to humanize, then merge + publish.
 
@@ -637,15 +717,18 @@ git push origin --delete blog/$(date +%Y-%m-%d)
 
 #### What the Blogger pulls into the draft
 
-- 7 days of `feat:` / `fix:` commits, grouped thematically (it picks themes).
+- `feat:` / `fix:` commits since the last post, grouped thematically (it
+  picks ONE lead theme; **the post gets exactly one hero media slot**, on
+  that lead theme).
 - Demo Creator assets from `.factory/demos/<recent-dates>/` if any exist
-  (real `<slug>.png` + `<slug>.mov` paths).
-- PM release notes from `.factory/releases/<latest>.md` if a release was cut.
-- Memory of past topics from `.factory/memory/blogger.md` — to avoid repeating
-  phrases or themes across weeks.
+  (real `<slug>.png` + capture paths).
+- PM release notes from `.factory/releases/<latest>.md` — when a release was
+  cut, these are the spine of the post.
+- Memory of past topics from `.factory/memory/blogger.md` (mandatory read) —
+  to avoid repeating phrases or themes across posts.
 
-`/spraxel-inbox` skill adds the humanize step as **step 4** in the morning
-routine on Saturdays.
+`/spraxel-inbox` skill adds the humanize step to the morning routine on
+days a fresh draft branch exists.
 
 ### Sunday — Janitor + Reflection
 
@@ -653,17 +736,25 @@ Janitor fires at 01:00 PT Sunday. No CEO action required — but the
 MORNING.md "Janitor" line will tell you what got cold-archived. If you
 want to resurrect anything, edit WORK.md to remove the `[cold]` tag.
 
-### Monday (every other) — Release-cut day
+### Release-cut day (biweekly, per `cadence.release`)
 
-On biweekly Mondays, PM auto-cuts a release tag in addition to its
-daily reorder. MORNING.md will announce:
+On the biweekly release day (`cadence.release` in GAME_CONFIG — currently
+Saturdays for infiltrators), PM auto-cuts a release tag in addition to its
+daily reorder. It can ALSO cut **off-calendar on the size trigger** (finished
+section ≥40 items or WORK.md >150KB — a survival rule: an oversized WORK.md
+blows up every crew prompt). Either way the cut runs `workmd.py release-cut`,
+which **externalizes the "Finished since last release" section to a
+`WORK_v<version>.md` file** at the game-repo root. MORNING.md will announce:
 
 > 🚢 PM cut v0.4 on 2026-MM-DD: 6 features, 2 bugs.
 > Notes: .factory/releases/v0.4.md
 > Branch: release/v0.4
 
 Read the notes to confirm the cut matches reality. The release branch
-is for hotfixes — usually you ignore it.
+is for hotfixes — usually you ignore it. (If the PM ever misses its size
+trigger, the Janitor has a failsafe: at WORK.md >200KB or ≥80 finished
+items it cuts an interim patch-version archive itself and reports it
+prominently.)
 
 ### 1st of the month — Asset Librarian
 
@@ -681,7 +772,8 @@ re-reads the files every tick — no restart needed).
 
 ### 1. Crew-agent cadences — *when the bots fire*
 
-`schedule.yaml` → `agents:` holds one cron line per agent:
+`COMPANY_CONFIG.yaml` → `agents:` holds one cron line per agent
+(`schedule.yaml` still exists but is just a back-compat symlink to it):
 
 ```yaml
 agents:
@@ -694,27 +786,29 @@ Cron format is `minute hour day-of-month month day-of-week`, evaluated in
 `0 6 * * *` = 06:00 daily; `30 4 * * 2,5` = 04:30 Tue+Fri; `0 1 * * 0` =
 01:00 Sun; `0 7 1 * *` = 07:00 on the 1st.
 
-**Defense in depth:** each agent also reads its cadence from the game's
-`Philosophy.md` → `cadence.<agent>` and exits cleanly if today isn't its
-day. Keep the two in sync — `schedule.yaml` controls *firing*,
-`Philosophy.md` is the agent's own *sanity check*. To move an agent, edit
-both.
+**Defense in depth:** some agents also read a cadence self-check through the
+config loader (e.g. the game's `GAME_CONFIG.yaml` → `cadence.blogger`) and
+exit cleanly if today isn't their day. Where a `cadence.<agent>` entry
+exists, keep it in sync with the cron — the `agents:` cron controls
+*firing*, the cadence entry is the agent's own *sanity check*.
 
 **To add a new scheduled agent:** (a) drop its spec at
 `agents/spraxel-<name>.md`, (b) add a `cron:` line under `agents:` in
-`schedule.yaml`, (c) add a matching `cadence.<name>` in `Philosophy.md`.
+`COMPANY_CONFIG.yaml`, (c) add a `models.<name>` assignment there too.
 Next tick runs it. Confirm with `tail -f logs/tick/$(date +%F).log`.
 
-### 2. The continuous (overnight) loop — *how hard it ships*
+### 2. The continuous dev loop — *how hard it ships*
 
-`schedule.yaml` → `continuous:` — the knobs you'll actually touch:
+`COMPANY_CONFIG.yaml` → `continuous:` — the knobs you'll actually touch:
 
 | Knob | Default | Meaning |
 |------|---------|---------|
-| `dev_concurrency` | 3 | parallel workers (1 = serial, more = faster but burns the Max cap) |
-| `target_per_batch` | 10 | ships per batch before all workers sleep (resets on your checkin) |
-| `dev_stall_minutes` | 12 | kill a dev only after this long with **no** progress |
+| `force_interactive_developers` | **true** (currently) | **the mode switch** — true = NO headless dev workers; drive dev via `/spraxel-develop` (subscription-side). See "The two developer modes". |
+| `dev_concurrency` | 3 | parallel headless workers (1 = serial; ignored/forced to 0 in interactive mode) |
+| `target_per_batch` | **8** | ships per batch before the loop parks (resets on your checkin; shared across workers) |
+| `dev_stall_minutes` | 15 | kill a dev only after this long with **no** progress |
 | `max_dev_minutes` | 90 | absolute cap even on a progressing dev |
+| `retry_escalate_threshold` | 5 | total `[retry]` attempts on one item before auto-escalating (poison-pill brake) |
 | `test_runner.max_minutes` | 120 | wall-clock budget per batch test-runner run (0 = run to completion) |
 | `test_runner.force_after_engine_hours` | 100 | force a test-runner run after this much engine on-time since the last |
 
@@ -722,7 +816,7 @@ Full table with rationale: see **Configuration reference** below.
 
 ### 3. Your own routine — *when YOU show up*
 
-`schedule.yaml` → `ceo_routine:` (morning / afternoon / evening times +
+`COMPANY_CONFIG.yaml` → `ceo_routine:` (morning / afternoon / evening times +
 purposes). These drive what `/spraxel-inbox` shows by time of day. They're
 guidance only — the system never blocks on the clock. Edit them to match
 your life:
@@ -747,7 +841,7 @@ bash ~/SpraxelAiCompany/scripts/install_daemon.sh status   # is the daemon loade
 Claude Code itself sometimes offers `/schedule` — that's a *different*
 thing: it schedules a one-off future Claude session (e.g., "remind me to
 flip this flag in 3 days"). It is **not** how you schedule Spraxel agents
-— those go in `schedule.yaml` as above. Use `/schedule` only for personal
+— those go in `COMPANY_CONFIG.yaml` as above. Use `/schedule` only for personal
 follow-ups tied to a concrete future date.
 
 ---
@@ -763,13 +857,15 @@ are documented below so a CEO knows what to write.
 
 | Path | Purpose | Spraxel reads it as... |
 |---|---|---|
-| `Philosophy.md` | Per-game config + identity + cadence + budgets | Source of truth for `run_mode`, `dev.godot_binary`, model assignments, agent thresholds |
-| `WORK.md` | Work queue (Shipped / Todo) | Mutated atomically via `workmd.py` from the framework |
-| `Game.md` | **Living feature manual** — the Developer appends a `### <Feature>` block for **every player-facing ship** (MANDATORY; the Reviewer **blocks the merge** if it's missing/stale/incomplete). Each block has 9 fields: **What it does · Controls · First encounter · Tutorial prompt (≤80 chars) · Debug hook (`--demo-feature=<slug>`) · Trace events · Test scenario · Unit test · Acceptance (2–4 bullets)**. Doubles as the data source for the future first-encounter tutorial system. Bugs/chores skip it unless they change player-facing behavior; purely-internal work skips it. (Canonical spec: `agents/spraxel-developer.md` step 4.) | Read by morning-briefer to surface play-test commands |
-| `.gitignore` | Excludes `.factory/`, `.worktrees/`, Godot cache, etc. | Critical — framework state lives under `.factory/` |
-| `scripts/run_local_tests.sh` | Test runner (GUT + scenarios) — honors `SPRAXEL_GAME_DIR` + `SPRAXEL_WORKER_ID` env vars from wrapper | Invoked by `continuous_dev.sh` for baseline + post-dev tests |
+| `GAME_CONFIG.yaml` | Per-game config overrides, deep-merged on top of `COMPANY_CONFIG.yaml` by `scripts/spx_config.py` | Source of truth for identity, `cadence.*`, per-agent thresholds, model overrides, `dev.godot_binary`, `continuous.force_interactive_developers`, `policy.run_mode` |
+| `Philosophy.md` | **Prose-only** design tenets — identity, tone, what the game must/mustn't be. No YAML knobs anymore (those all moved to GAME_CONFIG.yaml) | Read by Designer/Producer/Developer for taste + drift audits |
+| `WORK.md` | Work queue (see "WORK.md cheat sheet" for the 4-section layout) | Mutated atomically via `workmd.py` from the framework |
+| `Game.md` | **Feature INDEX** (sharded 2026-07-08 — it was 498KB, now ~50KB): controls + grouped inventory with **one index line per feature**, linking to per-feature files. | Read by crew agents as the catalog of what exists |
+| `docs/features/<slug>.md` | **One file per feature** — the Developer creates it for **every player-facing ship** (MANDATORY; the Reviewer **blocks the merge** if it's missing/stale/incomplete) plus the matching Game.md index line. Each file has the 9 fields: **What it does · Controls · First encounter · Tutorial prompt (≤80 chars) · Debug hook (`--demo-feature=<slug>`) · Trace events · Test scenario · Unit test · Acceptance (2–4 bullets)**. Bugs/chores skip it unless they change player-facing behavior. (Canonical spec: `agents/spraxel-developer.md`.) | Read by morning-briefer/playtester to surface play-test commands |
+| `.gitignore` | Excludes `.factory/`, Godot cache, etc. | Critical — framework state lives under `.factory/` |
+| `scripts/run_local_tests.sh` | Test runner (GUT + scenarios) — honors `SPRAXEL_GAME_DIR` + `SPRAXEL_WORKER_ID` env vars; `--list` / `--only <ref>` | Invoked by `test_runner.sh` (batch) and per-`[test_failure]` merge gates |
 | `scripts/run_unit_tests.sh` | Fast unit-only runner | Optional manual invocation |
-| `scripts/install_local_tests.sh` | Installs `com.spraxel.localtests` launchd plist | One-shot at game setup |
+| `scripts/install_local_tests.sh` | Installs `com.spraxel.localtests` launchd plist — **legacy; the 30-min daemon is retired** (batch test runner supersedes it) | Historical; skip at game setup |
 
 ### Conventions the game's GDScript MUST follow
 
@@ -816,8 +912,11 @@ happens. Common ones: missing `--demo-feature=` hook, scenario without
 ## Setup — adding a new game
 
 If you're starting a fresh game and want to wire it into the Spraxel
-factory, the bootstrap is one script + a few config edits. The whole
-process takes ~10 minutes.
+factory, the guided path is the **`/spraxel-launch`** skill in Claude Code —
+it interviews you (identity, inspirations, config), runs the bootstrap,
+registers the game in the multi-game registry alongside the existing games,
+and can seed starter work. The manual path below is what it automates; the
+whole process takes ~10 minutes.
 
 ```bash
 # 1. Create the game repo (or use an existing one)
@@ -829,22 +928,24 @@ bash ~/SpraxelAiCompany/scripts/new_game.sh ~/GameProjects/my-new-game \
   --name "My New Game" --ceo your-github-login
 
 # This drops in:
-#   Philosophy.md           ← edit run_mode, dev.godot_binary, identity, knobs
-#   Game.md                 ← feature inventory; bots append blocks here
-#   WORK.md                 ← work tracking (3 sections, 2 dashed-line dividers)
+#   GAME_CONFIG.yaml        ← per-game config overrides (identity, knobs, models)
+#   Philosophy.md           ← prose-only design tenets
+#   Game.md                 ← feature INDEX; per-feature files in docs/features/
+#   WORK.md                 ← work tracking (4-section layout)
 #   .gitignore              ← Godot cache, .uid files, .factory/local/, etc.
 #   .factory/               ← runtime state dirs (memory/, inbox/, reviews/, local/)
-#   scripts/install_local_tests.sh
 #   scripts/run_local_tests.sh      ← full GUT + scenarios + status JSON
 #   scripts/run_unit_tests.sh       ← fast unit-test only runner
 #   test/unit/.gitkeep              ← Developer agent puts GUT tests here
 #   scripts/scenarios/.gitkeep      ← Developer agent puts scenario tests here
 ```
 
-### Edit Philosophy.md (per-game config)
+### Edit GAME_CONFIG.yaml (per-game config)
 
-The template is annotated with `TODO:` markers where game-specific
-content goes. The MUST-edit fields:
+All per-game config lives in `GAME_CONFIG.yaml`, deep-merged on top of
+`COMPANY_CONFIG.yaml` by `scripts/spx_config.py` (`Philosophy.md` is
+prose-only — write your design tenets there in plain English). The
+MUST-edit fields:
 
 ```yaml
 identity:
@@ -858,12 +959,11 @@ dev:
   engine: "Godot 4.6.1"
   godot_binary: "/Users/.../Godot.app/Contents/MacOS/Godot"
   main_scene: "res://scenes/<your-title>.tscn"
-run_mode: "live"                 # "dryrun" until you're ready
 ```
 
-The OPTIONAL knobs (have sensible defaults — only edit if you want
-non-default behavior). See the "Configuration reference" section above
-for the full table.
+The OPTIONAL knobs (have sensible company-wide defaults — only override if
+you want non-default behavior for THIS game). See the "Configuration
+reference" section for the full table.
 
 ```yaml
 # Per-agent CEO-tunable thresholds — all optional. Defaults shown.
@@ -872,35 +972,34 @@ janitor:
   log_retention_days:     60
 morning_briefer:
   playtest_count:         10
-dashboard:
-  recent_ships:           20
-  ceo_actions:            10
 designer:
   ideas_per_run:          5
 
-# Model assignments — defaults are fine. Adjust if you're hitting your
-# Max-plan weekly cap and want to push more agents onto haiku.
-budgets:
-  model_assignments:
-    developer:        claude-sonnet-4-6
-    reviewer:         claude-sonnet-4-6
-    designer:         claude-sonnet-4-6
-    morning_briefer:  claude-haiku-4-5-20251001
-    janitor:          claude-haiku-4-5-20251001
-    # ...
+# Dev-mode override — e.g. keep this game's dev work subscription-side:
+continuous:
+  force_interactive_developers: true
+
+# Model overrides — company defaults (COMPANY_CONFIG models:) are fine.
+models:
+  developer: sonnet
+  reviewer:  haiku
 ```
 
-### Edit schedule.yaml (framework runtime)
+### Register the game in COMPANY_CONFIG.yaml
 
 ```bash
-# 4. Tell the daemon which game to target + tune the continuous loop
-$EDITOR ~/SpraxelAiCompany/schedule.yaml
+# 4. Add the game to the multi-game registry + tune the continuous loop
+$EDITOR ~/SpraxelAiCompany/COMPANY_CONFIG.yaml
 ```
 
-The MUST-edit field:
+The MUST-edit field — add an entry under `games:` (alongside existing
+games; every enabled game runs concurrently):
 
 ```yaml
-game_dir: ~/GameProjects/my-new-game
+games:
+  my-new-game:
+    dir: ~/GameProjects/my-new-game
+    enabled: true
 ```
 
 The OPTIONAL knobs (defaults are sensible — only touch if you have a
@@ -908,7 +1007,7 @@ reason). See the "Configuration reference" section above.
 
 ```yaml
 continuous:
-  target_per_batch:       10      # ships before sleep until next CEO signal
+  target_per_batch:       8       # ships before parking until next CEO signal
   dev_concurrency:        3       # parallel workers; 1 = single, 3 = aggressive
   max_fail_streak:        3       # consecutive failures → backoff
   fail_backoff_seconds:   1800    # 30 min backoff
@@ -916,12 +1015,15 @@ continuous:
   idle_threshold:         5       # empty-queue ticks → long sleep
   idle_sleep_seconds:     300
 
+global:
+  max_total_dev_workers:  4       # worker ceiling across ALL games combined
+
 agents:
   # cron expression per agent — edit cadences here. Format:
   #   minute hour day-of-month month day-of-week  (PT timezone)
-  playtester:      { cron: "0 4 * * *",  ... }
-  triager:         { cron: "0 5 * * *",  ... }
-  morning_briefer: { cron: "0 6 * * *",  ... }
+  playtester:      { cron: "0 3 * * *",  ... }
+  triager:         { cron: "0 4 * * *",  ... }
+  morning_briefer: { cron: "0 5 * * *",  ... }
   # ...
 ```
 
@@ -929,24 +1031,22 @@ agents:
 # 5. Install (or re-install) the daemon — idempotent
 bash ~/SpraxelAiCompany/scripts/install_daemon.sh
 
-# 6. Install the local-tests cron in THIS game repo
-cd ~/GameProjects/my-new-game
-bash scripts/install_local_tests.sh
-
-# 7. (Optional) Install ffmpeg if you want auto-capture of feature demos
+# 6. (Optional) Install ffmpeg if you want auto-capture of feature demos
 # (the demo-creator agent uses Godot's --write-movie + ffmpeg). Without
 # ffmpeg, the agent skips auto-capture but still produces recipe.md for
 # hand-recording.
 brew install ffmpeg
 ```
 
+(No per-game test daemon anymore — the old `com.spraxel.localtests` 30-min
+cron is retired; the batch test runner is dispatched by `tick.sh`.)
+
 Verify everything is loaded:
 
 ```bash
 launchctl list | grep com.spraxel
-# Expect TWO lines:
-#   com.spraxel.tick          (1-min daemon dispatching all agents)
-#   com.spraxel.localtests    (30-min Godot test runner)
+# Expect ONE line:
+#   com.spraxel.tick          (1-min daemon dispatching all agents, all games)
 
 bash ~/SpraxelAiCompany/scripts/install_daemon.sh status
 
@@ -954,10 +1054,10 @@ claude --version
 # If session expired, run `claude login` in a Claude Code window.
 ```
 
-Note: the daemon targets ONE game at a time (the `game_dir` in
-`schedule.yaml`). For a second game running in parallel you'd need a
-second daemon — that's not yet supported (see "Framework wishlist"
-below for the deferred-feature note).
+The daemon iterates EVERY enabled game in the `games:` registry each tick —
+per-game state is namespaced (`state/<slug>/`, `logs/<slug>/`,
+`.worktrees/<slug>/`) so games never collide, and
+`global.max_total_dev_workers` caps total headless dev load across games.
 
 ## Setup — first time on this Mac (existing game)
 
@@ -966,8 +1066,7 @@ repo is already cloned:
 
 ```bash
 bash ~/SpraxelAiCompany/scripts/install_daemon.sh
-cd ~/GameProjects/<game> && bash scripts/install_local_tests.sh
-launchctl list | grep com.spraxel        # → expect 2 entries
+launchctl list | grep com.spraxel        # → expect com.spraxel.tick
 claude --version                          # → confirms Claude CLI is logged in
 ```
 
@@ -983,17 +1082,22 @@ bash ~/SpraxelAiCompany/scripts/run_agent.sh morning-briefer
 bash ~/SpraxelAiCompany/scripts/run_agent.sh pm --dry-run     # see prompt, don't fire
 ```
 
-Logs land at `~/SpraxelAiCompany/logs/<agent>/<ts>.log`.
+Logs land at `~/SpraxelAiCompany/logs/<slug>/<agent>/<ts>.log`
+(namespaced per game).
 
-### Manually run the continuous loop now
+### Manually run the dev loop now
+
+In interactive mode (**current**), type `/spraxel-develop` in a Claude Code
+session — that IS the dev loop. In headless mode:
 
 ```bash
 bash ~/SpraxelAiCompany/scripts/continuous_dev.sh
 ```
 
-(This is the same script `tick.sh` spawns automatically — usually you don't
-run it by hand. It keeps shipping items until it hits the per-CEO-signal cap,
-then sleeps.)
+(That's the same script `tick.sh` spawns automatically in headless mode —
+usually you don't run it by hand. It keeps shipping items until it hits the
+per-CEO-signal cap, then sleeps. With `force_interactive_developers: true`
+it idles immediately.)
 
 ### Pause everything
 
@@ -1010,13 +1114,13 @@ rm ~/SpraxelAiCompany/.paused
 
 ### Interrupt protocol — when you need to do a one-off mid-run
 
-If you need to make a manual change while overnight is running (a real
+If you need to make a manual change while the dev loop is running (a real
 bug emergency, a play-test reveal, anything), use the interrupt scripts.
 They safely pause the system, preserve in-flight Developer work, and
 get you to a clean master in one command:
 
 ```bash
-# Pause system + kill in-flight overnight + stash Developer work + checkout master
+# Pause system + kill in-flight agents + stash Developer work + checkout master
 bash ~/SpraxelAiCompany/scripts/interrupt.sh
 
 # ...now you can edit code, commit, test on master...
@@ -1035,10 +1139,10 @@ What `interrupt.sh` does:
 3. Clear stale lockdirs
 4. `git stash` any uncommitted work in the game repo (preserves it)
 5. `git checkout master && git pull --ff-only`
-6. Record state to `.cache/last-interrupt.txt` for `resume.sh`
+6. Record state to `state/<slug>/cache/last-interrupt.txt` for `resume.sh`
 
 What `resume.sh` does:
-1. Read `.cache/last-interrupt.txt`
+1. Read `state/<slug>/cache/last-interrupt.txt`
 2. Checkout the pre-interrupt branch (if any)
 3. Pop the stash (if any)
 4. `rm .paused` → next tick fires normally
@@ -1047,16 +1151,16 @@ Both scripts are idempotent and refuse to overwrite dirty state.
 
 ### Pause one agent only
 
-Comment out the line in `schedule.yaml`. Change applies on the next tick.
+Comment out the line in `COMPANY_CONFIG.yaml`. Change applies on the next tick.
 
 ### Retune cadences
 
-Edit `~/SpraxelAiCompany/schedule.yaml`. All times are PT, cron format
+Edit `~/SpraxelAiCompany/COMPANY_CONFIG.yaml`. All times are PT, cron format
 `m h dom mon dow`. Examples:
 
 - Run PM twice a day: `cron: "0 7,15 * * *"`
 - Move Designer to Sunday: `cron: "0 7 * * 0"`
-- Bump overnight target from 10 to 15: change `target_items: 10` → `target_items: 15`
+- Bump the batch cap from 8 to 12: change `target_per_batch: 8` → `target_per_batch: 12`
 
 No restart needed. The next tick reads the file.
 
@@ -1073,15 +1177,20 @@ tail -5 ~/SpraxelAiCompany/logs/tick/$(date +%Y-%m-%d).log
 # Tick log (one line per minute)
 tail -50 ~/SpraxelAiCompany/logs/tick/$(date +%Y-%m-%d).log
 
-# Last morning briefer run
-ls -t ~/SpraxelAiCompany/logs/morning-briefer/ | head -1 | xargs -I{} cat ~/SpraxelAiCompany/logs/morning-briefer/{}
+# Last morning briefer run (agent logs are namespaced per game slug)
+ls -t ~/SpraxelAiCompany/logs/<slug>/morning_briefer/ | head -1 | xargs -I{} cat ~/SpraxelAiCompany/logs/<slug>/morning_briefer/{}
 
-# Last overnight
-ls -t ~/SpraxelAiCompany/logs/overnight/ | head -1
+# Per-item ship logs from the dev loop
+ls -t ~/SpraxelAiCompany/logs/<slug>/continuous/$(date +%Y-%m-%d)/ | head
 ```
 
 ### Agent health check
 
+Two layers exist. **Passive (automatic):** `tick.sh` runs an hourly
+**crew-health monitor** per game — any agent whose last successful run is
+older than 2× its cron cadence lands in `state/<slug>/cache/crew-health.txt`,
+newly-stale agents get a one-time crew_health report, and MORNING.md's
+📰 News opens with a mandatory 🩺 crew-health line. **Active (on demand):**
 `scripts/health_check.sh` scans today's per-agent logs for errors (unknown
 model, rate limits, session expiry, fatal traces, etc.) and produces a
 markdown block suitable for MORNING.md. The morning-briefer agent runs
@@ -1194,7 +1303,7 @@ git branch -d ceo/<short-description>
 $EDITOR <file>
 git commit -am "<message>" && git push
 
-# If overnight is mid-flight and you want to commit safely:
+# If the dev loop is mid-flight and you want to commit safely:
 touch ~/SpraxelAiCompany/.paused      # halts new agent dispatches
 # ...do your edits + commit...
 rm ~/SpraxelAiCompany/.paused
@@ -1215,33 +1324,40 @@ godot --headless --path . -s addons/gut/gut_cmdln.gd -gdir=test/unit/ -gexit
 # Just one scenario
 godot --headless --path . scripts/scenarios/<feature>.gd
 
-# Play-test a specific feature (debug-feature hook from Game.md)
+# Play-test a specific feature (debug-feature hook from docs/features/<slug>.md)
 godot --demo-feature=<slug>
 
 # Free-roam interactive
 godot --path .
 ```
 
-### Check token budget (Claude Max plan)
+### Check token budget / spend
 
-Max doesn't expose remaining-tokens as a number. Indirect signals:
+Post-2026-06-15, there are two pools to watch: the **subscription cap**
+(interactive sessions — `/spraxel-develop` dev+review subagents) and the
+**metered API-credit pool** (headless `claude -p` crew runs — the dashboard
+shows an estimated $ figure via `scripts/token_usage.py` + the
+`policy.pricing` table). Signals:
 
 ```bash
 # Is the CLI session alive?
 claude --version    # 0 exit = ok; otherwise re-run `claude login` in Claude Code
 
-# Did anything rate-limit recently?
-grep -l "rate limit\|429\|quota" ~/SpraxelAiCompany/logs/*/$(date +%Y-%m-%d)*.log
+# Did anything rate-limit recently? (logs are namespaced per game)
+grep -rl "rate limit\|429\|quota" ~/SpraxelAiCompany/logs/<slug>/*/$(date +%Y-%m-%d)*.log
 
-# Last overnight's fail_streak
-cat ~/SpraxelAiCompany/.cache/last-overnight.txt
-# → fail_streak: 0 healthy; >=3 = likely rate-limited or session expired
+# Dev-loop state (counter, fail streak, last CEO signal)
+cat ~/SpraxelAiCompany/state/<slug>/cache/continuous-state.json
 
-# Today's claude -p invocations (rough budget gauge)
-ls ~/SpraxelAiCompany/logs/*/$(date +%Y-%m-%d)*.log 2>/dev/null | wc -l
-# Heavy day: ~20 (PM, Triager, Morning, plus 10-15 overnight Sonnet runs).
-# Max plan should handle that. If you start seeing 429s:
-touch ~/SpraxelAiCompany/.paused      # let the weekly cap reset (~24h)
+# Is Sonnet capped right now? (agents auto-fall back to Opus while it is)
+python3 ~/SpraxelAiCompany/scripts/sonnet_cap.py is-capped && echo "capped — running on Opus"
+
+# Today's headless runs (metered!) — the daily_run_cap brake pauses the whole
+# system automatically at policy.budgets.daily_run_cap (250) runs/day.
+ls ~/SpraxelAiCompany/logs/<slug>/*/$(date +%Y-%m-%d)*.log 2>/dev/null | wc -l
+
+# Manual brake if spend looks wrong:
+touch ~/SpraxelAiCompany/.paused
 ```
 
 ### Dictation flow (drop → producer)
@@ -1256,7 +1372,7 @@ echo "extraction zone bug back — character #3 stuck" \
 # Then in Claude Code:
 # /spraxel-producer
 # → reads raw.md, classifies each note ([bug]/[feature]/[game-feature]),
-#   assigns priority, appends to WORK.md ## Todo, commits.
+#   assigns priority, appends to WORK.md ## Up-and-coming work, commits.
 ```
 
 ### Quick one-liners
@@ -1275,9 +1391,12 @@ git -C ~/GameProjects/<game> log master --author='-bot@spraxel.ai' \
   --since='1 week ago' --pretty='%h %an %s'
 
 # "Anything stuck?"
-ls ~/SpraxelAiCompany/.locks/  # each lockdir = an in-flight agent
+ls ~/SpraxelAiCompany/state/<slug>/locks/  # each lockdir = an in-flight agent
 
-# "Revert something the continuous loop landed but broke things"
+# "Any crew agent silently dead?"
+cat ~/SpraxelAiCompany/state/<slug>/cache/crew-health.txt  # empty = all green
+
+# "Revert something the dev loop landed but broke things"
 cd ~/GameProjects/<game>
 git revert <sha> && git push origin master
 ```
@@ -1286,6 +1405,7 @@ git revert <sha> && git push origin master
 
 ```bash
 bash ~/SpraxelAiCompany/scripts/install_daemon.sh stop
+# (if the retired com.spraxel.localtests plist is still loaded from the old days:)
 cd ~/GameProjects/<game> && bash scripts/install_local_tests.sh stop
 ```
 
@@ -1293,31 +1413,41 @@ cd ~/GameProjects/<game> && bash scripts/install_local_tests.sh stop
 
 ## WORK.md cheat sheet
 
-Three sections separated by two dividers (10+ `-` or `=`):
+Four sections separated by divider lines (10+ `-` or `=`), 2026-07 layout —
+reordered so the CEO's action surface is at the top and history is a footer:
 
 ```
 # <game> — work tracking
 
-## Shipped (previous releases)
-v0.3 — pushing mechanic
-v0.2 — character switch lock-out
-----------
-## Shipped since last release         ← continuous loop appends here (chronological)
-[game-feature] p1 Run button + stamina bar
-[bug] p0 Stairs teleport fixed
-==========
-## Todo                               ← continuous loop picks from top
+## Up-and-coming work                 ← the dev loop picks from the top
 [game-feature] p0 Diving stealth in water
 [bug] p0 Extraction zone broken
 [game-feature] p1 Skill tree system
   300 skills, 3 levels each, dependency chains
   Lock characters into archetypes based on starting skills
-[idea] [feature] p2 Sleeping-gas grenade item  ← Designer drop; overnight SKIPS this
+[idea] [feature] p2 Sleeping-gas grenade item  ← Designer drop; the loop SKIPS this
+==========
+## Finished since last release        ← the loop appends here as items ship
+[game-feature] p1 Run button + stamina bar
+[bug] p0 Stairs teleport fixed
+==========
+## Next work                          ← parked backlog: [future]/[cold]/[manual]
+[future] Co-op multiplayer
+==========
+## Shipped (previous releases)        ← archive FOOTER (headers only)
+v0.2 — archived to WORK_v0.2.md
+v0.1 — archived to WORK_v0.1.md
 ```
+
+On a release cut (`workmd.py release-cut`), the whole "Finished since last
+release" section is **externalized to a `WORK_v<version>.md` file** at the
+game-repo root and the footer gets a one-line pointer — WORK.md itself stays
+small (every crew prompt embeds sections of it, so size is a survival
+constraint; see the PM's size trigger and the Janitor failsafe).
 
 Tag reference:
 
-| Tag | Meaning | Overnight picks? |
+| Tag | Meaning | Loop picks? |
 |-----|---------|------------------|
 | `pN` (p0..p3) | Priority — p0 urgent, p3 nice-to-have | yes (sorted by priority) |
 | `[bug]` | Repro of broken behavior | yes |
@@ -1336,7 +1466,7 @@ Tag reference:
 | `[resume]` | CEO triaged an `[escalated]` item; wrapper picks up, checks out saved branch, rebases on master, hands off to dev with the CEO's clarification in details. | **yes** (dev resumes from saved branch with new guidance) |
 | `[concern]` | Designer (or future agents) flagged a game-wide issue (feature bloat, missing fundamentals, philosophical drift). Advisory text, not work to do. CEO triages: delete (dismiss), remove tag (convert into real work item), or leave (defer). | **NO** (skip until tag removed) |
 | `[epic]` | Parent of a decomposed feature (Architect-created). Display + completion tracker; auto-ships once its last subtask ships. | **NO** ever (devs build the subtasks, never the parent) |
-| `[test_failure]` | A regression filed by the batch test runner, queued at the TOP of `## Todo` with a `test-ref: <kind>:<id>` detail. | yes — but only ONE is worked at a time (others gated → workers take normal items); the fixing dev may run the named test. |
+| `[test_failure]` | A regression filed by the batch test runner, queued at the TOP of `## Up-and-coming work` with a `test-ref: <kind>:<id>` detail. | yes — but only ONE is worked at a time (others gated → workers take normal items); the fixing dev may run the named test. |
 
 ### Testing — the batch test runner + `[test_failure]`
 
@@ -1348,7 +1478,7 @@ is the one place the whole suite runs.
 
 - **What it does:** runs every test ONE AT A TIME (serial → zero contention),
   tracking which test-refs it has run this cycle. Each failure becomes a
-  `[test_failure]` item at the TOP of `## Todo` (deduped by test-ref). It runs
+  `[test_failure]` item at the TOP of `## Up-and-coming work` (deduped by test-ref). It runs
   until the whole suite is covered OR `test_runner.max_minutes` (default 120)
   elapses, resuming with un-run tests next time and resetting once a full cycle
   completes.
@@ -1372,8 +1502,11 @@ is the one place the whole suite runs.
 
 Every new feature item enters the queue **`[untriaged]`** and is invisible to the
 developers until it's been shaped into a concrete spec. The **Architect** agent
-(Sonnet; runs 09:00 & 21:00 PT, and reactively within ~60s — see below) owns this.
-On each run it does two things:
+(Opus — a bad spec costs full dev+review+retry cycles; runs 09:00 & 21:00 PT,
+and reactively within ~60s — see below) owns this.
+On each run it does two things (plus a third: writing **`ESC ·` resolution
+ballots** for any `[escalated]` items, so you can answer those in TRIAGE.md
+too):
 
 1. **Intake** — for each `[untriaged]` item it decides:
    - *Already concrete?* → **fast-pass**: strips `[untriaged]` so the item is
@@ -1490,7 +1623,7 @@ Existing backlog items are left as-is; the gate applies only to new additions.
 
 When the Developer ships a feature that needs CEO follow-up (placeholder
 art, fake SFX, etc.), it appends a `[manual] [<category>] <desc>` item
-to `## Todo`. The sub-category is documentary only — doesn't affect the
+to `## Up-and-coming work`. The sub-category is documentary only — doesn't affect the
 loop — but helps you batch-process during morning routine:
 
 | Sub-category | Means |
@@ -1505,7 +1638,7 @@ loop — but helps you batch-process during morning routine:
 | `[manual] [design]` | Design decision (mechanic feel, UX call) |
 | `[manual] [narrative]` | Story / plot / mission narrative |
 
-Example overnight commit body referencing follow-ups:
+Example ship-commit body referencing follow-ups:
 ```
 feat: add duck mechanic
 
@@ -1517,9 +1650,10 @@ follow-ups added to WORK.md:
 ### `[future] ` parked roadmap items
 
 `[future] <desc>` or `[future] <desc>` marks something you want to do
-**eventually** but isn't ready to schedule yet. Overnight skips these
-the same way it skips `MANUAL` and `[needs-ceo]` — they sit in `## Todo`
-as a visible roadmap without competing for tonight's batch.
+**eventually** but isn't ready to schedule yet. The dev loop skips these
+the same way it skips `MANUAL` and `[needs-ceo]` — they sit in the
+`## Next work` section as a visible roadmap without competing for the
+current batch.
 
 Use it when:
 - **You haven't scoped it yet.** Idea is good, but you don't know what
@@ -1550,18 +1684,18 @@ Examples:
 
 | Agent | Cadence | Model | What it does |
 |-------|---------|-------|--------------|
-| **continuous_dev.sh** | always on (paced by CEO signal cap) | n/a (shell) | Long-running Developer loop. Ships items until target_per_batch since last CEO signal, then sleeps. Spawned + watched by `tick.sh`. |
-| **developer** | called by continuous loop, per item | sonnet | Implements one WORK.md item end-to-end on a feature branch. **MANDATORY**: GUT test under `test/unit/`, Game.md block with `First encounter` + `Tutorial prompt` for player-facing features, debug-feature hook, scenario file. Reviewer blocks merge if any are missing. Handles `[amend]`, `[reject]`, `[resume]` items differently (read prior code first). |
-| **reviewer** | called by continuous loop, per item | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). Blocks merge on missing test, missing/incomplete Game.md, missing scenario file, missing debug-feature hook. |
-| **playtester** | daily 03:00 PT | sonnet | Actively plays the game to find problems. Beyond test scenarios — input spam, edge cases, mechanic combos. Writes candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
-| **triager** | daily 03:00 PT | haiku | Reads playtest findings + test failures, appends as `[needs-ceo] [bug]` items. CEO validates in MORNING.md before they become live bugs. |
-| **morning-briefer** | daily 04:00 PT | haiku | Writes `.factory/local/MORNING.md` (gitignored — never commit). 10 features to play-test with launch + amend + reject one-liners, decisions to make, real `[escalated]` items needing CEO judgment (usually 0 — auto-retries are silent and not surfaced). Shows a one-line `[retry]` queue count FYI but no action required. Runs `health_check.sh` first to surface agent failures. |
-| **demo-creator** | daily 05:30 PT | sonnet | ALWAYS writes `.factory/demos/<date>/recipe.md` with per-feature launch + controls + capture commands. BEST-EFFORT auto-captures `.mp4` + `.png` via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg installed). Blogger reads recipe.md as source of truth. |
-| **pm** | daily 05:00 PT + biweekly Mon release-cut | haiku | Reorders ## Todo. On release day: tags `v0.N`, generates release notes, rolls WORK.md sections. |
+| **the ship loop** (continuous_dev.sh, or `/spraxel-develop` interactive — **current**) | always on (paced by CEO signal cap) | n/a (driver) | Long-running Developer loop. Ships items until `target_per_batch` (8) since last CEO signal, then parks. Headless: spawned + watched by `tick.sh`. Interactive: you run the skill; it parks + self-resumes on a poke. |
+| **developer** | called by the ship loop, per item | sonnet (opus while Sonnet-capped) | Implements one WORK.md item end-to-end on a feature branch. **MANDATORY**: GUT test under `test/unit/`, a `docs/features/<slug>.md` feature file (with `First encounter` + `Tutorial prompt`) + its Game.md index line for player-facing features, debug-feature hook, scenario file. Reviewer blocks merge if any are missing. Handles `[amend]`, `[reject]`, `[resume]` items differently (read prior code first). |
+| **reviewer** | called by the ship loop, per item | haiku | Reads `git diff master...HEAD`, writes findings, exits 0 (clean) or 1 (blocking). Blocks merge on missing test, missing/incomplete `docs/features/<slug>.md` + Game.md index line, missing scenario file, missing debug-feature hook, god-file growth past `max_file_lines` (1500). |
+| **playtester** | daily 03:00 PT | sonnet | Actively plays the game to find problems. Beyond test scenarios — input spam, edge cases, mechanic combos. Environment pre-flight first; classifies every finding `gameplay` / `harness` / `environment` (only gameplay = bug candidates) and emits hands-on test recipes for the CEO. Writes candidates to `.factory/inbox/playtest-findings.md`. Does NOT touch WORK.md directly. |
+| **triager** | daily 04:00 PT | haiku | Reads playtest findings + test failures, appends as `[needs-ceo] [bug]` items. CEO validates in MORNING.md before they become live bugs. |
+| **morning-briefer** | daily 05:00 PT | sonnet | Writes `.factory/local/MORNING.md` (gitignored — never commit). 📰 News opens with the mandatory 🩺 crew-health line. 10 features to play-test with launch + amend + reject one-liners, decisions to make, real `[escalated]` items needing CEO judgment (usually 0 — auto-retries are silent and not surfaced). Shows a one-line `[retry]` queue count FYI but no action required. Runs `health_check.sh` first to surface agent failures. |
+| **demo-creator** | daily 05:30 PT | sonnet | Writes `.factory/demos/<date>/recipe.md` with FULL recipes for the **top 3** ships only (the rest get one-liners). Auto-captures ONLY capture-ready demo scenarios via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg); test-style auto-quit scenarios go on the rc=5 skip ledger. Blogger reads recipe.md as source of truth. |
+| **pm** | daily 06:00 PT + release cuts (calendar `cadence.release` OR size trigger) | sonnet | Reorders the up-and-coming section. On a cut (biweekly day, or same-day when the finished section hits ≥40 items / WORK.md >150KB): tags `v0.N`, generates release notes, `release-cut` externalizes the finished section to `WORK_v<version>.md`. |
 | **designer** | Tue + Fri 04:30 PT (+ daily when dry) | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). **Audits all implemented + planned work against Philosophy.md and escalates ANY conflict (even slight, severity-tagged) to the CEO.** **Cadence:** scheduled Tue+Fri; `tick.sh` ALSO dispatches it on any other day when the buildable queue is dry (developers have no eligible items left — only `[manual]`/`[future]`/`[untriaged]`/epic-gated, ignoring the pinned dashboard chore), at most once/day, to refill the idea pipeline. |
-| **architect** | daily 09:00 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | sonnet | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), and intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`). On finalize, decides single item vs. decomposing a complex feature into a parent `[epic]` + sequential subtasks (`shape-epic`). Bugs + MANUAL items are exempt. |
-| **blogger** | weekly Sat 09:00 PT | sonnet | Drafts devlog from week's `feat:` commits ONLY (strict player-facing filter — skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:). Writes `blog/content/posts/draft-<date>-<slug>.md` with `▸ MEDIA` placeholders. Pushes `blog/<date>` branch; CEO humanizes + merges. |
-| **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). |
+| **architect** | daily 09:00 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | **opus** | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`), and writes `ESC ·` resolution ballots for `[escalated]` items. On finalize, decides single item vs. decomposing a complex feature into a parent `[epic]` + sequential subtasks (`shape-epic`). Bugs + MANUAL items are exempt. |
+| **blogger** | Tue + Fri 09:00 PT, **release-driven** (drafts only when a release was cut, or ≥14 days + ≥3 fresh ships) | sonnet | Drafts devlog from player-facing `feat:` commits since the last post ONLY (skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:), with **ONE hero media slot** on the lead theme. Writes `blog/content/posts/draft-<date>-<slug>.md`. Pushes `blog/<date>` branch; CEO humanizes + merges. |
+| **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs, prunes old demo folders. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). **WORK.md size failsafe**: if the PM missed its size-triggered cut (WORK.md >200KB or ≥80 finished items), cuts an interim patch-version archive itself. |
 | **asset-librarian** | monthly 1st 07:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
 | **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. Flags ⚠️ concerns inline (cliché/complexity/balance/drift) but always appends the item — concerns are advisory, never gatekeep. |
 
@@ -1569,61 +1703,80 @@ Examples:
 
 ## Configuration reference
 
-Two files hold all CEO-tunable knobs. The split is intentional:
+Two files hold all CEO-tunable knobs, and **every read goes through ONE
+loader**: `scripts/spx_config.py get <dotted.key> [--game <slug>]`, which
+resolves `COMPANY_CONFIG.yaml` first, then deep-merges the game's
+`GAME_CONFIG.yaml` on top. The split is intentional:
 
-- **`schedule.yaml`** (in this framework repo) — **how the daemon runs**.
-  Cron expressions, parallel-worker count, ship-cap, retry/backoff
-  policy. Shared across all games this Mac runs.
-- **`Philosophy.md`** (in each game repo) — **what this game cares
-  about**. Identity, model assignments, per-agent thresholds, dashboard
-  preferences, dev binary. One per game.
+- **`COMPANY_CONFIG.yaml`** (in this framework repo) — **company-wide
+  defaults + how the daemon runs**. The `games:` registry, cron
+  expressions, model assignments, worker counts, ship-cap, retry/backoff
+  policy, budgets. Shared across all games this Mac runs. (`schedule.yaml`
+  is now just a back-compat symlink to this file.)
+- **`GAME_CONFIG.yaml`** (in each game repo) — **per-game overrides**.
+  Identity, cadence, per-agent thresholds, dev binary, model overrides —
+  any COMPANY_CONFIG key, overridden for that game.
 
-If you have to choose, ask "does it depend on the game?" → Philosophy.md;
-"does it depend on the daemon's runtime behavior?" → schedule.yaml.
+(`Philosophy.md` is **prose-only** now — design tenets in plain English, no
+YAML. All former Philosophy knobs live in GAME_CONFIG.yaml.)
 
-### `schedule.yaml#continuous` knobs (framework runtime)
+If you have to choose, ask "does it depend on the game?" → GAME_CONFIG.yaml;
+"is it a company-wide default or daemon behavior?" → COMPANY_CONFIG.yaml.
+
+### `COMPANY_CONFIG.yaml#continuous` knobs (framework runtime)
 
 | Knob | Default | What it does |
 |---|---|---|
-| `target_per_batch` | 10 | Ships per CEO signal before all workers sleep. Shared across parallel workers. |
-| `retry_per_item` | 1 | Max attempts per developer item before bouncing to `[retry]`. |
-| `dev_concurrency` | 1 | Parallel worker count (worktrees + claude sessions). Each shares the cap. |
+| `force_interactive_developers` | **true** (current) | Mode switch: true = NO headless dev workers; dev runs via `/spraxel-develop` (subscription-side). See "The two developer modes". |
+| `target_per_batch` | **8** | Ships per CEO signal before the loop parks. Shared across parallel workers. |
+| `retry_per_item` | 1 | Max attempts per developer item (within one run) before bouncing to `[retry]`. |
+| `retry_escalate_threshold` | 5 | Total `[retry]` attempts on ONE item before the poison-pill brake auto-escalates it. |
+| `dev_concurrency` | 3 | Parallel headless worker count (worktrees + claude sessions). Each shares the cap. `global.max_total_dev_workers` (4) caps the sum across games. |
+| `max_file_lines` | 1500 | "No god files" cap — reviewer blocks growth past this. |
 | `max_fail_streak` | 3 | Consecutive failures (any worker) before the cascade brake kicks in. |
 | `fail_backoff_seconds` | 1800 | Sleep duration when fail-streak brake fires. |
 | `poll_interval_seconds` | 60 | Cadence to re-check pause flag + cap counter. |
 | `idle_threshold` | 5 | Empty-queue ticks before dropping to long sleep. |
 | `idle_sleep_seconds` | 300 | Long sleep duration when queue is empty. |
+| `dev_stall_minutes` | 15 | Kill a dev after this long with NO worktree writes. |
+| `max_dev_minutes` | 90 | Absolute per-dev backstop. |
+| `wake_gap_threshold_secs` | 1800 | Tick gap that counts as "Mac was asleep" → catch_up replays missed crew agents. |
 
-### `schedule.yaml#agents` knobs
+### Other `COMPANY_CONFIG.yaml` sections
 
-Cron expression per crew agent. Edit freely — changes apply on next tick
-(within 60s). All evaluated in America/Los_Angeles. Format:
-`minute hour day-of-month month day-of-week`.
+| Section | What it holds |
+|---|---|
+| `games:` | The multi-game registry — one entry per game (`dir`, `enabled`); every enabled game runs concurrently, namespaced by slug. |
+| `agents:` | Cron expression per crew agent. Edit freely — changes apply on next tick (within 60s). All evaluated in America/Los_Angeles. Format: `minute hour day-of-month month day-of-week`. |
+| `models:` | **SOURCE OF TRUTH** for agent → model. Currently: architect=opus; developer/designer/playtester/producer/blogger/demo_creator/pm/morning_briefer=sonnet; reviewer/triager/janitor/asset_librarian=haiku. `models.ids` maps short names → full model ids (a model upgrade is a config edit, not a code edit). |
+| `policy:` | `run_mode`, `delegate_all` (full-autonomy switch), `sonnet_cap_reprobe_secs`, `budgets` (incl. **`daily_run_cap: 250`** — auto-pause runaway brake), `pricing` (per-MTok rates for the dashboard's metered-$ estimate). |
+| `test_runner:` | `max_minutes` (120), `force_after_engine_hours` (100), `interactive_sweep_after_hours` (interactive-mode opt-in sweep). |
+| `reaper:` / `agent_retry:` / `tick:` / `dashboard:` | Hung-agent reaping limits, per-invocation retry policy, tick interval, dashboard rendering counts (`recent_ships: 15`, `ceo_actions: 10`). |
 
-### `Philosophy.md` knobs (per-game)
+### `GAME_CONFIG.yaml` knobs (per-game)
 
 | Section | Knob | Default | What it does |
 |---|---|---|---|
 | `identity` | `name`, `pitch`, `must_include`, `must_not_include` | (game-specific) | Used by Designer/Producer to filter ideas against the game's tone. |
-| `cadence` | `<agent>: "<English description>"` | (matches schedule.yaml crons) | Defense-in-depth: agents read this and exit cleanly if today isn't their day. Update both schedule.yaml AND Philosophy.cadence if you change. |
-| `budgets` | `monthly_usd_hard_cap`, `by_agent_percent` | (game-specific) | Informational on Max plan. `token_report.sh` warns if actual usage drifts >25% from target. |
-| `budgets.model_assignments` | per-agent: `claude-haiku-*` / `claude-sonnet-*` / `claude-opus-*` | (game-specific) | **SOURCE OF TRUTH** for which model each agent uses. `run_agent.sh` reads this. |
+| `cadence` | `release`, `blogger`, … | (game-specific) | Release cadence (e.g. `"biweekly saturdays"`) + agent cadence self-checks. Keep `cadence.blogger` in sync with the COMPANY_CONFIG cron. |
+| `continuous` | `force_interactive_developers` | inherits company value | Per-game dev-mode override (infiltrators: `true`). |
 | `designer` | `ideas_per_run` | 5 | How many `[idea]` items the Designer drops per run. |
 | `designer` | `quality_criteria` | (game-specific) | Sentence describing what counts as a "good" idea. |
 | `ceo` | `do_not_disturb` | `["00:00-07:30"]` | Time windows when agents must not page the CEO. |
 | `blog` | `voice`, `template`, `publish_target` | (game-specific) | Blogger reads this for tone + format. |
 | `dev` | `godot_binary` | (system path) | Used by `run_local_tests.sh` + `capture_demo.sh`. |
-| `dev` | `velocity_issues_per_release` | 6 | Producer/PM target for parallel issues in flight. |
-| `janitor` | `cold_threshold_days` | 30 | Untouched Todo items get `[cold]` retag after this many days. |
+| `dev` | `velocity_issues_per_release` | 6 | PM release-capacity target (`infinite` disables the capacity gate). |
+| `janitor` | `cold_threshold_days` | 30 | Untouched items get `[cold]` retag after this many days. |
 | `janitor` | `log_retention_days` | 60 | Delete agent log files older than this. |
+| `janitor` | `demo_retention_days` | 30 | Prune demo folders older than this. |
 | `morning_briefer` | `playtest_count` | 10 | Features to surface in MORNING.md ▶ Play-test section. |
-| `dashboard` | `recent_ships` | 20 | "Last N shipped" rows in `dashboard.py`. |
-| `dashboard` | `ceo_actions` | 10 | "Next N CEO action items" rows. |
-| `run_mode` | `live` / `dryrun` | `live` | Hard kill-switch — `dryrun` makes agents log what they'd do without writing anything. |
+| `models` | per-agent short name / full id | inherits company `models:` | Per-game model overrides. |
+| `policy.run_mode` | `live` / `offline` | `live` | Hard kill-switch — gates whether agents actually do work. |
 
-All Philosophy.md knobs are optional; agents read the default if the
-field is missing. So a minimal Philosophy.md just needs `identity` +
-`run_mode` to work — everything else is tuning over time.
+All GAME_CONFIG knobs are optional; the loader falls back to the
+COMPANY_CONFIG value (or the agent's built-in default) if a key is missing.
+So a minimal GAME_CONFIG.yaml just needs `identity` + `dev.godot_binary` —
+everything else is tuning over time.
 
 ---
 
@@ -1633,25 +1786,31 @@ field is missing. So a minimal Philosophy.md just needs `identity` +
 
 | Script | Purpose | Invoked by |
 |--------|---------|------------|
-| **`tick.sh`** | The launchd-fired heartbeat. Every 60s: reads `schedule.yaml`, fires due crew agents, spawns `continuous_dev.sh` if not running, accrues engine on-time, and dispatches the batch test runner when triggered (cap+drained, or 100h). | `com.spraxel.tick.plist` (launchd) |
-| **`continuous_dev.sh`** | Long-running Developer loop. Ships items from `## Todo` until `target_per_batch` reached since last CEO signal, then sleeps. Detects clarifications + lock-conflicts. Devs run NO tests (except re-running a `[test_failure]`'s named test as that item's merge gate); idles while a test-runner run is scheduled/active. Per-worker lock `.locks/continuous-wN.lockdir`. | spawned by `tick.sh` if not alive |
-| **`test_runner.sh`** | The batch test runner. Runs the WHOLE suite serially (no contention), files each failure as a `[test_failure]` item at the top of `## Todo`. Tracks progress across runs; budget `test_runner.max_minutes`. Exclusive via `.locks/test-runner.lockdir`. NOT cron-fired. | dispatched by `tick.sh` (cap+drained, or `force_after_engine_hours`) |
-| **`run_agent.sh <name>`** | Wraps one Claude invocation. Reads the agent spec, composes prompt (spec + Philosophy + WORK.md + optional `SPRAXEL_ITEM_BRIEF`), passes `--model` based on spec frontmatter, calls `claude -p`. Per-agent lock prevents double-fire. | `tick.sh` (cron), `continuous_dev.sh` (per item), CEO manually |
+| **`tick.sh`** | The launchd-fired heartbeat. Every 60s: reads COMPANY_CONFIG (+ per-game GAME_CONFIG via the loader), **iterates every enabled game in `games:`**, fires due crew agents, keeps `continuous_dev.sh` alive (headless mode; spawns NO dev workers in interactive mode), accrues engine on-time, dispatches the batch test runner when triggered (cap+drained, or 100h), runs the **hourly crew-health monitor**, replays missed crew slots after a Mac-sleep wake gap (`catch_up.sh`), and enforces the `daily_run_cap` auto-pause brake. | `com.spraxel.tick.plist` (launchd) |
+| **`continuous_dev.sh`** | Long-running headless Developer loop (Mode A). Ships items until `target_per_batch` reached since last CEO signal, then sleeps. Detects clarifications + lock-conflicts. Devs run NO tests (except re-running a `[test_failure]`'s named test as that item's merge gate); idles while a test-runner run is scheduled/active, and idles when `force_interactive_developers` is on. Per-worker lock `state/<slug>/locks/continuous-wN.lockdir`. | spawned by `tick.sh` if not alive (headless mode) |
+| **`interactive_dev_step.sh`** | The `/spraxel-develop` skill's helper (Mode B — **current**): per-game claim/fail/ship/merge subcommands, cap-status, heartbeat marker, orphan-claim release. Owns all lock + WORK.md mutations so the interactive session never hand-edits state. | the `/spraxel-develop` skill |
+| **`spx_config.py`** | THE config loader: `get <dotted.key> [--game <slug>]`, `game-dir`, `current`/`set-current`. Resolves COMPANY_CONFIG.yaml, deep-merges GAME_CONFIG.yaml. Every agent + script reads config through it. | everything |
+| **`gctx.sh`** | Game-context shim: given `--game <slug>`, exports the namespaced dirs (`LOCKS_DIR`/`CACHE_DIR`/`GAME_LOGS_DIR`/`WORKTREES_DIR` → `state/<slug>/…`, `logs/<slug>/…`, `.worktrees/<slug>/…`). | sourced by the other scripts |
+| **`sonnet_cap.py`** | Sonnet usage-cap detector + auto-fallback flag: while capped, Sonnet agents (and the interactive dev subagent) run on Opus; re-probes Sonnet after `policy.sonnet_cap_reprobe_secs` (or the cap message's reset time). | `run_agent.sh`, `/spraxel-develop` |
+| **`catch_up.sh`** | Wake-gap replayer: after the Mac slept through cron slots, idempotently re-fires every crew agent that was due today (morning-briefer last). Skips the test runner — run the suite manually after an outage. | `tick.sh` (wake-gap detector), CEO manually |
+| **`test_runner.sh`** | The batch test runner. Runs the WHOLE suite serially (no contention), files each failure as a `[test_failure]` item at the top of the queue. Tracks progress across runs; budget `test_runner.max_minutes`. Exclusive via `state/<slug>/locks/test-runner.lockdir`. NOT cron-fired. | dispatched by `tick.sh` (cap+drained, or `force_after_engine_hours`) |
+| **`run_agent.sh <name>`** | Wraps one Claude invocation. Reads the agent spec, composes the prompt (spec + tenets + WORK.md sections + optional `SPRAXEL_ITEM_BRIEF`) — **every embedded section is byte-capped** (an oversized WORK.md degrades the prompt instead of killing the run) — resolves the model via `COMPANY_CONFIG models:` (Sonnet-cap fallback to Opus), calls `claude -p`. Treats fatal replies ("Prompt is too long" etc.) as **non-retryable escalations** instead of silent retries. Per-agent lock prevents double-fire. | `tick.sh` (cron), `continuous_dev.sh` (per item), CEO manually |
 | **`install_daemon.sh`** | Drops `com.spraxel.tick.plist` into `~/Library/LaunchAgents/`. Args: `install` / `stop` / `status` / `restart`. | CEO, one-time |
-| **`new_game.sh <dir>`** | Bootstraps a new game repo with Philosophy.md, Game.md, WORK.md, `.gitignore`, `.factory/`, `test/unit/`, `scripts/scenarios/`, and the local-tests cron installer. | CEO, when starting a new game |
-| **`workmd.py`** | Parser + CLI for WORK.md. Subcommands: `parse / top / append / ship / escalate / resume / promote / drop / bump / clarify / release-cut` + shaping: `shape-list / shape-start / shape-detail / shape-finalize / shape-pass` + epics: `shape-epic / reconcile-epics`. Atomic mkdir-locked. | every agent + CEO |
+| **`new_game.sh <dir>`** | Bootstraps a new game repo with GAME_CONFIG.yaml, Philosophy.md (prose), Game.md index, WORK.md, `.gitignore`, `.factory/`, `test/unit/`, `scripts/scenarios/`. The `/spraxel-launch` skill wraps this with a full onboarding interview. | CEO, when starting a new game |
+| **`workmd.py`** | Parser + CLI for WORK.md (4-section layout). Subcommands: `parse / top / append / ship / escalate / resume / promote / drop / bump / clarify / claim / release-wip / sync-escalations / release-cut` (externalizes the finished section to `WORK_v<version>.md`) + shaping: `shape-list / shape-start / shape-detail / shape-finalize / shape-pass` + epics: `shape-epic / reconcile-epics`. Atomic mkdir-locked. | every agent + CEO |
 | **`cron_match.py`** | Evaluates a 5-field cron expression against `now` in a timezone. Used by `tick.sh` to decide who fires and by `spraxel_report.py` to compute next firings. | `tick.sh`, `spraxel_report.py` |
 | **`slugify.py`** | Title → kebab-case branch slug. | `continuous_dev.sh` for branch names |
 | **`health_check.sh`** | Scans today's `logs/*/<YYYY-MM-DD>*.log` for error patterns (unknown model, rate limit, session expired, fatal, traceback). Outputs a markdown block. | `morning-briefer` agent (step 1), CEO manually |
 | **`spraxel_report.py`** | Status snapshot generator: right-now state, last 24h, last 7 days, next 20 scheduled events. Pure-local read-only — no Claude tokens. Powers `/spraxel-report`. | CEO via `/spraxel-report` skill or directly |
-| **`dashboard.py`** | Always-on TUI dashboard. Auto-refresh every 5 s (configurable via `--interval`). Compact view: status / tick / wrapper / cap counter / current item / today's totals / **next 10 scheduled fires** / **next 10 CEO action items** (urgency-ordered: `[needs-ceo]` > `[escalated]` > triage questionnaires (`TRIAGE.md`) > play-test > `[bug]` > `[idea]` > MANUAL > dictation backlog; color-coded) / **last 20 shipped** (sha + relative age + clean subject) / last log line. Stdlib only — no tokens, no third-party deps. Run in a terminal you leave open. | CEO, runs continuously while logged in |
-| **`token_report.sh`** | Counts `claude -p` invocations per agent over a window. Compares to `Philosophy.budgets.by_agent_percent`. Flags drift >25%. | CEO manually (weekly check); not yet scheduled |
+| **`dashboard.py`** | Always-on TUI dashboard. Auto-refresh every 5 s (configurable via `--interval`). Compact view: status (incl. `RUNNING/PAUSED (interactive-dev)` from the `/spraxel-develop` heartbeat) / tick / wrapper / cap counter / current item / today's totals + estimated metered $ / **next 10 scheduled fires** / **next 10 CEO action items** (urgency-ordered: `[needs-ceo]` > `[escalated]` > triage questionnaires (`TRIAGE.md`) > play-test > `[bug]` > `[idea]` > MANUAL > dictation backlog; color-coded) / **last 15 shipped** (sha + relative age + clean subject) / last log line. Stdlib only — no tokens, no third-party deps. Run in a terminal you leave open. | CEO, runs continuously while logged in |
+| **`token_report.sh`** | Counts `claude -p` invocations per agent over a window. Compares to `policy.budgets.by_agent_percent` (config). Flags drift >`drift_warn_percent` (25). | CEO manually (weekly check); not yet scheduled |
 | **`capture_demo.sh <slug>`** | Records a Godot --demo-feature run via Godot's built-in Movie Maker (`--write-movie`) + ffmpeg encoding to H.264 .mp4 + extracts a .png still at 3s. No Screen Recording permission needed (engine framebuffer, not screen pixels). Requires ffmpeg on PATH; exits rc=3 if missing. Exits rc=5 with warning if recording is suspiciously short (test-style scenarios that auto-quit). | `demo-creator` agent |
 | **`backfill_escalations.py`** | One-shot migration. Reads pre-redesign `.factory/escalations.md` entries (terse with log-link format), restores items to WORK.md as `[escalated]`, rewrites escalations.md with the new self-contained per-block format. Idempotent. | CEO, one-time per game repo |
-| **`checkin.sh`** | Explicit CEO signal — touches `.cache/ceo-checkin.ts`. `continuous_dev.sh` polls this and resets the counter on detection. | CEO manually when read-only interaction wasn't enough |
+| **`checkin.sh`** | Explicit CEO signal — touches `state/<slug>/cache/ceo-checkin.ts`. The ship loop polls this and resets the batch counter on detection (a parked `/spraxel-develop` also resumes on it). | CEO manually when read-only interaction wasn't enough |
+| **`with_master_lock.sh [-m msg] [--game <slug>] <workmd-verb> …`** | The SAFE wrapper for CEO WORK.md edits: takes the master-push lock, syncs, runs the `workmd.py` verb, commits + pushes. A bare `workmd.py` edit can be eaten by a worker's `reset --hard`. | CEO (approve/drop/bump/promote/resume) |
 | **`report.sh <agent>`** | Agents pipe a dated markdown activity report to it at end of run → `.factory/local/reports/<ts>-<agent>.md` (CEO-local, Janitor-pruned). The Morning Briefer distills all reports since the last briefing into MORNING.md's 📰 News section. (Developer/Reviewer don't self-report — the continuous loop writes one ship report per shipped item.) | every agent (auto, per `_shared.md`) |
-| **`amend.sh <slug-or-sha> "feedback"`** | CEO keeps a shipped feature but queues a refinement pass. Appends `[amend] Refine: <title>` to WORK.md `## Todo` with sha + feedback. Master untouched — Developer iterates on existing code next overnight. | CEO during play-test |
-| **`reject.sh <slug-or-sha> "reason"`** | CEO undoes a shipped feature. `git revert` the `feat:` + paired `work: shipped` commits on master, appends `[reject] Re-implement: <title>` to WORK.md `## Todo` with sha + reason. Developer re-implements next overnight, knowing the old approach was wrong. | CEO during play-test |
+| **`amend.sh <slug-or-sha> "feedback"`** | CEO keeps a shipped feature but queues a refinement pass. Appends `[amend] Refine: <title>` to WORK.md `## Up-and-coming work` with sha + feedback. Master untouched — Developer iterates on existing code on the next dev fire. | CEO during play-test |
+| **`reject.sh <slug-or-sha> "reason"`** | CEO undoes a shipped feature. `git revert` the `feat:` + paired `work: shipped` commits on master, appends `[reject] Re-implement: <title>` to WORK.md `## Up-and-coming work` with sha + reason. Developer re-implements on the next dev fire, knowing the old approach was wrong. | CEO during play-test |
 | **`playtested.sh <substr>\|all\|--list\|--reset`** | The "✓ Accept" action. Marks play-test feature(s) verified for TODAY so they drop off the dashboard + `/spraxel-inbox` action list. Writes only `.factory/local/playtested.json` (CEO-local, gitignored, auto-resets daily) — does not touch the game, master, or WORK.md. | CEO during play-test |
 | **`interrupt.sh`** | Pause-and-stash protocol: sets `.paused`, kills the whole continuous_dev/run_agent/claude tree, clears stale locks, `git stash` in the game repo, checks out master. Pairs with `resume.sh`. | CEO when interrupting mid-run |
 | **`resume.sh`** | Restores pre-interrupt state: pops stash, checks out original branch, removes `.paused`. Flags: `--drop` (discard stash), `--no-resume` (keep paused). | CEO after a manual change |
@@ -1667,54 +1826,60 @@ These get installed by `new_game.sh`. They're not part of the framework's daemon
 |--------|---------|------------|
 | **`run_local_tests.sh`** | Runs GUT under `test/unit/` + every `scripts/scenarios/*.gd`, writes `.factory/local-tests-status.json`. Exit 0 = green, 1 = failures, 2 = setup error. NEW: `--list` enumerates canonical test-refs; `--only <ref>` runs exactly one test. | `test_runner.sh` (`--list` + `--only` per ref); `continuous_dev.sh` (`--only` for a `[test_failure]` fix gate); CEO manually |
 | **`run_unit_tests.sh`** | Fast GUT-only runner. No class-cache refresh, no scenarios, no notifications. | CEO iterating on a specific test |
-| **`install_local_tests.sh`** | Drops `com.spraxel.localtests.plist`. Args: `install` / `stop` / `status`. | CEO, one-time per game repo |
+| **`install_local_tests.sh`** | Drops `com.spraxel.localtests.plist`. Args: `install` / `stop` / `status`. **Legacy — the 30-min test daemon is retired**; keep only for `stop` on old installs. | (retired) |
 
 ### Long-running processes
 
-When the system is healthy, these are the processes you should see in `ps`:
+When the system is healthy, these are the processes you should see in `ps`
+(in interactive-developer mode — the current default — there is **no**
+`continuous_dev.sh` worker; dev work lives inside your Claude Code session
+instead):
 
 ```
 $ pgrep -fl 'continuous_dev|run_agent|com.spraxel|claude --model'
 
 PID  PPID  COMMAND
 N    1     /usr/sbin/launchd ...com.spraxel.tick.plist...        (launchd dispatcher)
-N    1     /usr/sbin/launchd ...com.spraxel.localtests.plist...  (test cron dispatcher)
-N    1     bash continuous_dev.sh                                (the Developer loop)
+N    1     bash continuous_dev.sh                                (headless mode only)
 N    cont  bash run_agent.sh developer                           (current Developer)
 N    rag   claude --model claude-sonnet-4-6 -p                   (current claude inv)
 ```
 
 Things to watch for that mean trouble:
-- **Two `continuous_dev.sh` running** → race condition. Run `bash scripts/interrupt.sh` and resume.
-- **`run_agent.sh` with parent PID 1** → orphan (the wrapper died but the child survived). Holds `.locks/<agent>.lockdir`. Same fix: `interrupt.sh`.
+- **Two `continuous_dev.sh` with the same worker id** → race condition. Run `bash scripts/interrupt.sh` and resume.
+- **Any `continuous_dev.sh` dev activity while `force_interactive_developers` is true** → mode confusion; it should idle. Check the tick log.
+- **`run_agent.sh` with parent PID 1** → orphan (the wrapper died but the child survived). Holds `state/<slug>/locks/<agent>.lockdir` (the reaper kills it past its class limit). Same fix: `interrupt.sh`.
 - **`claude --model ...` running >30 min** → either a real long Developer (fine) or claude hung. If `ps` CPU isn't advancing, kill it.
 
 ### Agents (`~/SpraxelAiCompany/agents/spraxel-*.md`)
 
-11 agent specs + `_shared.md` (universal rules referenced by all).
+13 agent specs + `_shared.md` (universal rules referenced by all).
 
 | Agent | Model | Cadence | Triggered by | Writes to |
 |-------|-------|---------|--------------|-----------|
-| **developer** | sonnet | per item | `continuous_dev.sh` | game branch (code), commits |
-| **reviewer** | haiku | per item | `continuous_dev.sh` after tests pass | `.factory/reviews/<branch>.md` |
-| **triager** | haiku | daily 03:00 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[bug]` items) |
-| **morning-briefer** | haiku | daily 04:00 PT | `tick.sh` cron | `MORNING.md` |
-| **pm** | haiku | daily 05:00 PT | `tick.sh` cron | WORK.md `## Todo` (re-orders) |
-| **designer** | sonnet | Tue + Fri 04:30 PT | `tick.sh` cron | WORK.md `## Todo` (appends `[idea]` items) |
-| **architect** | sonnet | 09:00 & 21:00 PT + reactive on `[untriaged]` | `tick.sh` cron + reactive grep | WORK.md (shape-* tag/spec edits) + `.factory/local/TRIAGE.md` |
-| **blogger** | sonnet | Sat 09:00 PT | `tick.sh` cron | `blog/<date>` branch |
-| **janitor** | haiku | Sun 01:00 PT | `tick.sh` cron | WORK.md (cold-archives), branches (deletes merged), logs (prunes >60 days) |
+| **developer** | sonnet | per item | the ship loop (`continuous_dev.sh` or `/spraxel-develop`) | game branch (code), commits |
+| **reviewer** | haiku | per item | the ship loop, pre-merge | `.factory/reviews/<branch>.md` |
+| **playtester** | sonnet | daily 03:00 PT | `tick.sh` cron | `.factory/inbox/playtest-findings.md` (classified findings + CEO test recipes) |
+| **triager** | haiku | daily 04:00 PT | `tick.sh` cron | WORK.md (appends `[needs-ceo] [bug]` items) |
+| **morning-briefer** | sonnet | daily 05:00 PT | `tick.sh` cron | `.factory/local/MORNING.md` (🩺 crew-health line first in 📰 News) |
+| **demo-creator** | sonnet | daily 05:30 PT | `tick.sh` cron | `.factory/demos/<date>/recipe.md` (top-3 recipes) + best-effort captures (rc=5 skip ledger) |
+| **pm** | sonnet | daily 06:00 PT (+ release cuts: calendar or size trigger) | `tick.sh` cron | WORK.md (re-orders; `release-cut` → `WORK_v<version>.md`) |
+| **designer** | sonnet | Tue + Fri 04:30 PT (+ dry-queue days) | `tick.sh` cron | WORK.md (appends `[idea]` items) |
+| **architect** | **opus** | 09:00 & 21:00 PT + reactive on `[untriaged]` | `tick.sh` cron + reactive grep | WORK.md (shape-* tag/spec edits) + `.factory/local/TRIAGE.md` (questionnaires + `ESC ·` ballots) |
+| **blogger** | sonnet | Tue + Fri 09:00 PT (release-driven self-gate) | `tick.sh` cron | `blog/<date>` branch |
+| **janitor** | haiku | Sun 01:00 PT | `tick.sh` cron | WORK.md (cold-archives; interim size-failsafe archive), branches (deletes merged), logs (prunes >60 days) |
 | **asset-librarian** | haiku | monthly 1st 07:00 PT | `tick.sh` cron | `.factory/asset-report-<date>.md`, MORNING.md note |
-| **producer** | sonnet | on-demand (`/spraxel-producer`) | CEO via skill | WORK.md `## Todo` (from `.factory/inbox/raw.md`) |
-| **demo-creator** | sonnet | daily 05:30 PT | `tick.sh` cron | `.factory/demos/<date>/recipe.md` (always) + best-effort `.mp4`+`.png` (when Mac awake + ffmpeg installed) |
+| **producer** | sonnet | on-demand (`/spraxel-producer`) | CEO via skill | WORK.md (from `.factory/inbox/raw.md`) |
 
-### Skills (`~/SpraxelAiCompany/skills/`, hardlinked to `~/.claude/skills/`)
+### Skills (`~/SpraxelAiCompany/skills/`, linked into `~/.claude/skills/` by `scripts/install_skills.sh` — if a `/spraxel-*` command is missing, re-run that script)
 
 | Skill | Trigger | Purpose |
 |-------|---------|---------|
-| **`/spraxel-inbox`** (or `/inbox`) | CEO types in Claude Code | Walks the morning routine: opens MORNING.md, surfaces sections in order, quick commands |
+| **`/spraxel-develop [N]`** | CEO types in Claude Code | **The interactive dev loop** (current dev mode): claims + builds WORK.md items with Sonnet dev / Haiku review subagents, ships to the batch cap, parks + self-resumes on a poke. Subscription-side. |
+| **`/spraxel-inbox`** (or `/inbox`) | CEO types in Claude Code | Full CEO digest any time of day: what's blocking, morning-style briefing, action checklist for the current time slot |
 | **`/spraxel-producer`** (or `/producer`) | CEO types in Claude Code | Converts `.factory/inbox/raw.md` + dictation files into clean WORK.md items; flags ⚠️ concerns inline |
 | **`/spraxel-report`** (or `/report`) | CEO types in Claude Code, or "what's going on?" | Immediate system status: now / last 24h / last week / next 20 scheduled events. Runs `scripts/spraxel_report.py` (no Claude tokens used for data gathering) |
+| **`/spraxel-launch`** | CEO types in Claude Code | Onboards a NEW game/project: interview → scaffold via `new_game.sh` → register in the `games:` registry alongside existing games → optionally seed starter work |
 
 ### Per-agent memory files
 
@@ -1740,26 +1905,35 @@ at end. CEO can read/edit/delete any memory file at any time.
 
 ### State + cache files
 
+All per-game operational state is **namespaced by game slug** (multi-game):
+locks + caches under `state/<slug>/`, logs under `logs/<slug>/`, worktrees
+under `.worktrees/<slug>/`.
+
 | Path | Purpose |
 |------|---------|
-| `~/SpraxelAiCompany/.paused` | Touch-flag: when present, all agent dispatches no-op. `rm` to resume. |
-| `~/SpraxelAiCompany/.locks/<agent>.lockdir` | Per-agent atomic lock. Held while agent is in-flight. Stale lockdirs from crashes are cleaned by `tick.sh`. |
-| `~/SpraxelAiCompany/.cache/continuous-state.json` | Counter, last CEO signal SHA + timestamp. Read by `continuous_dev.sh` each loop iteration. |
-| `~/SpraxelAiCompany/.cache/ceo-checkin.ts` | Touched by `scripts/checkin.sh`. Polled by `continuous_dev.sh` for "manual signal" detection. |
-| `~/SpraxelAiCompany/.cache/last-interrupt.txt` | Pre-interrupt branch + stash ref, used by `resume.sh`. |
+| `~/SpraxelAiCompany/.paused` | Touch-flag: when present, all agent dispatches no-op. `rm` to resume. (Also auto-touched by the `daily_run_cap` brake.) |
+| `~/SpraxelAiCompany/state/<slug>/locks/<agent>.lockdir` | Per-agent atomic lock. Held while agent is in-flight. Stale lockdirs from crashes are cleaned by `tick.sh` / the reaper. |
+| `~/SpraxelAiCompany/state/<slug>/cache/continuous-state.json` | Counter, last CEO signal SHA + timestamp. Read by the ship loop each iteration. |
+| `~/SpraxelAiCompany/state/<slug>/cache/ceo-checkin.ts` | Touched by `scripts/checkin.sh`. Polled by the ship loop for "manual signal" detection. |
+| `~/SpraxelAiCompany/state/<slug>/cache/crew-health.txt` | Hourly crew-health snapshot (empty = all green). Feeds MORNING.md's 🩺 line. |
+| `~/SpraxelAiCompany/state/<slug>/cache/last-interrupt.txt` | Pre-interrupt branch + stash ref, used by `resume.sh`. |
+| `~/SpraxelAiCompany/.worktrees/<slug>/worker-<id>/` | Persistent per-worker git worktree (headless mode). Interactive mode uses `.worktrees/<slug>/interactive/`. |
 | `~/SpraxelAiCompany/logs/tick/<YYYY-MM-DD>.log` | One line per minute from `tick.sh`. |
-| `~/SpraxelAiCompany/logs/<agent>/<ts>.log` | Full claude conversation log per agent invocation. |
-| `~/SpraxelAiCompany/logs/continuous/<YYYY-MM-DD>/<slug>.log` | Per-item ship log (Developer + tests + Reviewer + merge). |
+| `~/SpraxelAiCompany/logs/<slug>/<agent>/<ts>.log` | Full claude conversation log per agent invocation. |
+| `~/SpraxelAiCompany/logs/<slug>/continuous/<YYYY-MM-DD>/w<id>-<slug>.log` | Per-item ship log (Developer + Reviewer + merge). |
 
 ### Game-side state (`~/GameProjects/<game>/.factory/`)
 
 | Path | Purpose |
 |------|---------|
-| `escalations.md` | Append-only log of items the Developer couldn't ship. Morning Briefer surfaces these. |
+| `escalations.md` | **Derived snapshot** of current `[escalated]` items — regenerated from WORK.md every iter by `sync-escalations` (don't hand-edit; retag in WORK.md instead). |
+| `local/MORNING.md` | The daily CEO briefing (gitignored, CEO-local). |
+| `local/TRIAGE.md` | Architect questionnaires + `ESC ·` escalation ballots (gitignored, CEO-local). |
 | `local-tests-status.json` | Last `run_local_tests.sh` result: pass/fail, list of failures, log path. |
-| `reviews/<branch>.md` | Per-branch Reviewer findings. |
+| `reviews/<branch>.md` | Per-branch Reviewer findings (gitignored — ephemeral, local-only). |
 | `inbox/raw.md` | Where CEO dumps dictation; `/spraxel-producer` drains this. |
 | `inbox/dictation/*.md` | Phone voice-memo exports; `/spraxel-producer` also drains these. |
+| `demos/<date>/recipe.md` | Demo-creator recipes (top-3) + captures. |
 | `local-test-logs/<stamp>.log` | Full output of each `run_local_tests.sh` run (gitignored). |
 
 ---
@@ -1804,31 +1978,67 @@ done
 ```
 
 Common causes:
-- Philosophy.md `run_mode: "dryrun"` — agents exit silently. Flip to `live`.
+- Config `policy.run_mode: "offline"` (COMPANY_CONFIG or the game's
+  GAME_CONFIG) — agents exit silently. Flip to `live`.
 - Claude session expired — re-run `claude login` in Claude Code.
 - Wrong model ID for the agent (claude-CLI errors with `unknown model`).
   The health check catches this — `bash scripts/health_check.sh`.
 - Nothing to do (Janitor with no stale items, PM with no reorder needed).
 
-### "Overnight loop didn't ship anything"
+### "The dev loop didn't ship anything"
+
+First: which mode are you in? In interactive mode (**current**), nothing
+ships unless a `/spraxel-develop` session is running — check the dashboard
+for `PAUSED (interactive-dev)`. Then:
 
 ```bash
 # What did it try?
-ls -t ~/SpraxelAiCompany/logs/overnight/ | head -1 | xargs -I{} ls ~/SpraxelAiCompany/logs/overnight/{}
+ls -t ~/SpraxelAiCompany/logs/<slug>/continuous/$(date +%Y-%m-%d)/ 2>/dev/null
+
+# Loop state (counter, fail streak, last CEO signal)
+cat ~/SpraxelAiCompany/state/<slug>/cache/continuous-state.json
 
 # Recent escalations
 cat ~/GameProjects/<game>/.factory/escalations.md | tail -40
 ```
 
-If `fail_streak: 3` appears in `~/SpraxelAiCompany/.cache/last-overnight.txt`,
-the Claude CLI hit 3 consecutive failures (likely rate limit or session
-expiry). Re-auth and re-run.
+A fail streak ≥ 3 in `continuous-state.json` means the Claude CLI hit 3
+consecutive failures (likely rate limit, Sonnet cap, or session expiry).
+Check `sonnet_cap.py is-capped`, re-auth if needed, and re-run.
 
-### "I committed code mid-cycle and now the continuous loop fails to push"
+### How the system fails — and how you find out
 
-The continuous loop fetches and rebases at start of each item, but if
+The instructive war story: **2026-06 → 2026-07-08**, WORK.md grew unchecked
+past 400KB, and for ~2 weeks EVERY scheduled crew run died instantly with
+"Prompt is too long" — the wrapper counted the fatal replies as retryable
+failures, so there was **zero signal**: no MORNING.md, no triage, no
+briefings, just silence the CEO didn't notice. Four defenses now exist so
+that failure mode (and its cousins) can't stay silent:
+
+1. **Crew-health monitor** — `tick.sh` checks hourly, per game: any agent
+   whose last *successful* run is older than 2× its cron cadence lands in
+   `state/<slug>/cache/crew-health.txt`; newly-stale agents get a one-time
+   crew_health report.
+2. **The 🩺 line** — MORNING.md's 📰 News section MUST open with the
+   crew-health status, so a dead agent is in your face every morning (and a
+   dead *briefer* is conspicuous by its absent MORNING.md — check
+   `crew-health.txt` directly if the file didn't update).
+3. **Prompt byte-caps** — `run_agent.sh` hard-caps every embedded WORK.md
+   section, so an oversized file degrades a prompt instead of killing the
+   run; the PM's size-triggered release cut and the Janitor's interim-archive
+   failsafe keep WORK.md small in the first place.
+4. **Fatal replies escalate** — `run_agent.sh` treats fatal model replies
+   ("Prompt is too long", etc.) as non-retryable escalations instead of
+   silently retrying into a 30-min-backoff loop.
+
+If you ever suspect silence, the 10-second check is:
+`cat ~/SpraxelAiCompany/state/<slug>/cache/crew-health.txt` (empty = green).
+
+### "I committed code mid-cycle and now the dev loop fails to push"
+
+The ship loop fetches and rebases at start of each item, but if
 you committed between its fetch and its push, the push fails. Easy fix: run a quick
-manual rebase next morning, or just wait — the next night picks up where
+manual rebase, or just wait — the next batch picks up where
 it left off.
 
 ### "WORK.md got corrupted by two agents writing at once"
@@ -1850,55 +2060,73 @@ mv WORK.md.recovered WORK.md && git add WORK.md && git commit -m "fix WORK.md"
 
 ## Cost model
 
+**The 2026-06-15 billing split changed this section fundamentally**: headless
+`claude -p` runs now bill as **metered API credits**, while interactive
+Claude Code sessions stay on the flat subscription. The cost lever is
+therefore *where* work runs — which is why dev work (the token-heavy part)
+runs in interactive-developer mode.
+
 | Resource | Cost |
 |----------|------|
-| `claude -p` invocations | Flat — included in Claude Max plan. No marginal cost per run. |
+| Interactive sessions (`/spraxel-develop` dev+review subagents, your CEO sessions) | Flat — included in the Claude subscription. This is where the heavy Sonnet work lives. |
+| Headless `claude -p` invocations (scheduled crew agents) | **Metered** — API-credit spend per token since 2026-06-15. The dashboard shows an estimated daily $ via `token_usage.py` + `policy.pricing`. Kept cheap by Haiku-heavy crew assignments + byte-capped prompts. |
+| Runaway-day protection | `policy.budgets.daily_run_cap: 250` — `tick.sh` auto-touches `.paused` past that many runs/day. |
 | GitHub commits + pushes | $0 — unlimited on free private repos. |
 | GitHub Actions | $0 — we don't use them anymore. |
 | Anthropic `/schedule` routines | $0 — we don't use them anymore. |
 | LFS storage | $0 if you stay under 1 GB total LFS objects. |
-| Mac electricity | Marginal — continuous loop runs claude in bursts, mostly idle between dev calls. |
+| Mac electricity | Marginal — the loop runs claude in bursts, mostly idle between dev calls. |
 
-The system's only **bounded** resource is your Claude Max weekly token
-quota. Sonnet runs (Developer, Designer, Blogger) consume most. If you hit
-the cap mid-week, all `claude -p` calls return 429 until the cap resets.
-See "Risks" below for mitigation.
+The **bounded** resources are the subscription's usage caps (Sonnet-cap
+detection auto-falls back to Opus via `sonnet_cap.py`) and the metered
+credit pool for the crew. See "Risks" below for mitigation.
 
 ---
 
 ## Risks
 
-- **Claude Max weekly cap**: 10 overnight Developer runs/night × 7 nights
-  = 70 Sonnet calls/week, plus Designer, Blogger, daily Concierge/PM/Triager
-  (Haiku, cheap). Should fit comfortably in the Max cap, but if you hit
-  it, the system 429s silently until reset.
-  *Mitigation*: monitor `~/SpraxelAiCompany/logs/<agent>/` for "rate limit"
-  in recent logs. Add to TODO: a simple `claude --version`-like daily
-  health check in `tick.sh`.
+- **Usage caps + metered spend**: heavy Sonnet dev work rides the
+  subscription cap; crew runs bill metered credits. A Sonnet-cap death used
+  to look like a mysterious 75-byte log and a retry storm.
+  *Mitigation (built)*: `sonnet_cap.py` auto-falls back to Opus while
+  capped; the crew-health monitor + 🩺 MORNING.md line surface dead agents;
+  `daily_run_cap` (250) auto-pauses a runaway metered day.
 
 - **launchd skips ticks on sleep**: if your Mac sleeps for an hour, the
   daemon skips that hour. `RunAtLoad=true` so it resumes when you log in.
-  Overnight loop schedules at 23:00; if you closed the lid at 22:30 and
-  opened it at 09:00, you lost the night.
-  *Mitigation*: `sudo pmset -a sleep 0` if you want to keep the Mac awake;
-  or accept the occasional missed night.
+  *Mitigation (built)*: the wake-gap detector — a tick arriving
+  >`wake_gap_threshold_secs` (30 min) after the previous one triggers
+  `catch_up.sh`, which idempotently replays every crew slot that was due
+  today (morning-briefer last). Note it deliberately skips the test runner —
+  after a long outage, run the suite manually. `sudo pmset -a sleep 0` if
+  you want to keep the Mac awake instead.
+
+- **Locked keychain stalls pushes**: Mac sleep can lock the osxkeychain git
+  helper — every push then silently fails and the whole loop stalls.
+  *Mitigation*: `gh auth setup-git` re-wires credentials.
 
 - **Bot identity leaks**: if an agent forgets to set `git -c user.email=...`
   per-commit, it commits as the CEO. Each agent spec reiterates this in
-  `_shared.md`; the overnight wrapper also sets it explicitly on the
+  `_shared.md`; the ship-loop wrapper also sets it explicitly on the
   merge commit and the WORK.md update.
 
-- **Designer floods the queue**: 4-6 items every Friday × 52 weeks = 200+
-  unvetted ideas/year. The Janitor cold-archives 30+ day stale items, but
-  CEO triage at 5 min/Friday isn't sufficient long-term.
-  *Mitigation*: lower `cron: "0 7 * * 5"` to `"0 7 1,15 * 5"` (biweekly)
-  if it builds up.
+- **Designer floods the queue**: 4-6 items every Tue+Fri = 400+ unvetted
+  ideas/year. The Janitor cold-archives 30+ day stale items, but CEO triage
+  at 5 min/drop isn't sufficient long-term.
+  *Mitigation*: trim the `designer` cron (e.g. weekly) or lower
+  `designer.ideas_per_run` if it builds up.
 
 - **Reviewer over-blocks**: if the Reviewer agent gets pessimistic, it
-  exits 1 often and the continuous loop escalates everything. CEO has to
-  re-tune the spec.
+  exits 1 often and everything bounces to `[retry]` (and eventually the
+  poison-pill auto-escalation). CEO has to re-tune the spec.
   *Mitigation*: regular review of `.factory/reviews/<branch>.md` files.
   Most should be `clean`.
+
+- **WORK.md bloat kills crew prompts**: the June→July 2026 outage. An
+  un-cut finished section blows every prompt past the input limit.
+  *Mitigation (built)*: PM size-triggered cuts (≥40 items / >150KB),
+  Janitor interim-archive failsafe (>200KB / ≥80 items), run_agent.sh
+  byte-capped embeds, crew-health monitor to catch it anyway.
 
 ---
 
@@ -1908,10 +2136,10 @@ See "Risks" below for mitigation.
 - No GitHub Actions (deleted from both repos).
 - No `/schedule` Anthropic routines (you should delete them in claude.ai
   Settings → Scheduled tasks; they're costing per-token).
-- No PR ceremony (overnight merges directly to master after Reviewer +
+- No PR ceremony (the ship loop merges directly to master after Reviewer +
   tests pass).
 - No `keepalive.yml` (no GH cron to keep alive).
-- No `cost-report.yml` (cost is flat).
+- No `cost-report.yml` (spend is tracked locally — `token_usage.py` + the dashboard's $ estimate).
 - No `factory-log.yml` (no event ledger; everything is in git log + logs/).
 - No `Concierge` / `Factory Daily Log issue #5` (replaced by MORNING.md).
 
@@ -1922,7 +2150,7 @@ weighed against the offline single-operator constraint and ruled out.
 
 **Why no PR workflow?**
 Decided 2026-05-25: in a one-person studio, PRs add ceremony without
-value. The overnight loop does Developer → tests → Reviewer → merge in
+value. The ship loop does Developer → Reviewer → merge in
 one shot. If a feature lands broken, `git revert` is cheap and you find
 out in the next play-test. The CEO is the only reviewer that matters,
 and reviewing in MORNING.md (or `git show`) is faster than navigating
@@ -1938,13 +2166,14 @@ same routing power as Issue labels with zero round-trip latency.
 **Why no GitHub Actions?**
 Decided 2026-05-25: marginal Actions cost (free-tier minutes) constrained
 the cadence. All workflows are now local shell scripts driven by launchd.
-Loss: no auto-CI on PRs — but there are no PRs now, and `run_local_tests.sh`
-runs on every developer commit anyway.
+Loss: no auto-CI on PRs — but there are no PRs now, and the batch test
+runner covers the suite locally.
 
 **Why no `/schedule` Anthropic routines?**
 Decided 2026-05-25: `/schedule` bills per-token, separate from the Max
-plan. `claude -p` headless on Max is flat-fee under the weekly cap. Same
-agents, no marginal cost.
+plan. At the time, `claude -p` headless on Max was flat-fee under the
+weekly cap. (Post-2026-06-15 headless is metered too — the answer now is
+local control + the interactive-mode lever, not just price.)
 
 **Why no Concierge agent?**
 Decided 2026-05-25: renamed to `morning-briefer`, writes MORNING.md
@@ -1960,16 +2189,14 @@ running. With no PRs and no event-driven chains, they vanished.
 Things that aren't built yet because there's no current need. Each is
 fine to leave for now; revisit when the constraint actually hits.
 
-- **Multi-game bootstrap**: `scripts/new_game.sh` works, but running two
-  games in parallel needs either a daemon per game or `tick.sh` extended
-  to iterate multiple `game_dir` entries in `schedule.yaml`. Defer until
-  you actually start a second game. (See also the cross-reference in
-  the "A day in the system" section above.)
-- **Token-usage backpressure**: if `claude -p` starts returning 429
-  (Max weekly cap hit), the agents all silently fail. Could add a
-  health check in `tick.sh` that greps recent logs for `429` / `rate
-  limit` and auto-touches `.paused` for 24h. Defer until you actually
-  hit the cap.
+- ~~**Multi-game bootstrap**~~ — **SHIPPED (2026-06-15)**: `tick.sh`
+  iterates the `games:` registry; per-game state is namespaced
+  (`state/<slug>/`, `logs/<slug>/`, `.worktrees/<slug>/`), with a
+  `global.max_total_dev_workers` ceiling. Onboard new games via
+  `/spraxel-launch`.
+- ~~**Token-usage backpressure**~~ — **SHIPPED**: the `daily_run_cap`
+  brake auto-pauses a runaway day, `sonnet_cap.py` handles the Sonnet cap,
+  and the crew-health monitor surfaces silent failures.
 - **Push notifications**: no external alert when MORNING.md changes —
   CEO has to open it. macOS Notification Center via `osascript -e
   'display notification ...'` at 05:05 PT, or an iOS Shortcut watching
@@ -1983,7 +2210,7 @@ either silently no-op or point at things that don't exist:
 
 ```
 gh issue list ...           # no issues — WORK.md is the source of truth
-gh pr list / pr checkout    # no PRs — overnight merges directly to master
+gh pr list / pr checkout    # no PRs — the ship loop merges directly to master
 gh run list / run watch     # no Actions — local launchd + claude -p instead
 gh workflow run ...         # no workflows
 gh pr edit --add-label X    # no labels driving anything
@@ -2000,19 +2227,23 @@ plan.
 
 | What | Where |
 |------|-------|
-| Today's CEO routine | `~/GameProjects/<game>/MORNING.md` |
+| Today's CEO routine | `~/GameProjects/<game>/.factory/local/MORNING.md` (or `/spraxel-inbox`) |
 | What's in flight / queued | `~/GameProjects/<game>/WORK.md` |
-| What's been shipped | git log + WORK.md `## Shipped *` sections |
-| Failed items waiting on you | `~/GameProjects/<game>/.factory/escalations.md` |
+| What's been shipped | git log + WORK.md `## Finished since last release` + `WORK_v*.md` archives |
+| Escalations waiting on you | `~/GameProjects/<game>/.factory/escalations.md` (+ `ESC ·` ballots in `.factory/local/TRIAGE.md`) |
+| Shaping questionnaires | `~/GameProjects/<game>/.factory/local/TRIAGE.md` |
 | Last test run | `~/GameProjects/<game>/.factory/local-tests-status.json` |
 | Reviewer's notes per branch | `~/GameProjects/<game>/.factory/reviews/<branch>.md` |
-| Agent run logs | `~/SpraxelAiCompany/logs/<agent>/<ts>.log` |
+| Crew health (silent-failure check) | `~/SpraxelAiCompany/state/<slug>/cache/crew-health.txt` |
+| Agent run logs | `~/SpraxelAiCompany/logs/<slug>/<agent>/<ts>.log` |
 | Daemon ticks | `~/SpraxelAiCompany/logs/tick/<YYYY-MM-DD>.log` |
 | Quick "is anything broken?" | `bash ~/SpraxelAiCompany/scripts/health_check.sh` |
-| Schedule config | `~/SpraxelAiCompany/schedule.yaml` |
-| Bootstrap a new game | `bash ~/SpraxelAiCompany/scripts/new_game.sh <dir>` |
+| Company config (games registry, crons, models, knobs) | `~/SpraxelAiCompany/COMPANY_CONFIG.yaml` |
+| Per-game config overrides | `~/GameProjects/<game>/GAME_CONFIG.yaml` |
+| Bootstrap a new game | `/spraxel-launch` (or `bash ~/SpraxelAiCompany/scripts/new_game.sh <dir>`) |
 | Pause + preserve in-flight work | `bash ~/SpraxelAiCompany/scripts/interrupt.sh` |
 | Resume after a manual change | `bash ~/SpraxelAiCompany/scripts/resume.sh` |
-| Game's design tenets | `~/GameProjects/<game>/Philosophy.md` |
-| Feature inventory | `~/GameProjects/<game>/Game.md` |
+| Game's design tenets (prose-only) | `~/GameProjects/<game>/Philosophy.md` |
+| Feature inventory | `~/GameProjects/<game>/Game.md` (INDEX) → `docs/features/<slug>.md` per feature |
+| The built-in game editors (Level / **Cutscene** / Story Map) | `~/SpraxelAiCompany/EDITORS.md` — hands-on test guide. Note: the Cutscene Editor **exists** (title screen → CUTSCENE EDITOR); ignore any older doc claiming otherwise (the infiltrators repo's OPERATIONS.md §2 has that error — EDITORS.md calls it out) |
 | WORK.md format spec | `~/SpraxelAiCompany/docs/WORK_MD_FORMAT.md` |
