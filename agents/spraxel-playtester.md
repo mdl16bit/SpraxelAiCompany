@@ -24,6 +24,30 @@ not your scheduled day, exit cleanly with `playtester: not scheduled today`.
 features you've covered, which edge cases you've tested. Don't re-test
 things you already explored unless new commits touched them.
 
+**The known-issue ledger.** Your memory file keeps a `## known-issues`
+section (one line each: `<fingerprint> — first seen <date> — <status>`).
+Before writing ANY finding in step 5, check it against this ledger — a
+finding whose fingerprint (same error class + same scenario/file) is already
+listed is NOT re-reported; bump its `last seen` date in the ledger and move
+on. (History: the same stale-class-cache issue was reported as 6 "candidate
+bugs" across 3 separate runs — pure triage noise.)
+
+### 1b. Environment pre-flight (do BEFORE any testing)
+
+The #1 historical false-positive source is a stale
+`.godot/global_script_class_cache.cfg` (missing `class_name` entries →
+cascading scenario failures that look like 5-6 distinct bugs). So, first:
+
+```bash
+GODOT=$(python3 ~/SpraxelAiCompany/scripts/spx_config.py get dev.godot_binary)
+"$GODOT" --headless --path . --import 2>&1 | tail -5   # rebuild import + class cache
+```
+
+If a scenario later errors with "Could not find type/class ..." or parse
+errors on `class_name` symbols, that is an ENVIRONMENT issue: re-run the
+import once, retry the scenario, and classify it `environment` (step 5) —
+NEVER report it as a gameplay bug.
+
 ### 2. Read the project state
 
 - `Game.md` — current feature inventory + `--demo-feature=<slug>` boot hooks.
@@ -79,7 +103,29 @@ them out in step 5).
 
 This is the critical difference from the old Triager behavior. **You do not
 append `[bug]` items directly.** Instead, write your findings to
-`.factory/inbox/playtest-findings.md`:
+`.factory/inbox/playtest-findings.md`.
+
+**Classify EVERY finding first — the gate that keeps triage signal clean.**
+Tag each finding with exactly one class:
+
+- **`gameplay`** — the game itself misbehaves for a player: wrong mechanic
+  behavior, crash during play, state corruption, HUD lying, controls stuck.
+  → goes in `## Candidate bugs` (CEO triage via Triager).
+- **`harness`** — the *test scenario* is broken, not the game: test-isolation
+  ordering, a scenario asserting stale expectations, a demo hook that quits
+  early. If your own analysis concludes "gameplay code looks correct" — it is
+  harness, full stop. → goes in `## Harness issues (NOT bugs)`.
+- **`environment`** — stale class cache, missing import, ffmpeg/display/perm
+  problems. → `## Environment notes`, after the pre-flight retry (step 1b).
+
+Only `gameplay` findings are candidate bugs; the Triager ignores the other
+two sections (they're context, and material for a `[chore]` at most).
+History check before you write: of 9 "candidate bugs" in the 2026-06-19 run,
+~0 were gameplay — 6 were one stale cache, 2 were self-described test
+isolation. Every finding you report as gameplay should survive the question
+*"would a PLAYER with a normal install ever see this?"*
+Also run every finding against the known-issue ledger (step 1) — repeats
+are ledger bumps, not findings.
 
 ```markdown
 # Playtest findings — 2026-05-26 03:00 PT
@@ -104,7 +150,28 @@ append `[bug]` items directly.** Instead, write your findings to
 - run-slide: 5 edge-case combinations, all good
 - detection-hud: 3 light-level cases, all good
 - ...
+
+## Harness issues (NOT bugs — chore-lane material)
+- distraction-radio-chatter scenario: EntityRegistry leaks between sub-tests
+  (gameplay code correct). class: harness.
+
+## Environment notes
+- class cache was stale at run start; rebuilt via --import, all clear after.
+
+## Hands-on checklist (for the CEO)
+### <feature slug> — 60-second hands-on
+1. Launch: <mission to pick / --demo-feature line WITHOUT --headless>
+2. Do: <the 2-3 player actions that exercise it>
+3. Expect: <the visible result>
+4. Also poke: <the one edge case worth feeling by hand>
+5. Smells to watch: <what "wrong" would look like>
 ```
+
+The **Hands-on checklist** is a first-class deliverable: one 5-line recipe
+per NEW feature you covered this run. You test headless traces; the CEO
+tests *feel* — hand them exactly what to do in 60 seconds per feature. (The
+CEO hand-writes these guides today — see PLAYTEST.md at the company root;
+this section feeds it.)
 
 ### 6. Update your memory
 
@@ -115,9 +182,14 @@ Append to `.factory/memory/playtester.md`:
 
 Tested features: <list>.
 Edge cases covered: <description>.
-Findings: <N> candidates (see .factory/inbox/playtest-findings.md).
+Findings: <N> gameplay candidates, <M> harness, <K> environment
+(see .factory/inbox/playtest-findings.md).
 Next time: focus on <X> (un-covered area).
 ```
+
+Also maintain the `## known-issues` ledger (step 1): add fingerprints for
+every harness/environment finding and any gameplay candidate the Triager/CEO
+later rejects; bump `last seen` on repeats instead of re-reporting.
 
 ### 7. Commit
 
