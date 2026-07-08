@@ -48,7 +48,9 @@ fi
 game_dir="$GAME_DIR"
 LOGS_DIR="$GAME_LOGS_DIR"
 
-if [ -e "$PAUSED_FLAG" ]; then
+if [ -e "$PAUSED_FLAG" ] && [ "$dry_run" != "--dry-run" ]; then
+  # --dry-run is exempt: it only composes the prompt file (no model call, no
+  # writes to game state) — useful for verifying prompt size while paused.
   echo "run_agent: paused (rm $PAUSED_FLAG to resume)" >&2
   exit 3
 fi
@@ -219,6 +221,34 @@ trap cleanup EXIT
 # WORK.md state on their respective feat branches (which used to lead
 # to literal git-merge-conflict markers landing on master).
 WORK_MD_PATH="$game_dir/WORK.md"
+
+# Byte-capped WORK.md section renderer. NEVER embed an unbounded section:
+# 2026-06-13→07-08 the un-cut "Finished since last release" section grew to
+# 373KB, every crew prompt blew the model input limit ("Prompt is too long"),
+# and the whole scheduled crew was dead for 2+ weeks. Sections are rendered
+# via workmd.py (fallback: raw file) and hard-truncated at a byte cap with a
+# pointer so the agent can pull the rest on demand.
+emit_workmd_capped() {
+  local sections="$1" cap="$2" tmp
+  tmp=$(mktemp)
+  if [ -f "$WORK_MD_PATH" ]; then
+    python3 "$REPO_DIR/scripts/workmd.py" render "$WORK_MD_PATH" --sections "$sections" >"$tmp" 2>/dev/null \
+      || cat "$WORK_MD_PATH" >"$tmp"
+  else
+    echo "(no WORK.md found at $WORK_MD_PATH)" >"$tmp"
+  fi
+  if [ "$(wc -c <"$tmp")" -gt "$cap" ]; then
+    head -c "$cap" "$tmp"
+    echo
+    echo "[... TRUNCATED — WORK.md section(s) '$sections' exceed the $((cap/1024))KB prompt budget."
+    echo "Pull more ONLY if your task needs it: python3 ~/SpraxelAiCompany/scripts/workmd.py top $WORK_MD_PATH -n 30"
+    echo "or: python3 ~/SpraxelAiCompany/scripts/workmd.py render $WORK_MD_PATH --sections $sections ]"
+  else
+    cat "$tmp"
+  fi
+  rm -f "$tmp"
+}
+
 {
   cat "$spec"
   echo
@@ -276,51 +306,38 @@ WORK_MD_PATH="$game_dir/WORK.md"
   # Philosophy.md is now prose-only (config moved to COMPANY_CONFIG.yaml /
   # GAME_CONFIG.yaml). run_mode + budgets come from scripts/spx_config.py.
   if [ -f "$WORK_DIR/Philosophy.md" ]; then
-    cat "$WORK_DIR/Philosophy.md"
+    head -c 32768 "$WORK_DIR/Philosophy.md"   # prose-only; cap defends against regrowth
   else
     echo "(no Philosophy.md found at $WORK_DIR/Philosophy.md)"
   fi
   echo
-  # ── Context diet (cost) ──────────────────────────────────────────────
-  # The full WORK.md is ~300KB and ~85% of it is the ## Shipped archive,
-  # which gets re-read every turn (~50x/run) and dominates the token bill.
+  # ── Context diet (cost + prompt-size safety) ─────────────────────────
+  # Every tier is BYTE-CAPPED via emit_workmd_capped — no section is ever
+  # embedded unbounded (see the 2026-07-08 incident note on the helper).
   # Three tiers:
   #   developer/reviewer            → ## Todo only (don't need shipped history;
   #                                    dev gets its item via SPRAXEL_ITEM_BRIEF,
   #                                    reviewer reads the git diff). ~80% of runs.
   #   architect/designer/triager/   → current + Todo (recent "Shipped since last
-  #     morning_briefer               release" for dedup/context, drops the older
-  #                                    "## Shipped (previous releases)" archive).
-  #   everyone else (pm/janitor/…)  → full file (pm release notes, janitor archiving).
-  # render falls back to the full file on any error, so this never starves an agent.
+  #     morning_briefer               release" for dedup/context).
+  #   everyone else (pm/janitor/…)  → current + Todo as well. The old "Shipped
+  #                                    (previous releases)" history lives in
+  #                                    per-release WORK_v*.md archives + release
+  #                                    notes — PM/janitor read those on demand.
   case "$agent" in
     developer|reviewer)
       echo "### WORK.md — ## Todo only (Shipped archive omitted to save tokens)"
       echo "# Need shipped history? Run: python3 ~/SpraxelAiCompany/scripts/workmd.py render $WORK_MD_PATH --sections current,todo   (or: git log)"
-      if [ -f "$WORK_MD_PATH" ]; then
-        python3 "$REPO_DIR/scripts/workmd.py" render "$WORK_MD_PATH" --sections todo 2>/dev/null \
-          || cat "$WORK_MD_PATH"
-      else
-        echo "(no WORK.md found at $WORK_MD_PATH)"
-      fi
+      emit_workmd_capped todo 40960
       ;;
     architect|designer|triager|morning_briefer)
       echo "### WORK.md — ## Shipped-since-last-release + ## Todo (older releases archive omitted to save tokens)"
       echo "# Need the full archive? Run: python3 ~/SpraxelAiCompany/scripts/workmd.py render $WORK_MD_PATH --sections shipped,current,todo   (or: git log)"
-      if [ -f "$WORK_MD_PATH" ]; then
-        python3 "$REPO_DIR/scripts/workmd.py" render "$WORK_MD_PATH" --sections current,todo 2>/dev/null \
-          || cat "$WORK_MD_PATH"
-      else
-        echo "(no WORK.md found at $WORK_MD_PATH)"
-      fi
+      emit_workmd_capped current,todo 81920
       ;;
     *)
-      echo "### WORK.md (current state — read from canonical path)"
-      if [ -f "$WORK_MD_PATH" ]; then
-        cat "$WORK_MD_PATH"
-      else
-        echo "(no WORK.md found at $WORK_MD_PATH)"
-      fi
+      echo "### WORK.md — current release + Todo (previous-release history lives in WORK_v*.md archives + .factory/releases/*.md — read on demand)"
+      emit_workmd_capped current,todo 81920
       ;;
   esac
   echo
@@ -334,6 +351,43 @@ WORK_MD_PATH="$game_dir/WORK.md"
   echo "Do your role's work now per the spec above. Tools: Bash, Read, Edit, Write, Grep, Glob."
   echo "Write to files under $WORK_DIR as your spec describes. Print one short status line to stdout."
 } > "$log.prompt"
+
+# ── Prompt-size guard ────────────────────────────────────────────────
+# Last line of defense: the caps above should keep prompts far below this,
+# but if the assembled prompt still exceeds PROMPT_MAX_BYTES (spec bloat,
+# giant Philosophy, oversized item brief), rebuild a MINIMAL prompt instead
+# of sending a doomed "Prompt is too long" request.
+PROMPT_MAX_BYTES=153600   # 150KB ≈ ~40K tokens
+_psize=$(wc -c < "$log.prompt")
+if [ "$_psize" -gt "$PROMPT_MAX_BYTES" ]; then
+  echo "run_agent: $agent prompt ${_psize}B > ${PROMPT_MAX_BYTES}B — degrading to minimal context" >&2
+  {
+    cat "$spec"
+    echo
+    echo "---"
+    echo "## Today's runtime context (MINIMAL — normal embedded context exceeded the prompt budget: ${_psize} bytes)"
+    echo
+    echo "Working directory: $WORK_DIR"
+    echo "WORK.md path:      $WORK_MD_PATH  ← USE THIS EXACT PATH for every workmd.py call"
+    echo "Date: $(date '+%Y-%m-%d %H:%M %Z')"
+    case "$_delegate_all" in true|True|TRUE|1|yes|on)
+      echo "DELEGATE-ALL MODE ACTIVE — no CEO; decide yourself, never tag [needs-ceo]/[escalated] (see _shared.md)." ;;
+    esac
+    echo
+    echo "⚠ Philosophy.md + WORK.md sections were OMITTED (size). Read on demand:"
+    echo "  python3 ~/SpraxelAiCompany/scripts/workmd.py top $WORK_MD_PATH -n 30"
+    echo "  cat $WORK_DIR/Philosophy.md"
+    if [ -n "${SPRAXEL_ITEM_BRIEF:-}" ] && [ -f "$SPRAXEL_ITEM_BRIEF" ]; then
+      echo
+      echo "---"
+      cat "$SPRAXEL_ITEM_BRIEF"
+    fi
+    echo
+    echo "---"
+    echo "Do your role's work now per the spec above. Tools: Bash, Read, Edit, Write, Grep, Glob."
+    echo "Write to files under $WORK_DIR as your spec describes. Print one short status line to stdout."
+  } > "$log.prompt"
+fi
 
 if [ "$dry_run" = "--dry-run" ]; then
   echo "Prompt written to: $log.prompt"
@@ -397,6 +451,26 @@ while :; do
     echo "run_agent: Sonnet cap detected — switching $agent to Opus ($OPUS_ID) and retrying" >&2
     model_id="$OPUS_ID"
     continue
+  fi
+  # ── Fatal-response gate ────────────────────────────────────────────
+  # Some responses are deterministic failures dressed as success (rc=0 +
+  # non-empty output): "Prompt is too long" is the canonical one — it counted
+  # as a SUCCESSFUL run for 2 weeks (2026-06-24→07-08), stamping agent-last-ok
+  # and silencing catch_up while the whole crew did nothing. Retrying the
+  # identical prompt can't help; escalate loudly and stop.
+  if [ -s "$log" ] && [ "$(wc -c < "$log")" -lt 2048 ] \
+     && grep -qiE '^(Prompt is too long|Invalid API key|Credit balance is too low|OAuth token (has expired|revoked))' "$log"; then
+    fatal_msg=$(head -c 160 "$log" | tr '\n' ' ')
+    echo "run_agent: $agent FATAL response ('$fatal_msg') — not retrying" >&2
+    esc="$game_dir/.factory/escalations.md"
+    {
+      echo "- ⚠ $(date '+%Y-%m-%d %H:%M %Z') run_agent: **$agent run is FATALLY broken** — model replied: \"$fatal_msg\"."
+      echo "  Deterministic failure (retries won't help). Log: $log  Prompt: $log.prompt ($(wc -c < "$log.prompt") bytes)."
+    } >> "$esc" 2>/dev/null || true
+    printf '%s\n' \
+      "- ⚠ $agent run FAILED fatally: \"$fatal_msg\" — needs CEO/operator attention (see $log)." \
+      | bash "$REPO_DIR/scripts/report.sh" "$agent" >/dev/null 2>&1 || true
+    exit 1
   fi
   if [ "$rc" -eq 0 ] && [ -s "$log" ]; then
     echo "run_agent: $agent ok (attempt $attempt)" >&2
