@@ -61,7 +61,9 @@ ceo_routine:
 models:
   developer:        sonnet
   reviewer:         haiku
-  architect:        sonnet
+  architect:        opus       # writes the specs everything downstream builds from —
+                               # a bad spec costs full dev+review+retry cycles; runs
+                               # only ~2x/day so the opus premium is cents, not dollars
   designer:         sonnet
   playtester:       sonnet     # judgement-heavy: "is this weird?"
   producer:         sonnet
@@ -69,7 +71,9 @@ models:
   demo_creator:     sonnet     # writes index.md, makes capture decisions
   triager:          haiku
   pm:               sonnet     # judgement-heavy: priority sort + adjacency grouping across a large Todo
-  morning_briefer:  haiku
+  morning_briefer:  sonnet     # owns THE CEO-facing artifact; most invariant-heavy spec
+                               # in the roster (slug consistency, false-positive checks);
+                               # post-context-diet runs are small so the delta is cents/day
   janitor:          haiku
   asset_librarian:  haiku
 
@@ -125,7 +129,7 @@ policy:
       demo_creator:      1
     drift_warn_percent: 25     # token_report.sh flags an agent with ⚠ when its actual
                                # invocation share drifts more than this many points off target
-    daily_run_cap: 0           # HARD SPEND GUARDRAIL. 0 = off. If >0, tick.sh auto-pauses the
+    daily_run_cap: 250         # HARD SPEND GUARDRAIL. 0 = off. If >0, tick.sh auto-pauses the
                                # whole system (touch .paused) once this many agent runs happen
                                # in a day — a guaranteed ceiling against a runaway day billing
                                # metered $$. CEO removes .paused to resume. Set ABOVE your normal
