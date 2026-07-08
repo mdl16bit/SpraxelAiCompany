@@ -127,14 +127,25 @@ should ship in the current release, in a sensible build order — and the
 
 ### When to fire this mode
 
-After step 1 of daily reorder, **check**:
+After step 1 of daily reorder, **check BOTH triggers** — fire mode 2 if EITHER
+is met (and the section is non-empty):
 
+**Calendar trigger** (all three):
 - Today is a Monday (or whatever day `cadence.release` specifies — `spx_config.py get cadence.release`)
 - Days since last tag ≥ cadence window (14 for `"biweekly"`, 7 for `"weekly"`)
 - WORK.md `## Shipped since last release` has at least 1 item (skip
   empty-release cuts)
 
-If all three are true, ALSO run mode 2 after the reorder.
+**Size trigger** (either one — fire the SAME DAY you notice, calendar be damned):
+- `## Shipped since last release` holds ≥ 40 items, OR
+- `wc -c WORK.md` > 150000 bytes.
+
+The size trigger is a SURVIVAL rule, not a style preference: every crew agent's
+prompt embeds WORK.md sections, and in 2026-06/07 an un-cut 373KB section blew
+every prompt past the model input limit and killed the whole scheduled crew for
+2 weeks. An oversized WORK.md is a p0 factory outage in progress — cut early,
+cut often. (run_agent.sh now byte-caps its embeds as a backstop, but a capped
+prompt is a degraded prompt; the real fix is keeping WORK.md small here.)
 
 ### Release-cut steps
 
@@ -164,16 +175,13 @@ If all three are true, ALSO run mode 2 after the reorder.
    weekly devlog.
 
 3. **Roll WORK.md sections** (use `workmd.py` for safety):
-   - Take all items currently in `## Shipped since last release`.
-   - Prepend each with `v0.N — ` so they sort right in the historical bucket.
-   - Move them into `## Shipped (previous releases)` (append).
-   - Leave `## Shipped since last release` empty.
-
    ```bash
    python3 ~/SpraxelAiCompany/scripts/workmd.py release-cut \
      <path>/WORK.md v0.N
    ```
-   (PM may need to add this subcommand to workmd.py — see "Tooling" below.)
+   This externalizes every `## Shipped since last release` item (title
+   prefixed `v0.N — `, details preserved) to `WORK_v0.N.md` and empties the
+   section. Commit `WORK_v0.N.md` along with WORK.md (see "Tooling" below).
 
 4. **Tag the release**:
    ```bash
@@ -229,15 +237,15 @@ there is nothing to compare against, so don't emit a velocity-vs-config note).
 
 ## Tooling — `workmd.py release-cut` subcommand
 
-PM needs `workmd.py release-cut <path> v0.N` which atomically:
-1. Reads `## Shipped since last release` items.
-2. Prepends `v0.N — ` to each title (preserving details).
-3. Appends them to `## Shipped (previous releases)` (chronological order).
+`workmd.py release-cut <path> v0.N` EXISTS and atomically:
+1. Takes every item in `## Shipped since last release`.
+2. Prefixes each title with `v0.N — ` (preserving details).
+3. **Externalizes** them to `WORK_v0.N.md` next to WORK.md (NOT back into
+   WORK.md — this is what keeps WORK.md small and the crew prompts healthy).
 4. Empties `## Shipped since last release`.
 
-If this subcommand doesn't exist yet, PM should NOT improvise WORK.md
-manipulation — escalate to `.factory/local/MORNING.md` with: `PM: release-cut subcommand
-missing in workmd.py; cut deferred. CEO please add or cut manually.`
+Read prior releases on demand from `WORK_v*.md` + `.factory/releases/*.md` —
+never re-inline them into WORK.md.
 
 ## Constraints
 
