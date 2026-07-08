@@ -123,7 +123,9 @@ for wt in "$WT_ROOT"/*; do
   pid="${base##*-}"
   # If the pid is no longer running a run_agent, treat as orphaned
   if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
-    cd ~/GameProjects/<game> && git worktree remove --force "$wt" 2>/dev/null \
+    # $GAME_DIR is exported by gctx for the game you're running against —
+    # never hardcode a game path (this is a multi-game framework).
+    git -C "$GAME_DIR" worktree remove --force "$wt" 2>/dev/null \
       && echo "janitor: swept orphan worktree $base"
   fi
 done

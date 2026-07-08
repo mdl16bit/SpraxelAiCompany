@@ -111,36 +111,30 @@ actually stick.
    loader (`spx_config.py get policy.run_mode` — see _shared.md), never from
    Philosophy.md (prose-only). Don't load the entire codebase.
 
-   **Big-file read discipline (token cost — REQUIRED).** A few source files are
-   huge and re-cost on every turn once they're in your context (each `Read` of a
-   13k-line file loads ~120k tokens that get re-read ~50× over your run):
-   `scripts/characters/character.gd` (~13,000 lines), `scripts/systems/debug_boot.gd`,
-   `scripts/ai/guard.gd`, `scripts/systems/skill_db.gd`, `scripts/game/level_editor.gd`.
-   For ANY file over ~1,500 lines, do **not** `Read` it whole. Instead `grep -n`
-   for the symbol/function/pattern you need
-   (e.g. `grep -n "coin_throw\|func _on_q_pressed" scripts/characters/character.gd`),
-   then `Read` only that span using the `offset`/`limit` args (grab some
-   surrounding lines for context). Read a big file in full only when you truly
-   need its whole structure. Small files (<1,500 lines) you may read normally.
-   This produces identical code for a fraction of the tokens.
+   **Big-file read discipline (token cost — REQUIRED).** A full `Read` of a
+   multi-thousand-line file loads its whole body into context and re-bills it
+   every turn for the rest of your run. For ANY file over ~1,500 lines, do
+   **not** `Read` it whole: `grep -n` for the symbol/function/pattern you
+   need, then `Read` only that span with `offset`/`limit` (grab surrounding
+   lines for context). Read a big file in full only when you truly need its
+   whole structure. The game repo's `CLAUDE.md` lists its known big files
+   (see "Big files — grep, don't Read whole").
 
 3. **Implement.** Edit/create Godot scripts and scenes. Follow the game-repo
    conventions: GDScript style in `scripts/`, scenes in `scenes/`.
 
    **No god files (enforced).** The reviewer blocks any diff that grows a code
-   file past `max_file_lines` (schedule.yaml; currently 1500). Do NOT keep
-   appending to already-huge files (`character.gd`, `debug_boot.gd`, `guard.gd`,
-   `skill_db.gd`, `level_editor.gd`). New functionality goes in a new focused
-   module — e.g. a new ability belongs in `scripts/characters/abilities/<name>.gd`
-   self-registering via `ability_base.gd` + the AbilityRegistry, NOT in
-   `character.gd`. If a change would push a file over the cap, extract instead.
+   file past `continuous.max_file_lines` (config loader; currently 1500). Do
+   NOT keep appending to the repo's already-huge grandfathered files (listed
+   in the game repo's `CLAUDE.md`). New functionality goes in a new focused
+   module; if a change would push a file over the cap, extract instead.
 
    **For every `[feature]` / `[game-feature]` item, you MUST ship all SIX
    parts. Reviewer blocks the merge if any are missing.** A passing GUT run
    on the unit test is not enough — the CEO has to be able to play with the
    feature from a single command, the next developer has to be able to
-   find it from `GAME.md`, and any placeholder assets you used have to be
-   filed as follow-up CEO tasks before you exit.
+   find it from the Game.md index, and any placeholder assets you used have
+   to be filed as follow-up CEO tasks before you exit.
 
    | # | Deliverable                            | Where                                    |
    |---|----------------------------------------|------------------------------------------|
@@ -148,7 +142,7 @@ actually stick.
    | 2 | **Working interactive debug hook**     | `scripts/systems/debug_boot.gd`          |
    | 3 | **GUT unit test**                      | `test/unit/test_<slug>.gd` (see step 5)  |
    | 4 | **Sample level / character / mission integration** (when applicable) | `resources/missions/sample/*`, `scenes/levels/sample/*`, or `MissionRunner.ROSTER` |
-   | 5 | **GAME.md block**                      | `GAME.md` (see step 4)                   |
+   | 5 | **Feature doc + index line**           | `docs/features/<slug>.md` + Game.md index (see step 4) |
    | 6 | **Asset-gap audit + MANUAL follow-ups** (see Follow-up section below) | `WORK.md ## Todo`                        |
 
    **Deliverable #6 — asset-gap audit — is mandatory whenever your feature
