@@ -190,6 +190,58 @@ for GAME_SLUG in ${GAME_SLUGS[@]+"${GAME_SLUGS[@]}"}; do
   TR_RAN_SHA="$CACHE_DIR/test-runner-ran-sha"
   mkdir -p "$LOCKS_DIR" "$CACHE_DIR"
 
+  # ── Crew-health monitor (hourly per game) ──────────────────────────────────
+  # 2026-06-24→07-08 every crew run failed ("Prompt is too long") with ZERO
+  # signal to the CEO for 2 weeks. Compare each crew agent's agent-last-ok
+  # stamp age against its cron cadence (2× expected interval + 6h sleep slack).
+  # Newly-stale agents get a report (→ MORNING.md News + /spraxel-inbox) once;
+  # full state in $CACHE_DIR/crew-health.txt.
+  HEALTH_STAMP="$CACHE_DIR/crew-health.last"
+  if [ ! -f "$HEALTH_STAMP" ] || [ -z "$(find "$HEALTH_STAMP" -mmin -60 2>/dev/null)" ]; then
+    touch "$HEALTH_STAMP"
+    _stale=$(AGENT_ENTRIES="$agent_entries" python3 - "$CACHE_DIR/agent-last-ok" <<'PY' 2>/dev/null
+import os, sys, time
+okdir = sys.argv[1]
+now = time.time()
+for line in os.environ.get("AGENT_ENTRIES", "").splitlines():
+    if "|" not in line:
+        continue
+    name, cron = line.split("|", 1)
+    f = cron.split()
+    interval_days = 1.0
+    if len(f) == 5:
+        dom, dow = f[2], f[4]
+        if dow != "*":
+            interval_days = 7.0 / max(len(dow.split(",")), 1)
+        elif dom != "*":
+            interval_days = 31.0
+    thresh = 2 * interval_days * 86400 + 6 * 3600
+    p = os.path.join(okdir, name.replace("_", "-") + ".ts")
+    try:
+        age_h = int((now - os.path.getmtime(p)) / 3600)
+    except OSError:
+        print(f"{name}|no successful run on record")
+        continue
+    if age_h * 3600 > thresh:
+        print(f"{name}|last success {age_h}h ago (cron: {cron})")
+PY
+)
+    UNHEALTHY_STATE="$CACHE_DIR/crew-health.unhealthy"
+    _prev=$(cat "$UNHEALTHY_STATE" 2>/dev/null || true)
+    printf '%s\n' "$_stale" > "$CACHE_DIR/crew-health.txt"
+    printf '%s\n' "$_stale" | awk -F'|' 'NF {print $1}' > "$UNHEALTHY_STATE"
+    while IFS='|' read -r _an _why; do
+      [ -n "$_an" ] || continue
+      case " $_prev " in *" $_an "*) continue ;; esac   # already reported while unhealthy
+      printf '%s\n' \
+        "- ⚠ CREW-HEALTH: **$_an** looks dead — $_why. Check logs/$GAME_SLUG/$_an/ (tail the newest .log)." \
+        | bash "$REPO_DIR/scripts/report.sh" crew_health --game "$GAME_SLUG" >/dev/null 2>&1 || true
+      echo "$now  crew-health: $_an STALE ($_why)" >> "$log"
+    done <<EOF_STALE
+$_stale
+EOF_STALE
+  fi
+
   # Per-game worker count. force_interactive_developers => no headless workers
   # (the CEO drives dev from /spraxel-develop); treat dev_concurrency as 0.
   dev_concurrency=$(python3 "$SPX" get continuous.dev_concurrency --default 1 --game "$GAME_SLUG" 2>/dev/null); dev_concurrency=${dev_concurrency:-1}
