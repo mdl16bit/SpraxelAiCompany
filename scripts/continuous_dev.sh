@@ -57,6 +57,7 @@ fi
 # Cap counter is SHARED across all parallel-dev workers — one batch of N
 # ships drains the counter for everyone. last_signal_* / last_ts likewise.
 STATE_FILE="$CACHE_DIR/continuous-state.json"
+. "$REPO_DIR/scripts/ship_lib.sh"   # shared per-item pipeline helpers (both dev modes)
 CHECKIN_FILE="$CACHE_DIR/ceo-checkin.ts"
 mkdir -p "$LOCKS_DIR" "$CACHE_DIR"
 
@@ -264,34 +265,10 @@ s['last_ts'] = '$(date '+%Y-%m-%d %H:%M:%S %Z')'
 json.dump(s, open('$STATE_FILE','w'), indent=2)
 PY
 }
-# Atomic read-modify-write +1 for parallel-dev: lockdir guards against
-# concurrent workers losing increments. Prints the NEW value to stdout.
-inc_state() {
-  python3 - <<PY
-import json, os, time
-state_file = '$STATE_FILE'
-key = '$1'
-lock = state_file + '.lockdir'
-deadline = time.time() + 10
-while True:
-    try:
-        os.mkdir(lock)
-        break
-    except FileExistsError:
-        if time.time() > deadline:
-            raise SystemExit(2)
-        time.sleep(0.05)
-try:
-    s = json.load(open(state_file))
-    s[key] = int(s.get(key, 0)) + 1
-    s['last_ts'] = '$(date '+%Y-%m-%d %H:%M:%S %Z')'
-    json.dump(s, open(state_file, 'w'), indent=2)
-    print(s[key])
-finally:
-    try: os.rmdir(lock)
-    except FileNotFoundError: pass
-PY
-}
+# Atomic read-modify-write +1 for parallel-dev — shared implementation in
+# ship_lib.sh (same lockdir protocol the interactive skill's bump-cap uses,
+# so both modes mutate the counter identically). Prints the NEW value.
+inc_state() { ship_bump_counter "$1"; }
 
 # --- Sampled-scenario bug filing ---
 # --- CEO signal detection ---
@@ -540,10 +517,8 @@ for det in (it or {}).get('details', []):
   # to the same slug still get distinct branches. Two workers never share
   # an item (the [wip:N] claim lock), so per-item names never collide
   # across workers — the worker id is not needed in the name.
-  local _title_core _title_hash
-  _title_core=$(printf '%s' "$next_title" | sed -E 's/^[[:space:]]*(\[[a-z-]+\][[:space:]]*)+//I')
-  _title_hash=$(printf '%s' "$_title_core" | shasum 2>/dev/null | cut -c1-6)
-  local det_branch="feat/cont-${slug}-${_title_hash}"
+  local det_branch
+  det_branch=$(ship_branch_for "$next_title")   # shared with interactive mode — see ship_lib.sh
 
   # ── Resume / Retry path ───────────────────────────────────────────────────
   # If the item is tagged [resume] OR [retry], the dev's prior attempt left
@@ -1162,23 +1137,21 @@ print(t)
         # must survive; or the squash adds a `--demo-feature` debug hook (the
         # deterministic "player-facing" signal that even [feature] items carry) —
         # bounce to the retry path so the dev (re)adds the block.
-        if git diff --cached --quiet -- Game.md 2>/dev/null; then
-          _need_gm=0
-          echo "$next_title" | grep -qiE '\[game-feature\]' && _need_gm=1
-          git diff --quiet origin/master..."$branch" -- Game.md 2>/dev/null || _need_gm=1
-          git diff --cached -- scripts/systems/debug_boot.gd 2>/dev/null \
-            | grep -qE '^\+[[:space:]]*func _demo_|--demo-feature=' && _need_gm=1
-          if [ "$_need_gm" -eq 1 ]; then
-            echo "continuous: MERGE GATE — player-facing change but Game.md NOT updated in the squash; bouncing to [retry] so the dev (re)adds the Game.md block." >> "$item_log"
-            git reset --hard origin/master --quiet 2>/dev/null || true
-            git clean -fd --quiet 2>/dev/null || true
-            exit 1
-          fi
+        # (shared check in ship_lib.sh; exit-code 1 is this mode's retry bounce)
+        if ! ship_gamemd_gate "$next_title" "$branch"; then
+          echo "continuous: MERGE GATE — player-facing change but Game.md NOT updated in the squash; bouncing to [retry] so the dev (re)adds the Game.md block." >> "$item_log"
+          git reset --hard origin/master --quiet 2>/dev/null || true
+          git clean -fd --quiet 2>/dev/null || true
+          exit 1
         fi
         if git -c user.email=continuous-bot@spraxel.ai -c user.name='Spraxel Continuous' \
                 commit --quiet -m "$commit_message" \
            && git push --quiet origin master; then
-          python3 "$WORKMD" ship "$game_dir/WORK.md" "$next_title" >> "$item_log" 2>&1 || true
+          # Shared strike-with-[wip]-fallback (ship_lib.sh): previously a
+          # paraphrased title here silently matched nothing and the item
+          # stayed [wip] forever — the interactive mode's fallback now
+          # protects this path too.
+          ship_strike_shipped "$game_dir/WORK.md" "$next_title" "$WORKER_ID" >> "$item_log" 2>&1 || true
           # If this was the last child of an epic, auto-ship its parent too.
           python3 "$WORKMD" reconcile-epics "$game_dir/WORK.md" >> "$item_log" 2>&1 || true
           git add WORK.md 2>/dev/null
@@ -1227,10 +1200,8 @@ print(t)
       # branches indefinitely. Best to clean up at ship time so origin
       # stays tidy.
       git push --quiet origin --delete "$branch" 2>/dev/null || true
-      # Ship report → MORNING.md news digest (reports for Developer+Reviewer,
-      # who don't self-report; one line per shipped item).
-      printf '%s\n' "- Shipped: $short_title" \
-        | bash "$REPO_DIR/scripts/report.sh" continuous >/dev/null 2>&1 || true
+      # Ship report → MORNING.md news digest (shared with interactive mode).
+      ship_report "$short_title"
       outcome=ok
       break
     else

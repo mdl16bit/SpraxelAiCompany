@@ -58,6 +58,7 @@ MASTER_LOCK="$LOCKS_DIR/master-push.lockdir"
 STATE_FILE="$CACHE_DIR/continuous-state.json"   # shared cap-counter state (continuous_dev.sh)
 WORKER_ID=0
 . "$REPO_DIR/scripts/lockutils.sh"
+. "$REPO_DIR/scripts/ship_lib.sh"   # shared per-item pipeline helpers (both dev modes)
 
 WORKTREE="$WORKTREES_DIR/interactive"
 BOT_ID=(-c user.email=interactive-dev-bot@spraxel.ai -c user.name='Spraxel Interactive Dev')
@@ -81,15 +82,9 @@ _ensure_worktree() {
   git -C "$WORKTREE" clean -fd --quiet 2>/dev/null || true
 }
 
-# Deterministic branch name — a pure function of the item (matches
-# continuous_dev.sh so a [retry] reuses the same branch the prior attempt pushed).
-_branch_for() {
-  local title="$1" slug core hash
-  slug=$(printf '%s' "$title" | python3 "$SLUGIFY")
-  core=$(printf '%s' "$title" | sed -E 's/^[[:space:]]*(\[[a-z-]+\][[:space:]]*)+//I')
-  hash=$(printf '%s' "$core" | shasum 2>/dev/null | cut -c1-6)
-  printf 'feat/cont-%s-%s' "$slug" "$hash"
-}
+# Deterministic branch name — shared implementation in ship_lib.sh (a [retry]
+# reuses the same branch the prior attempt pushed in EITHER dev mode).
+_branch_for() { ship_branch_for "$1"; }
 
 # Strip leading state/kind tags + a trailing/leading priority marker, used to
 # build a conventional-commit subject when the caller doesn't supply one.
@@ -226,20 +221,13 @@ cmd_finish_one() {
     fi
     # WORK.md is owned by the wrapper via workmd.py — never accept a branch's copy.
     git checkout HEAD -- WORK.md 2>/dev/null || true
-    # Game.md survival gate (mirror continuous_dev.sh:1160-1172): a player-facing
-    # change must carry a Game.md update in the squash.
-    if git diff --cached --quiet -- Game.md 2>/dev/null; then
-      _need_gm=0
-      echo "$title" | grep -qiE '\[game-feature\]' && _need_gm=1
-      git diff --quiet "origin/master...$branch" -- Game.md 2>/dev/null || _need_gm=1
-      git diff --cached -- scripts/systems/debug_boot.gd 2>/dev/null \
-        | grep -qE '^\+[[:space:]]*func _demo_|--demo-feature=' && _need_gm=1
-      if [ "$_need_gm" -eq 1 ]; then
-        git reset --hard origin/master --quiet 2>/dev/null || true
-        git clean -fd --quiet 2>/dev/null || true
-        echo "MERGE_GATE: player-facing change but Game.md not updated in the squash" >&2
-        exit 2
-      fi
+    # Game.md survival gate — shared check in ship_lib.sh; exit-code 2 is
+    # this mode's "bounce to retry" convention.
+    if ! ship_gamemd_gate "$title" "$branch"; then
+      git reset --hard origin/master --quiet 2>/dev/null || true
+      git clean -fd --quiet 2>/dev/null || true
+      echo "MERGE_GATE: player-facing change but Game.md not updated in the squash" >&2
+      exit 2
     fi
     # Parse/import gate: rebuild the engine's script cache against the STAGED
     # squash before it lands. A squash that fails to parse (e.g. a stale dangling
@@ -268,24 +256,7 @@ cmd_finish_one() {
       # forever. So: try "$title"; if it didn't strike, fall back to THIS worker's
       # actual [wip:WORKER_ID] claim (the item we just merged), excluding
       # escalated/needs-ceo/cold lines; and if even that fails, fail LOUDLY.
-      if ! python3 "$WORKMD" ship "$GAME_DIR/WORK.md" "$title" >/dev/null 2>&1; then
-        claimed=$(python3 - "$GAME_DIR/WORK.md" "$WORKER_ID" "$WORKMD" <<'PY'
-import sys, json, subprocess
-path, wid, workmd = sys.argv[1], sys.argv[2], sys.argv[3]
-wm = json.loads(subprocess.check_output([sys.executable, workmd, "parse", path]))
-for it in wm.get("todo", []):
-    t = it.get("title", "")
-    low = t.lower()
-    if f"[wip:{wid}]" in low and not any(x in low for x in ("[escalated]", "[needs-ceo]", "[cold]")):
-        print(t); break
-PY
-)
-        if [ -n "$claimed" ] && python3 "$WORKMD" ship "$GAME_DIR/WORK.md" "$claimed" >/dev/null 2>&1; then
-          echo "finish: shipped via [wip:$WORKER_ID] fallback (passed title did not match)" >&2
-        else
-          echo "finish: WARNING — could not strike shipped item from Todo (title='$title'); WORK.md may re-claim it" >&2
-        fi
-      fi
+      ship_strike_shipped "$GAME_DIR/WORK.md" "$title" "$WORKER_ID" || true
       python3 "$WORKMD" reconcile-epics "$GAME_DIR/WORK.md" >/dev/null 2>&1 || true
       git add WORK.md 2>/dev/null
       git "${BOT_ID[@]}" commit --quiet -m "chore(work): mark '$short_title' as shipped" 2>/dev/null
@@ -302,7 +273,7 @@ PY
   git -C "$WORKTREE" checkout --detach origin/master --quiet 2>/dev/null || true
   git -C "$GAME_DIR" branch -d "$branch" --quiet 2>/dev/null || true
   git -C "$GAME_DIR" push --quiet origin --delete "$branch" 2>/dev/null || true
-  printf '%s\n' "- Shipped: $short_title" | bash "$REPO_DIR/scripts/report.sh" continuous >/dev/null 2>&1 || true
+  ship_report "$short_title"
   echo "SHIPPED: $short_title"
   return 0
 }
@@ -377,31 +348,7 @@ cmd_append_manual() {
 # /spraxel-develop ship identically to a headless ship. The skill calls this after a
 # successful ship, EXCEPT a [test_failure] fix when continuous.cap_excludes_test_fixes
 # is true (same exclusion the headless main loop applies). Prints the new value.
-cmd_bump_cap() {
-  STATE_FILE="$STATE_FILE" python3 - <<'PY'
-import json, os, time
-from datetime import datetime
-sf = os.environ['STATE_FILE']
-key = 'shipped_since_last_signal'
-lock = sf + '.lockdir'
-deadline = time.time() + 10
-while True:
-    try:
-        os.mkdir(lock); break
-    except FileExistsError:
-        if time.time() > deadline: raise SystemExit(2)
-        time.sleep(0.05)
-try:
-    s = json.load(open(sf)) if os.path.exists(sf) else {key: 0}
-    s[key] = int(s.get(key, 0)) + 1
-    s['last_ts'] = datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')
-    json.dump(s, open(sf, 'w'), indent=2)
-    print(s[key])
-finally:
-    try: os.rmdir(lock)
-    except FileNotFoundError: pass
-PY
-}
+cmd_bump_cap() { ship_bump_counter shipped_since_last_signal; }
 
 # ── release-claims ─────────────────────────────────────────────────────────
 # Strip any stale [wip:0] claim from WORK.md (an item the interactive loop was
