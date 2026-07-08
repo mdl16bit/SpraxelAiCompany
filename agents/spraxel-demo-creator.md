@@ -37,7 +37,7 @@ you know whether to bother trying auto-capture this run). Don't re-do
 a feature unless its code changed since (`git log --since=<last-run-ts>
 -- <feature-files>`).
 
-### 2. Identify candidates
+### 2. Identify candidates — TOP 3 ONLY
 
 Pick features shipped since your last run:
 
@@ -47,7 +47,16 @@ git log master --since="<last-run-ts>" --no-merges --pretty='%h %s' \
   | head -10
 ```
 
-For each `feat:` commit, derive its `--demo-feature=<slug>` from
+**Rank them by shareability** (same rubric the Blogger uses: one-weird-mechanic
+> emergent/systems moment > juice/feel > atmosphere > plain systems/UX) and
+write FULL recipes for only the **top 3**. Everything else gets a one-line
+entry in a `## Also shipped (no recipe)` list at the bottom — title, slug,
+launch line, nothing more. (History: a 33-feature recipe asked the CEO for
+33 hand-recordings; zero ever happened. Three great recipes the CEO might
+actually record beat an exhaustive homework list — and the Blogger only
+needs ONE hero clip anyway.)
+
+For each candidate, derive its `--demo-feature=<slug>` from
 `Game.md` (look up the matching `### <Feature Name>` block, find the
 `Debug hook: --demo-feature=<slug>` line). If Game.md doesn't list a
 debug hook, fall back to slugifying the commit subject and check for
@@ -114,7 +123,7 @@ rest need hand recording" | "auto-capture skipped (Mac asleep / perms
 missing)">
 ```
 
-### 4. Best-effort auto-capture
+### 4. Best-effort auto-capture — ONLY for demo-mode scenarios
 
 `scripts/capture_demo.sh` uses Godot's built-in `--write-movie` Movie
 Maker — captures the engine's framebuffer directly to .mp4 via ffmpeg.
@@ -125,7 +134,23 @@ contamination. Still requires:
 - ffmpeg installed (`brew install ffmpeg`). If missing, the script
   exits 3 cleanly; treat as "skipped."
 
-Try for each feature:
+**Two HARD gates before attempting any capture (non-negotiable):**
+
+1. **The rc=5 skip ledger.** Your memory file keeps a `## capture-skip`
+   list of slugs whose capture previously failed rc=5 (self-quitting
+   acceptance-test scenario). A listed slug is NOT retried until its
+   scenario/demo file has a newer commit than the ledger entry
+   (`git log -1 --format=%ci -- <scenario-path>`). History: the same
+   rc=5 wall was hit on 17 consecutive runs without adapting — a known
+   failure retried unchanged is pure waste.
+2. **Demo-mode scenarios only.** Only attempt capture when the feature has
+   a *playable* demo entry (a `scripts/systems/demos/demo_<slug>.gd` or a
+   scenario that visibly runs ≥ the requested duration — see "test-style
+   scenario" below). If it only has an acceptance-test scenario, don't
+   burn a launch on it: put it straight in the recipe as hand-record and
+   ledger it.
+
+Try for each feature that passes both gates:
 
 ```bash
 bash ~/SpraxelAiCompany/scripts/capture_demo.sh <slug> \
@@ -138,7 +163,7 @@ Exit-code handling:
 |----|---------|------------|
 | 0 | success — `.mp4` + `.png` produced | reference both in recipe.md and the post |
 | 3 | ffmpeg missing | log + skip (recipe.md is the day's only output) |
-| 5 | recording is suspiciously short (<1/3 expected frames) — the scenario likely quits early (test-style script). The .mp4 exists but is empty/near-empty. | `rm` the bad .mp4; explicitly note in recipe.md's header "auto-capture: <slug> produced only N frames — hand-record" |
+| 5 | recording is suspiciously short (<1/3 expected frames) — the scenario likely quits early (test-style script). The .mp4 exists but is empty/near-empty. | `rm` the bad .mp4; note in recipe.md's header "auto-capture: <slug> produced only N frames — hand-record"; **add the slug to the `## capture-skip` ledger in memory (with today's date + scenario path) so it is never retried until the scenario changes** |
 | 1 / 4 | Godot launch failed or paths unresolvable | log + skip |
 
 **The "test-style scenario" constraint** (rc=5 case): many existing
@@ -168,11 +193,16 @@ run because one feature couldn't auto-capture.
 ```markdown
 ## Run <YYYY-MM-DD HH:MM PT>
 
-Features in scope: <slug-list>
+Features in scope: <top-3 slugs> (+ <N> one-lined)
 Recipe written: .factory/demos/<date>/recipe.md
-Auto-capture: <"yes — <N> .mov + .png pairs" | "skipped — Mac asleep at
-06:30" | "tried — failed: <reason>">
+Auto-capture: <"yes — <N> .mp4 + .png pairs" | "skipped — no demo-mode
+scenarios among candidates" | "skipped — Mac asleep / ffmpeg missing" |
+"tried — failed: <reason>">
 ```
+
+Also maintain the `## capture-skip` ledger section (one line per slug:
+`<slug> — rc=5 <date> — <scenario path>`); REMOVE a line when that
+scenario file changes and re-attempt is allowed.
 
 ### 6. Commit + push
 
