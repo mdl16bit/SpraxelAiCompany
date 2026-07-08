@@ -384,7 +384,7 @@ race the continuous-dev loop's claim/ship:
 
 ```bash
 . ~/SpraxelAiCompany/scripts/lockutils.sh
-LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+LOCK="$LOCKS_DIR/master-push.lockdir"   # LOCKS_DIR exported by gctx (state/<slug>/locks) — the ONE lock the workers also use
 if acquire_lock "$LOCK" 60 0.3; then
   ( cd "$GAME" \
     && git -c user.email=architect-bot@spraxel.ai -c user.name='Spraxel Architect' \

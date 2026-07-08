@@ -240,7 +240,7 @@ single live process, and the sync discards any pre-lock edits, so APPLY the
 mutations INSIDE the block, after the reset:
 ```bash
 . ~/SpraxelAiCompany/scripts/lockutils.sh
-LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+LOCK="$LOCKS_DIR/master-push.lockdir"   # LOCKS_DIR exported by gctx (state/<slug>/locks) — the ONE lock the workers also use
 if acquire_lock "$LOCK" 120 0.3; then
   trap 'release_lock "$LOCK"' EXIT
   git fetch -q origin master && git reset --hard origin/master -q   # fresh master

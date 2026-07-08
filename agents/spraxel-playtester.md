@@ -198,7 +198,7 @@ git add .factory/inbox/playtest-findings.md .factory/memory/playtester.md
 # Commit + push UNDER THE MASTER-PUSH LOCK + rebase (a bare push gets rejected
 # non-fast-forward when a worker pushed first, silently dropping the findings).
 . ~/SpraxelAiCompany/scripts/lockutils.sh
-LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+LOCK="$LOCKS_DIR/master-push.lockdir"   # LOCKS_DIR exported by gctx (state/<slug>/locks) — the ONE lock the workers also use
 if acquire_lock "$LOCK" 60 0.3; then
   git -c user.email=playtester-bot@spraxel.ai -c user.name='Spraxel Playtester' \
       commit -m "playtest: <N> candidate bug(s), <M> features tested" \

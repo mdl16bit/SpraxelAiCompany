@@ -136,7 +136,7 @@ concurrent worker's push (2026-05-30: 3 candidate bugs vanished exactly this way
 Commit + push under the lock with a rebase, like the Architect:
 ```bash
 . ~/SpraxelAiCompany/scripts/lockutils.sh
-LOCK=~/SpraxelAiCompany/.locks/master-push.lockdir
+LOCK="$LOCKS_DIR/master-push.lockdir"   # LOCKS_DIR exported by gctx (state/<slug>/locks) — the ONE lock the workers also use
 if acquire_lock "$LOCK" 60 0.3; then
   ( cd "$(dirname "$WORK")" \
     && git -c user.email=triager-bot@spraxel.ai -c user.name='Spraxel Triager' \
