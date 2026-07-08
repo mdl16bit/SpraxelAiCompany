@@ -136,14 +136,14 @@ Daily crew (all times America/Los_Angeles):
 | 05:30 PT | **demo-creator** | Writes `.factory/demos/<date>/recipe.md` with FULL recipes for the **top 3** recently-shipped features only (the rest get a one-line "also shipped" list). Auto-captures only **capture-ready demo scenarios** via Godot `--write-movie` + ffmpeg → `.mp4` + `.png`; test-style auto-quit scenarios hit the rc=5 skip ledger instead of being retried forever. |
 | 06:00 PT | **pm** | Re-sorts the up-and-coming section. Release cuts fire on the **calendar** (`cadence.release` — biweekly; currently Saturdays for infiltrators) **or the size trigger, same day** (finished section ≥40 items or WORK.md >150KB): tags `v0.N`, generates release notes, `workmd.py release-cut` externalizes the finished section to `WORK_v<version>.md`. |
 | ~06:00 PT | **CEO (you)** | `/spraxel-inbox` → walk MORNING.md sections. ~38 minutes. |
-| 09:00 & 21:00 PT | **architect** | Shapes `[untriaged]` work: processes your answered `TRIAGE.md` questionnaires (finalize spec or follow-up), intakes new untriaged items (fast-pass or new questionnaire). Also fires reactively within ~60s of a new `[untriaged]` item. |
+| 06:30 & 21:00 PT | **architect** | Shapes `[untriaged]` work: processes your answered `TRIAGE.md` questionnaires (finalize spec or follow-up), intakes new untriaged items (fast-pass or new questionnaire). Also fires reactively within ~60s of a new `[untriaged]` item. |
 
 Weekly:
 
 | Time | Who | What |
 |------|-----|------|
 | Tue + Fri 04:30 PT | **designer** | Drops 4-6 `[idea]`-tagged items + 0-3 `[concern]` items into `## Up-and-coming work`. Concerns flag game-wide issues (feature bloat, philosophical drift). |
-| Tue + Fri 09:00 PT | **blogger** | Cron fires Tue+Fri but the cadence is **release-driven, not calendar-filler**: it drafts when a release was cut since the last post (release notes as the post's spine), or after ≥14 days + ≥3 fresh player-facing ships; otherwise it exits cleanly. Drafts `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` with **exactly ONE hero media slot** (the lead theme's clip). Pushes `blog/<date>` branch; CEO humanizes + merges. |
+| Tue + Fri 06:45 PT | **blogger** | Cron fires Tue+Fri but the cadence is **release-driven, not calendar-filler**: it drafts when a release was cut since the last post (release notes as the post's spine), or after ≥14 days + ≥3 fresh player-facing ships; otherwise it exits cleanly. Drafts `blog/content/posts/draft-<YYYY-MM-DD>-<slug>.md` with **exactly ONE hero media slot** (the lead theme's clip). Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | Sun 01:00 PT | **janitor** | Cold-archives 30+ day stale items, prunes merged `feat/*` branches + 60+ day logs, sweeps orphan `feat/cont-*` branches whose WORK.md item is gone. |
 | 1st 07:00 PT | **asset-librarian** | Scans `assets/`, reports orphans + license gaps. |
 
@@ -637,7 +637,7 @@ on these days as you accept / reject / amend each.
 
 ### Tuesday + Friday — Blogger slots (+10 min when it drafts)
 
-Blogger's cron fires at 09:00 PT Tue+Fri, but it only actually drafts when
+Blogger's cron fires at 06:45 PT Tue+Fri (22:45 JST — in the both-continents awake band), but it only actually drafts when
 there's something to say — **release-driven**: a release was cut since the
 last post (usual case), or ≥14 days have passed with ≥3 fresh player-facing
 ships; otherwise it exits cleanly and you do nothing. When it drafts, it
@@ -1693,8 +1693,8 @@ Examples:
 | **demo-creator** | daily 05:30 PT | sonnet | Writes `.factory/demos/<date>/recipe.md` with FULL recipes for the **top 3** ships only (the rest get one-liners). Auto-captures ONLY capture-ready demo scenarios via Godot `--write-movie` + ffmpeg (no Screen Recording permission needed; still requires Mac awake + ffmpeg); test-style auto-quit scenarios go on the rc=5 skip ledger. Blogger reads recipe.md as source of truth. |
 | **pm** | daily 06:00 PT + release cuts (calendar `cadence.release` OR size trigger) | sonnet | Reorders the up-and-coming section. On a cut (biweekly day, or same-day when the finished section hits ≥40 items / WORK.md >150KB): tags `v0.N`, generates release notes, `release-cut` externalizes the finished section to `WORK_v<version>.md`. |
 | **designer** | Tue + Fri 04:30 PT (+ daily when dry) | sonnet | Reads Philosophy + memory + inspiration. Drops 4-6 ranked `[idea]` items + 0-3 `[concern]` items (game-wide issue flags: feature bloat, missing fundamentals, philosophical drift). **Audits all implemented + planned work against Philosophy.md and escalates ANY conflict (even slight, severity-tagged) to the CEO.** **Cadence:** scheduled Tue+Fri; `tick.sh` ALSO dispatches it on any other day when the buildable queue is dry (developers have no eligible items left — only `[manual]`/`[future]`/`[untriaged]`/epic-gated, ignoring the pinned dashboard chore), at most once/day, to refill the idea pipeline. |
-| **architect** | daily 09:00 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | **opus** | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`), and writes `ESC ·` resolution ballots for `[escalated]` items. On finalize, decides single item vs. decomposing a complex feature into a parent `[epic]` + sequential subtasks (`shape-epic`). Bugs + MANUAL items are exempt. |
-| **blogger** | Tue + Fri 09:00 PT, **release-driven** (drafts only when a release was cut, or ≥14 days + ≥3 fresh ships) | sonnet | Drafts devlog from player-facing `feat:` commits since the last post ONLY (skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:), with **ONE hero media slot** on the lead theme. Writes `blog/content/posts/draft-<date>-<slug>.md`. Pushes `blog/<date>` branch; CEO humanizes + merges. |
+| **architect** | daily 06:30 & 21:00 PT + reactive (within ~60s of a new `[untriaged]` item) | **opus** | Shapes `[untriaged]` feature work into buildable specs. Processes answered questionnaires in `.factory/local/TRIAGE.md` (finalize spec → item buildable, or ask ≤5 follow-up rounds), intakes new untriaged items (fast-pass concrete ones via `shape-pass`, else write a /plan-style questionnaire via `shape-start`), and writes `ESC ·` resolution ballots for `[escalated]` items. On finalize, decides single item vs. decomposing a complex feature into a parent `[epic]` + sequential subtasks (`shape-epic`). Bugs + MANUAL items are exempt. |
+| **blogger** | Tue + Fri 06:45 PT, **release-driven** (drafts only when a release was cut, or ≥14 days + ≥3 fresh ships) | sonnet | Drafts devlog from player-facing `feat:` commits since the last post ONLY (skips fix(test):/chore:/refactor:/docs:/test:/work:/escalate:/ceo:), with **ONE hero media slot** on the lead theme. Writes `blog/content/posts/draft-<date>-<slug>.md`. Pushes `blog/<date>` branch; CEO humanizes + merges. |
 | **janitor** | weekly Sun 01:00 PT | haiku | Cold-archives 30+ day stale items (retag to `[cold]` — never deletes), prunes merged branches, prunes 60+ day logs, prunes old demo folders. Sweeps orphan `feat/cont-*` branches whose WORK.md item is gone (cleanup for `[escalated]`/`[resume]`/`[retry]` branches whose items the CEO has deleted by hand). **WORK.md size failsafe**: if the PM missed its size-triggered cut (WORK.md >200KB or ≥80 finished items), cuts an interim patch-version archive itself. |
 | **asset-librarian** | monthly 1st 07:00 PT | haiku | Scans assets/, reports orphans + license gaps. |
 | **producer** | on-demand (`/spraxel-producer`) | sonnet | Converts CEO dictation → clean WORK.md items. Flags ⚠️ concerns inline (cliché/complexity/balance/drift) but always appends the item — concerns are advisory, never gatekeep. |
@@ -1865,8 +1865,8 @@ Things to watch for that mean trouble:
 | **demo-creator** | sonnet | daily 05:30 PT | `tick.sh` cron | `.factory/demos/<date>/recipe.md` (top-3 recipes) + best-effort captures (rc=5 skip ledger) |
 | **pm** | sonnet | daily 06:00 PT (+ release cuts: calendar or size trigger) | `tick.sh` cron | WORK.md (re-orders; `release-cut` → `WORK_v<version>.md`) |
 | **designer** | sonnet | Tue + Fri 04:30 PT (+ dry-queue days) | `tick.sh` cron | WORK.md (appends `[idea]` items) |
-| **architect** | **opus** | 09:00 & 21:00 PT + reactive on `[untriaged]` | `tick.sh` cron + reactive grep | WORK.md (shape-* tag/spec edits) + `.factory/local/TRIAGE.md` (questionnaires + `ESC ·` ballots) |
-| **blogger** | sonnet | Tue + Fri 09:00 PT (release-driven self-gate) | `tick.sh` cron | `blog/<date>` branch |
+| **architect** | **opus** | 06:30 & 21:00 PT + reactive on `[untriaged]` | `tick.sh` cron + reactive grep | WORK.md (shape-* tag/spec edits) + `.factory/local/TRIAGE.md` (questionnaires + `ESC ·` ballots) |
+| **blogger** | sonnet | Tue + Fri 06:45 PT (release-driven self-gate) | `tick.sh` cron | `blog/<date>` branch |
 | **janitor** | haiku | Sun 01:00 PT | `tick.sh` cron | WORK.md (cold-archives; interim size-failsafe archive), branches (deletes merged), logs (prunes >60 days) |
 | **asset-librarian** | haiku | monthly 1st 07:00 PT | `tick.sh` cron | `.factory/asset-report-<date>.md`, MORNING.md note |
 | **producer** | sonnet | on-demand (`/spraxel-producer`) | CEO via skill | WORK.md (from `.factory/inbox/raw.md`) |
