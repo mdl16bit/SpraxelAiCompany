@@ -80,6 +80,14 @@ a schedule.
         as a global, NOT `Engine.get_singleton("MissionRunner")` (which
         returns null in Godot 4.6 and silently no-ops). Block if you
         see the broken pattern in new code.
+      - **Capture-ready windowed branch**: (a) no `get_tree().quit()`
+        call in the windowed path — the run must live out `--quit-after`;
+        (b) a scripted 6-10s self-running demonstration (timer/tween
+        driving `Input.action_press` or the feature's methods) so an
+        unattended Movie Maker capture shows the feature happening.
+        A windowed branch that stages the scene and then idles waiting
+        for human input is a block (this is why 0 demos ever auto-
+        captured before 2026-07).
       - **Smoke-test evidence**: the commit body or PR notes mentions
         a manual windowed run, OR the dev's commit shows the
         `--demo-feature=<slug>` invocation worked. If neither, block

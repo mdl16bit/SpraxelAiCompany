@@ -191,6 +191,18 @@ actually stick.
        "first find a guard and KO them yourself." Spawn the props
        (KO'd guards, items, closets, etc.), set up the right loadout,
        and `print()` a one-line controls reminder to stdout.
+     - **The windowed branch must be CAPTURE-READY** (this is what feeds
+       the Demo Creator's Movie Maker auto-capture and the Blogger's hero
+       clip — historically 0 demos ever captured because scenarios
+       self-quit after assertions):
+       1. NEVER call `get_tree().quit()` in the windowed branch — let
+          `--quit-after=<N>` end the run.
+       2. After staging, DRIVE a scripted 6-10s demonstration of the
+          feature with no human input: a `Timer`/tween sequence calling
+          `Input.action_press(...)` (or the feature's methods directly)
+          so an unattended recording shows the feature actually
+          happening, not an idle staged room. The controls reminder still
+          prints for humans who take over.
    - **Autoload access**: use the autoload name as a global identifier.
      `MissionRunner.set_mission(...)` is correct. `Engine.get_singleton("MissionRunner")`
      is **WRONG** — it returns `null` in Godot 4.6 and every windowed
