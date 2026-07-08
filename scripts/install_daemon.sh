@@ -26,8 +26,6 @@ ensure_executable() {
   chmod +x "$REPO_DIR/scripts/tick.sh" \
            "$REPO_DIR/scripts/run_agent.sh" \
            "$REPO_DIR/scripts/cron_match.py" 2>/dev/null || true
-  # overnight_dev.sh might not exist yet (Phase 4)
-  [ -f "$REPO_DIR/scripts/overnight_dev.sh" ] && chmod +x "$REPO_DIR/scripts/overnight_dev.sh"
 }
 
 write_plist() {

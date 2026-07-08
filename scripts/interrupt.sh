@@ -54,7 +54,7 @@ echo "  ✓ daemon paused (.paused flag set)"
 #    Just killing continuous_dev orphans the run_agent + claude children, and
 #    those orphans hold the developer.lockdir, blocking any future Developer.
 killed=0
-for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p" "run_local_tests.sh" "Godot --headless"; do
+for pat in "continuous_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p" "run_local_tests.sh" "Godot --headless"; do
   pids=$(pgrep -f "$pat" 2>/dev/null | tr '\n' ' ')
   if [ -n "$pids" ]; then
     # shellcheck disable=SC2086
@@ -63,7 +63,7 @@ for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model
 done
 sleep 2
 # SIGKILL any survivors (claude -p in a syscall can ignore SIGTERM briefly).
-for pat in "continuous_dev.sh" "overnight_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p" "run_local_tests.sh" "Godot --headless"; do
+for pat in "continuous_dev.sh" "run_agent.sh" "claude --model claude-" "claude --dangerously-skip-permissions -p" "run_local_tests.sh" "Godot --headless"; do
   pgrep -f "$pat" 2>/dev/null | xargs kill -KILL 2>/dev/null || true
 done
 echo "  ✓ killed $killed agent process(es)"
