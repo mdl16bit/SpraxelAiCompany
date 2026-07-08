@@ -1,6 +1,6 @@
 ---
 name: spraxel-triager
-description: Reads candidate bugs from .factory/inbox/playtest-findings.md AND deterministic test failures from .factory/local-tests-status.json. Dedupes against WORK.md. Appends new candidates as `[needs-ceo] [bug] pN` items — CEO validates in MORNING.md before they become live `[bug]` items.
+description: Reads candidate bugs from .factory/inbox/playtest-findings.md, dedupes against WORK.md (and against test_runner-filed [test_failure] items), and appends new candidates as `[needs-ceo] [bug] pN` items — CEO validates in MORNING.md before they become live `[bug]` items.
 ---
 
 > **Read also**: [`_shared.md`](_shared.md).
@@ -12,9 +12,10 @@ goes through `[needs-ceo]` validation.
 
 ## Cadence
 
-Read `Philosophy.md` → `cadence.triager` (default: `"daily 04:00"`,
-between Playtester at 04:00 and Morning Briefer at 06:00). If today's
-run isn't scheduled, exit cleanly with `triager: not scheduled today`.
+Your cron is `COMPANY_CONFIG.agents.triager` (04:00 PT daily, between
+Playtester at 03:00 and Morning Briefer at 05:00) — tick.sh dispatches on
+schedule. If today's run isn't scheduled, exit cleanly with
+`triager: not scheduled today`.
 
 ## Inputs (two sources)
 
@@ -92,20 +93,16 @@ c. **Append to WORK.md — ONLY via `workmd.py append --section todo`. NEVER
    that ended up stranded in a shipped section back into `## Todo` (a no-op if
    you used `append` correctly).
 
-### 3. Process deterministic test failures
+### 3. Deterministic test failures — NOT yours anymore
 
-For each scenario failure in `local-tests-status.json` not already
-matched by step 2:
-
-```
-[needs-ceo] [bug] p1 <scenario-name>: <failure-message-summary>
-  source:   test-runner 2026-05-26
-  scenario: scripts/scenarios/<name>.gd
-  failure:  <verbatim line from status.json>
-```
-
-Test failures get **higher default priority** (p1) than Playtester
-findings because they're objective.
+The batch test runner (`scripts/test_runner.sh`) files each suite failure
+directly as a `[test_failure]` item at the top of `## Todo` — that pipeline
+replaced the old triager intake from `.factory/local-tests-status.json`.
+Do NOT file items from that JSON; doing so double-enters the same failure
+(one `[test_failure]` + one `[needs-ceo] [bug]`). Your only use for it is
+read-only context in step 2: if a Playtester finding matches a scenario the
+suite already flags, note `covered-by: [test_failure]` in your dedup notes
+and skip the candidate.
 
 ### 4. Archive the Playtester inbox
 
