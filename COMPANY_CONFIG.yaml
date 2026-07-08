@@ -35,6 +35,15 @@ global:
 
 # Crew agents: scheduled, write to WORK.md / MORNING.md / .factory/.
 # All cron expressions are America/Los_Angeles (see scripts/cron_match.py).
+#
+# SCHEDULING + TRAVEL (2026-07): the Mac must be AWAKE for a cron to fire.
+# While the CEO is in Japan the awake window is roughly JST evenings =
+# 03:00-08:00 PT, so the crew clusters in that band (which also matches PT
+# early-morning at home — it works on both continents). Slots the Mac sleeps
+# through are NOT lost: tick.sh's wake-gap detector fires catch_up.sh on the
+# first tick after a sleep, which idempotently replays every slot that was
+# due today (morning-briefer last). Architect also has a reactive trigger
+# (new [untriaged] item → fires within ~60s), so its cron slots are backstops.
 agents:
   playtester:      { cron: "0 3 * * *",  description: "03:00 PT daily — actively plays game; writes candidate bugs" }
   triager:         { cron: "0 4 * * *",  description: "04:00 PT daily — playtest findings + test fails → [needs-ceo] in WORK.md" }
@@ -42,18 +51,21 @@ agents:
   demo_creator:    { cron: "30 5 * * *", description: "05:30 PT daily — capture video+still of newly-shipped features (Mac-awake req)" }
   pm:              { cron: "0 6 * * *",  description: "06:00 PT daily — reorder ## Todo; release-cut on biweekly Mondays" }
   designer:        { cron: "30 4 * * 2,5",description: "Tue+Fri 04:30 PT — drop ranked ideas as [idea] items. ALSO auto-runs DAILY (tick.sh) on non-Tue/Fri days when the buildable queue is dry." }
-  architect:       { cron: "0 9,21 * * *", description: "09:00 & 21:00 PT — shape [untriaged] work. ALSO dispatched reactively by tick.sh within ~60s of a new [untriaged] item." }
-  blogger:         { cron: "0 9 * * 2,5",  description: "Tue+Fri 09:00 PT — draft devlog (since last post; uses demo assets + release notes)" }
+  architect:       { cron: "30 6,21 * * *", description: "06:30 & 21:00 PT — shape [untriaged] work (06:30 PT = 22:30 JST, in the travel awake window; 21:00 PT covers home evenings). ALSO dispatched reactively by tick.sh within ~60s of a new [untriaged] item." }
+  blogger:         { cron: "45 6 * * 2,5",  description: "Tue+Fri 06:45 PT (22:45 JST — awake on both continents) — release-gated devlog draft (see blogger spec: only drafts when a release was cut or 14d+3 player-facing commits)" }
   janitor:         { cron: "0 1 * * 0",  description: "Sun 01:00 PT — cold-archive stale, prune branches + logs" }
   asset_librarian: { cron: "0 7 1 * *",  description: "1st of month 07:00 PT — scan assets/ for orphans + license gaps" }
 
 # CEO routine — guidance times for when YOU visit the machine (not alarms).
-# Run `/spraxel-inbox` at any visit to see what's pending.
+# Run `/spraxel-inbox` at any visit to see what's pending. Times are PT for
+# home; the JST column is the same slot while traveling in Japan (the crew's
+# 03:00-07:00 PT band = your JST evening, so the "morning" digest is ready
+# by your Japan late evening / next morning either way).
 ceo_routine:
   timezone: "America/Los_Angeles"
-  morning:   { around: "06:15", purpose: "Full triage — play-test overnight ships, decide Designer ideas, triage bugs, clear escalations, answer Architect questionnaires, dictate fixes." }
-  afternoon: { around: "13:00", purpose: "Quick unblock — clear any [needs-ceo]/[escalated] so the loop never stalls; dump new ideas to the inbox." }
-  evening:   { around: "22:00", purpose: "Top up — drain dictation (/spraxel-producer) and keep WORK.md with 10+ eligible items for the overnight batch." }
+  morning:   { around: "06:15", jst: "22:15", purpose: "Full triage — play-test overnight ships, decide Designer ideas, triage bugs, clear escalations, answer Architect questionnaires, dictate fixes." }
+  afternoon: { around: "13:00", jst: "05:00", purpose: "Quick unblock — clear any [needs-ceo]/[escalated] so the loop never stalls; dump new ideas to the inbox." }
+  evening:   { around: "22:00", jst: "14:00", purpose: "Top up — drain dictation (/spraxel-producer) and keep WORK.md with 10+ eligible items for the next batch." }
 
 # Agent → model. SINGLE SOURCE OF TRUTH (run_agent.sh reads this via the loader;
 # a game's GAME_CONFIG.yaml can override per-agent). Short names map to the latest
