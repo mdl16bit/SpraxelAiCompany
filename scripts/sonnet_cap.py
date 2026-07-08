@@ -34,15 +34,18 @@ from datetime import datetime
 REPO = os.path.expanduser("~/SpraxelAiCompany")
 FLAG = os.path.join(REPO, ".cache", "sonnet-capped.json")
 
-# Specific cap phrases (NOT bare "limit") so a normal short agent status line that
-# merely mentions a limit doesn't false-positive.
+# Specific cap phrases ONLY. A false positive here is expensive: it shoves the
+# whole fleet onto Opus (~1.7x input price) for up to reprobe_secs. So match the
+# exact phrasings of real cap/limit refusals — never loose fragments like
+# "resets … at" or bare "rate limit" that a legitimate one-line agent status
+# could contain ("velocity resets at the next window" used to arm the flag).
 CAP_RE = re.compile(
-    # The real subscription cap line is: "You've hit your Sonnet limit · resets
-    # <date> at 6am (America/Los_Angeles)" — so "hit your … limit" + "Sonnet limit"
-    # MUST match. Plus the generic API/usage-limit phrasings.
+    # Subscription cap: "You've hit your Sonnet limit · resets <date> at 6am (…)"
     r"hit your[^.\n]*limit|reached your[^.\n]*limit|sonnet limit|usage limit|"
-    r"limit reached|limit will reset|·\s*resets|resets .*\bat\b|rate.?limit|"
-    r"too many requests|out of (?:credit|usage)|weekly limit|"
+    r"limit will reset|weekly limit|"
+    # API-side limit/credit errors as the CLI prints them
+    r"rate_limit_error|\b429\b|too many requests|rate limit (?:exceeded|reached|hit)|"
+    r"out of (?:credit|usage)|credit balance is too low|"
     r"upgrade to (?:increase|continue)",
     re.I,
 )
