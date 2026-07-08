@@ -215,6 +215,44 @@ decomposing); if they chose **dismiss** → `ship` it (records the concern as
 resolved-by-decision and removes it from the queue) and log
 `<concern> → DISMISSED by CEO` under `## ✅ Recently finalized`.
 
+### Escalations — mirror `[escalated]` items into TRIAGE (resolution ballots)
+
+`[escalated]` items live in WORK.md + `.factory/escalations.md`, but the CEO's
+one answer surface is THIS file — historically escalations sat invisible for
+weeks because they never appeared here. So, every run:
+
+1. `grep -nE '^\[escalated\]' "$WORK"` — for each item that has **no matching
+   `### ESC · <title>` section** in `TRIAGE`, write one under `## ⏳ Awaiting
+   your answers` (do NOT `shape-start` it — the `[escalated]` tag must stay so
+   the wrapper keeps regenerating escalations.md):
+
+   ```
+   ### ESC · <item title without tags>
+   Escalated: <why — from the item's detail lines / escalations.md>
+
+   Q1. How should I resolve this?
+
+       (a) Resume with this guidance: <your concrete recommended guidance,
+           1-2 sentences a dev can act on> (Recommended)
+       (b) Resume with your own guidance — type it
+       (c) Leave escalated for now
+
+       [Answer] 
+   ```
+
+2. **Phase 1 processing** (when the CEO submits): for an answered `ESC` section —
+   - **(a)** or **(b)**: append the guidance to the item as a detail line
+     (`ceo: <guidance>`), then un-block it:
+     ```bash
+     bash ~/SpraxelAiCompany/scripts/with_master_lock.sh -m "ceo: resume <slug>" resume "<title substring>"
+     ```
+     Log `<title> → RESUMED with guidance` under `## ✅ Recently finalized`
+     and delete the ESC section.
+   - **(c)** or blank: leave the section in place (it keeps appearing until
+     resolved).
+3. If an item is no longer `[escalated]` in WORK.md (CEO resolved it out-of-band),
+   delete its stale ESC section.
+
 ### Questionnaire section format (write EXACTLY this shape)
 
 One option per line; blank line before the options; the answer goes on an

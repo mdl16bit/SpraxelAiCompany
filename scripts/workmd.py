@@ -1677,6 +1677,8 @@ def main(argv: list[str] | None = None) -> int:
         help="flip an [escalated] item to [resume] — CEO has triaged and wants the dev to pick it back up next overnight")
     pre.add_argument("path")
     pre.add_argument("title")
+    pre.add_argument("--detail", action="append", default=[],
+                     help="indented detail line (repeatable) — e.g. 'ceo: <resolution guidance>' recorded with the resume")
 
     prt = sub.add_parser("retry",
         help="tag a Todo item [retry] — wrapper bounces failed branches here instead of escalating to CEO")
@@ -1917,7 +1919,12 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             new_title = "[resume] " + new_title
             item.title = new_title
-            if item.raw_lines:
+            if args.detail:
+                for d in args.detail:
+                    if d not in item.details:
+                        item.details.append(d)
+                item.raw_lines = [item.title] + [f"  {d}" for d in item.details]
+            elif item.raw_lines:
                 item.raw_lines[0] = new_title
             path.write_text(serialize(wm))
         print(f"resumed: {item.title}")
