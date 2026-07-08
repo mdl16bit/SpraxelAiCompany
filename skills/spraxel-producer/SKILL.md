@@ -118,12 +118,25 @@ When the user invokes this skill:
    - `$GAME/.factory/inbox/raw.md` → wipe to empty (preserve any `[needs-ceo]` lines).
    - Dictation files → `$GAME/.factory/inbox/dictation/processed/<ts>-<slug>.md`.
 
-5. **Commit** WORK.md with the producer bot identity (in the resolved project repo):
+5. **Commit** WORK.md with the producer bot identity — UNDER THE MASTER-PUSH
+   LOCK with a rebase, like every other WORK.md writer. A bare `commit` +
+   `push` loses items two ways: a concurrent worker's push rejects yours
+   (non-fast-forward, silently dropped), or a worker's `reset --hard
+   origin/master` eats the uncommitted/unpushed edit — the exact incident the
+   designer/triager specs document.
    ```bash
-   git -c user.email=producer-bot@spraxel.ai -c user.name='Spraxel Producer' \
-     -C "$GAME" commit -am "producer: appended <N> items"
-   git -C "$GAME" push
+   . ~/SpraxelAiCompany/scripts/lockutils.sh
+   LOCK=~/SpraxelAiCompany/state/$SLUG/locks/master-push.lockdir
+   if acquire_lock "$LOCK" 60 0.3; then
+     git -c user.email=producer-bot@spraxel.ai -c user.name='Spraxel Producer' \
+       -C "$GAME" commit -am "producer: appended <N> items" \
+     && git -C "$GAME" pull --rebase --quiet origin master \
+     && git -C "$GAME" push --quiet origin master
+     release_lock "$LOCK"
+   fi
    ```
+   (`$SLUG` = the game slug from the same `spx_config.py current` resolution
+   used above.)
 
 6. **Print a summary**: "Producer: appended N items, deferred M items.
    Top 3 just appended: …"
