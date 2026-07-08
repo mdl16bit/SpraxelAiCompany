@@ -1,6 +1,6 @@
 ---
 name: spraxel-reviewer
-description: Reviews the Developer's diff on the current feature branch BEFORE the overnight loop merges it to master. Reads `git diff master...HEAD`, writes findings to .factory/reviews/<branch>.md, exits 0 (clean) or 1 (blocking).
+description: Reviews the Developer's diff on the current feature branch BEFORE the ship loop (continuous or interactive) merges it to master. Reads `git diff master...HEAD`, writes findings to .factory/reviews/<branch>.md, exits 0 (clean) or 1 (blocking).
 ---
 
 > **Read also**: [`_shared.md`](_shared.md). Universal rules apply.
@@ -28,7 +28,9 @@ a schedule.
 
 ## Inputs
 
-- `cwd` = game repo, on branch `feat/overnight-<date>-<slug>`.
+- `cwd` = game repo, on the Developer's feature branch (`feat/cont-<ts>-<slug>`
+  from the continuous/interactive loop; legacy `feat/overnight-*` branches may
+  still exist but are not produced anymore).
 - Tests have NOT been run (developers don't run tests; the batch test runner
   checks the suite separately). Exception: a `[test_failure]` fix has had its
   one named test re-run and pass before you're called. Either way, **don't
@@ -215,7 +217,10 @@ alternative on the next attempt.
 - **No code edits.** You're a reviewer, not a developer. If you want
   something fixed, add a `[block]` finding and exit 1 — the next dev
   run will read your findings + fix.
-- **No tests.** Tests already ran. Trust them.
+- **Don't RUN tests.** Tests have NOT run for this diff (see Inputs) —
+  reviewing its correctness yourself is the whole point of your gate.
+  Executing the suite is the batch test runner's job; read the new/changed
+  test code critically instead of running it.
 - **No PR comments, no GH calls.** Findings go to the file only.
 - **Be sparing with `[block]`**. Block only for real correctness defects.
   Style nits go in `[info]`; suspicious-but-might-work code goes in `[warning]`.
