@@ -1,6 +1,6 @@
 ---
 name: spraxel-developer
-description: Implements one WORK.md Todo item end-to-end on a feature branch. Invoked by overnight_dev.sh (one call per item). Receives the item title + details as part of the prompt. Branches off master, codes, commits, runs tests, exits. The overnight wrapper handles the merge.
+description: Implements one WORK.md Todo item end-to-end on a feature branch. Invoked per-item by the ship loop (continuous_dev.sh headless, or the interactive /spraxel-develop skill). Receives the item title + details as part of the prompt. Branches off master, codes, commits, exits. The loop driver handles review + merge.
 ---
 
 > **Read also**: [`_shared.md`](_shared.md) — WORK.md contract, dryrun guard, bot identity, escalation. Universal rules apply.

@@ -18,9 +18,16 @@ TODO: keybind table
 ## Features
 
 ### Example Feature Name
-- **What**: One-line description of the player-facing behavior.
+- **What it does**: One player-facing sentence — no implementation detail.
 - **Controls**: Input → effect (e.g. "F when within 24px directly behind a guard whose alert level is 0").
+- **First encounter**: When the player first sees this in normal play (e.g. "any locked door in warehouse_01") — feeds the future tutorial system.
+- **Tutorial prompt** (one line, ≤80 chars): the exact hint text shown on first encounter, e.g. `"Press H to drill locked doors (3s — loud)"`.
 - **Debug hook**: `--demo-feature=<slug>` — describes the scene/state the boot path drops the player into.
-- **Trace events emitted**: `evt.name.start`, `evt.name.success`, `evt.name.fail`
+- **Trace events**: `evt.name.start`, `evt.name.success`, `evt.name.fail`
 - **Test scenario**: `scripts/scenarios/<slug>.gd`
-- **Acceptance**: Restate the acceptance criteria here so Playtester can assert on them.
+- **Unit test**: `test/unit/test_<slug>.gd`
+- **Acceptance**: 2-4 bullets the Playtester can verify.
+
+<!-- This block shape is the REVIEWER'S BLOCKING CHECKLIST (spraxel-reviewer.md
+     check #5) — a dev following this template must never get blocked for a
+     missing field. Keep the field list in sync with spraxel-developer.md step 4. -->

@@ -161,7 +161,7 @@ commit would land on the wrong branch and may be discarded. Switch with
 `git checkout master` (after stashing any non-master work) before committing.
 
 Per-role branching:
-- Developer (called from overnight_dev.sh): branches `feat/overnight-<date>-<slug>` off master. Overnight script merges + pushes.
+- Developer (called from continuous_dev.sh or the interactive `/spraxel-develop` loop): branches `feat/cont-<ts>-<slug>` off master. The loop driver merges + pushes.
 - Blogger: branches `blog/<YYYY-MM-DD>` off master; pushes; CEO reviews & merges manually.
 - All other crew agents: commit directly to master (state-only).
 
