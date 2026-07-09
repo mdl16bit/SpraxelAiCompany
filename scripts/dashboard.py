@@ -100,6 +100,7 @@ _COL_W = (LEFT_W - _INDENT) // 2       # internal 2-col cell width for LEFT pane
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
+REVERSE = "\033[7m"
 RED = "\033[31m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
@@ -1190,19 +1191,38 @@ def _per_game_panels(now: datetime, slug: str, game_dir: Path | None,
     return lines, post, right
 
 
-def render(now: datetime, games: list) -> str:
+def render(now: datetime, games: list, selected: int | None = None) -> str:
     """Render the dashboard. GLOBAL panels (status, models, tick daemon,
-    wrappers, token/$ usage, scheduled agents) are rendered ONCE; per-game
-    panels are rendered for each enabled game. With a single enabled game the
-    output reads as it always has."""
+    wrappers, token/$ usage, scheduled agents) are rendered ONCE and always
+    cover ALL enabled games. Per-game panels are TABBED when `selected` is
+    given — only that game's section renders, with a project tab bar under
+    the title (TAB / 1-9 to switch, wired in main) — or stacked for every
+    game when selected is None (piped output). With a single enabled game
+    the output reads as it always has."""
     # The "primary" game drives the global status-row interactive-dev heartbeat +
-    # test-runner decoration (these reflect machine-wide dev activity).
-    primary = games[0] if games else {"slug": None, "dir": ""}
+    # test-runner decoration — with tabbing, that's the game being VIEWED.
+    if selected is not None and games:
+        selected = max(0, min(selected, len(games) - 1))
+    primary = (games[selected] if selected is not None and games
+               else games[0] if games else {"slug": None, "dir": ""})
     p_slug = primary["slug"]
 
     title = f"SPRAXEL DASHBOARD — {now:%a %Y-%m-%d %H:%M:%S %Z}"
     bar = "─" * (WIDTH)
     head = [f"{BOLD}{CYAN}{title}{RESET}", f"{DIM}{bar}{RESET}", ""]
+
+    # ── Project tab bar (only when there's something to tab between) ──
+    if selected is not None and len(games) > 1:
+        cells = []
+        for i, g in enumerate(games):
+            nm = (_spx_get("identity.name", slug=g["slug"]).strip()
+                  if g["slug"] else "") or g["slug"] or "?"
+            cell = f" {i + 1}:{nm} "
+            cells.append(f"{BOLD}{REVERSE}{cell}{RESET}" if i == selected
+                         else f"{DIM}{cell}{RESET}")
+        head.insert(2, "  " + " ".join(cells)
+                    + f"   {DIM}TAB next project · 1-9 jump{RESET}")
+        head.insert(3, "")
 
     # ── GLOBAL status panel (rendered once) ──
     lines: list = []
@@ -1296,7 +1316,10 @@ def render(now: datetime, games: list) -> str:
     # tick / wrappers / token-usage / schedule), then ONE clearly-bannered section
     # per enabled game/project — uniform whether there is 1 project or N.
     blocks = ["\n".join(_compose_columns(lines, [], LEFT_W, GUTTER, RIGHT_W))]
-    for g in games:
+    # Tabbed view: only the selected game's section (global panels above still
+    # cover all games — token/$ usage is deliberately never per-game).
+    view = games if selected is None else games[selected:selected + 1]
+    for g in view:
         gslug = g["slug"]
         gdir = Path(g["dir"]) if g["dir"] else None
         # Friendly project label: "<display name> · <slug>" (slug alone if no name).
@@ -1313,25 +1336,39 @@ def render(now: datetime, games: list) -> str:
     return "\n".join(head + blocks)
 
 
-def _sleep_or_quit(interval: float) -> bool:
-    """Sleep up to `interval` seconds, but return True early if the user
-    presses 'q' (or Q). Requires the terminal in cbreak mode (set in main).
-    Falls back to a plain sleep when stdin isn't a tty (piped/redirected)."""
+def _wait_key(interval: float) -> str:
+    """Sleep up to `interval` seconds; return the first meaningful keypress
+    ('q' quit, '\\t' next tab, 'BACKTAB' previous tab, '1'-'9' jump) or ''
+    on timeout. Requires the terminal in cbreak mode (set in main). Falls
+    back to a plain sleep when stdin isn't a tty (piped/redirected)."""
     if not sys.stdin.isatty():
         time.sleep(interval)
-        return False
+        return ""
     import select
     deadline = time.time() + interval
     while True:
         remaining = deadline - time.time()
         if remaining <= 0:
-            return False
+            return ""
         r, _, _ = select.select([sys.stdin], [], [], remaining)
-        if r:
-            ch = sys.stdin.read(1)
-            if ch in ("q", "Q"):
-                return True
-            # any other key: ignore, keep waiting out the interval
+        if not r:
+            return ""
+        ch = sys.stdin.read(1)
+        if ch in ("q", "Q"):
+            return "q"
+        if ch == "\t":
+            return "\t"
+        if ch.isdigit() and ch != "0":
+            return ch
+        if ch == "\x1b":
+            # Possible escape sequence (Shift-TAB = ESC [ Z). Grab the rest
+            # if it's already buffered; a lone ESC is ignored.
+            seq = ""
+            while select.select([sys.stdin], [], [], 0.02)[0] and len(seq) < 2:
+                seq += sys.stdin.read(1)
+            if seq == "[Z":
+                return "BACKTAB"
+        # anything else: ignore, keep waiting out the interval
 
 
 def main() -> int:
@@ -1360,15 +1397,30 @@ def main() -> int:
             tty.setcbreak(sys.stdin.fileno())
         except Exception:
             old_tty = None
+    sel = 0   # selected project tab (persists across refreshes)
     try:
         while True:
             now = datetime.now(TZ)
+            gs = _games()
+            sel = max(0, min(sel, len(gs) - 1)) if gs else 0
+            # Tabbed per-game view on a tty; stacked-all when piped (selected=None
+            # keeps redirected output complete for logs/tests).
+            selected = sel if sys.stdin.isatty() and gs else None
             sys.stdout.write(CLEAR_SCREEN)
-            sys.stdout.write(render(now, _games()))
-            sys.stdout.write(f"\n{DIM}  refresh every {args.interval}s · press q or Ctrl+C to exit{RESET}\n")
+            sys.stdout.write(render(now, gs, selected))
+            hint = " · TAB next project" if len(gs) > 1 else ""
+            sys.stdout.write(f"\n{DIM}  refresh every {args.interval}s{hint} · press q or Ctrl+C to exit{RESET}\n")
             sys.stdout.flush()
-            if _sleep_or_quit(args.interval):
+            key = _wait_key(args.interval)
+            if key == "q":
                 break
+            if key == "\t" and gs:
+                sel = (sel + 1) % len(gs)
+            elif key == "BACKTAB" and gs:
+                sel = (sel - 1) % len(gs)
+            elif key.isdigit() and gs:
+                sel = min(int(key) - 1, len(gs) - 1)
+            # any tab-switch key falls through to an immediate re-render
     except KeyboardInterrupt:
         pass
     finally:
