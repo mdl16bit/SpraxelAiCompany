@@ -1,5 +1,43 @@
 # JAM_RUNBOOK.md — the delegate-all 48h game jam
 
+## ⚡ Quick start (the whole thing in 5 steps)
+
+```bash
+# 1. One-time pre-flight (your hands, ~10 min):
+gh auth setup-git                        # pushes never stall on the keychain
+gh repo create jam-2026-08 --private     # the jam's remote (any name)
+caffeinate -dims &                       # keep the Mac awake all weekend
+
+# 2. In a Claude session, type:
+#      /spraxel-launch
+#    and say: "delegate-all jam per JAM_RUNBOOK — name it jam-2026-08,
+#    Godot, skip the Philosophy interview."
+#    (Or just say "launch the jam" — Claude drives every step below with
+#    you, pausing only at the parts that are yours.)
+
+# 3. Claude applies the jam GAME_CONFIG block (section below) + registers
+#    the game in COMPANY_CONFIG.yaml games: — you just confirm.
+
+# 4. Start the clock:
+rm ~/SpraxelAiCompany/.paused
+
+# 5. ~48 hours later, stop it:
+touch ~/SpraxelAiCompany/.paused
+```
+
+While it runs: `/spraxel-report` for status; the kill switch is always
+`touch ~/SpraxelAiCompany/.paused`; spend shows in
+`state/<jamname>/cache/item-costs.tsv`. Know these two things: `rm .paused`
+un-pauses EVERYTHING (infiltrators' crew included — its dev work stays
+interactive-only, ~10-15 cheap crew runs/day, already inside the cap
+headroom; want jam-only? set infiltrators `enabled: false` for the weekend),
+and headless jam runs are METERED — `daily_run_cap: 120` is the hard ceiling
+that auto-pauses everything when hit.
+
+Everything below is the same procedure with the reasoning attached.
+
+---
+
 The experiment: launch a brand-new tiny game as a SECOND registered game with
 `policy.delegate_all: true` and let the factory run **fully unsupervised** for
 ~48 hours — designer ideas auto-accepted, architect self-answers, devs decide
