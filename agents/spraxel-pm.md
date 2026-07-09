@@ -205,11 +205,22 @@ prompt is a degraded prompt; the real fix is keeping WORK.md small here.)
    git push origin master
    ```
 
-7. **MORNING.md announcement** — under `## PM`:
+7. **Publish builds to itch.io** (skips itself cleanly if the game has no
+   `publish.itch_target` in GAME_CONFIG.yaml):
+   ```bash
+   bash ~/SpraxelAiCompany/scripts/publish_itch.sh --game "$SPRAXEL_GAME" --version v0.N
+   ```
+   Exports every configured preset headlessly and pushes to the game's itch
+   channels with `--userversion v0.N`. On failure (export error, butler not
+   logged in), note it in your report — do NOT block the release cut on it;
+   the CEO can re-run the same command by hand.
+
+8. **MORNING.md announcement** — under `## PM`:
    ```
    🚢 PM cut v0.N on 2026-MM-DD: <N> features, <M> bugs.
    Notes: .factory/releases/v0.N.md
    Branch: release/v0.N (for hotfixes)
+   Builds: pushed to itch (or: itch push failed — <reason>)
    ```
 
 ## Velocity estimation (informational, every run)

@@ -33,7 +33,7 @@ extending it, Part VI troubleshooting + every reference table.
 
 **[Part IV — The machinery](#part-iv--the-machinery)** — [The two developer modes](#the-two-developer-modes) · [Reviewer findings](#reviewer-findings--factoryreviewsslugmd) · [WORK.md cheat sheet](#workmd-cheat-sheet) · [Testing](#testing--the-batch-test-runner--test_failure) · [Subtasks & epics](#subtasks--epics) · [manual labels](#manual-sub-category-labels) · [future items](#future-parked-roadmap-items) · [The agent roster](#the-agent-roster) · [Schedules](#setting-up--changing-schedules) · [Monitoring & crew health](#monitoring--crew-health)
 
-**[Part V — Extending it](#part-v--extending-it)** — [New game](#setup--adding-a-new-game) · [Game-code contract](#the-game-code-contract) · [TASTE.md](#tastemd--the-ceo-taste-profile) · [Art + licensing](#art-production--art_briefmd-and-the-assetsmd-license-ledger) · [Jam mode](#jam-mode--the-delegate-all-experiment) · [Agent specs](#writing-and-changing-agent-specs)
+**[Part V — Extending it](#part-v--extending-it)** — [New game](#setup--adding-a-new-game) · [Game-code contract](#the-game-code-contract) · [TASTE.md](#tastemd--the-ceo-taste-profile) · [Art + licensing](#art-production--art_briefmd-and-the-assetsmd-license-ledger) · [itch channel](#the-itchio-channel--builds-ship-themselves) · [Jam mode](#jam-mode--the-delegate-all-experiment) · [Agent specs](#writing-and-changing-agent-specs)
 
 **[Part VI — Troubleshooting + reference](#part-vi--troubleshooting--reference)** — [Troubleshooting](#troubleshooting) · [Risks](#risks) · [Common operations](#common-operations) · [Configuration reference](#configuration-reference) · [Scripts, agents, skills, state](#reference-scripts-agents-processes) · [What we deliberately don't do](#what-im-not-doing-in-this-workflow) · [Files-of-truth](#files-of-truth-where-to-look-for-x)
 
@@ -1716,6 +1716,43 @@ commercial use, and the ledger line names tool + prompt. The monthly Asset
 Librarian flags ledger gaps (never edits ASSETS.md itself). The brief's
 TODO-CEO items are harvested into WORK.md as `[untriaged]` for the
 Architect to shape.
+
+## The itch.io channel — builds ship themselves
+
+Every PM release cut exports the game headlessly and pushes builds to
+itch.io (`scripts/publish_itch.sh`, release-cut step 7). Infiltrators
+pushes to **spraxel/infiltrators**, channels `macos` (universal .zip) +
+`windows` (single .exe, embedded pack). The page is auto-created as a
+HIDDEN DRAFT on the first push.
+
+**One-time CEO setup (in order):**
+```bash
+butler login          # opens a browser; authorize once, cached forever
+# then push the current release by hand to create the draft page:
+bash ~/SpraxelAiCompany/scripts/publish_itch.sh --game infiltrators --version v0.2
+```
+Then on https://itch.io/dashboard → the new project: set **Visibility →
+Restricted** (or Draft + share the secret URL), set the **Generative AI
+disclosure** (Yes → Code, Text & Dialog), and you're done — every future
+release cut updates the same page automatically.
+
+**Anytime by hand:** the same `publish_itch.sh` line (any `--version`
+string); `--dry-run` exports without pushing. Failures never block a
+release cut — the PM reports them and you re-run by hand.
+
+**Per-game config** (GAME_CONFIG.yaml — a game with no `publish:` block is
+simply never pushed):
+```yaml
+publish:
+  itch_target: "spraxel/infiltrators"
+  itch_presets: "macos-playtest,windows-playtest"   # preset → channel = text before first "-"
+```
+Presets live in the game repo's `export_presets.cfg`. Gotchas we hit so
+you don't: universal macOS export requires the project setting
+`rendering/textures/vram_compression/import_etc2_astc=true`; export
+templates must be installed for the exact Godot version
+(`~/Library/Application Support/Godot/export_templates/<version>/`);
+macOS builds are unsigned — testers right-click → Open past Gatekeeper.
 
 ## Jam mode — the delegate-all experiment
 
