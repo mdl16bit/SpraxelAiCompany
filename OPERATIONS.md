@@ -1392,7 +1392,13 @@ follow-ups tied to a concrete future date.
 
 ## Monitoring & crew health
 
-Two layers exist. **Passive (automatic):** `tick.sh` runs an hourly
+Three layers exist. **Compliance (per run):** after every successful crew
+run, `run_agent.sh` verifies the agent's spec-required artifact was
+actually touched (mtime vs. run start — e.g. the blogger's memory file,
+the briefer's MORNING.md); a miss doesn't fail the run but writes a
+⚠ compliance report straight into 📰 News, so an agent whose logs claim
+work it never did is caught the same day (the blogger once claimed memory
+updates to a file that never existed — for weeks). **Passive (automatic):** `tick.sh` runs an hourly
 **crew-health monitor** per game — any agent whose last successful run is
 older than 2× its cron cadence lands in `state/<slug>/cache/crew-health.txt`,
 newly-stale agents get a one-time crew_health report, and MORNING.md's
