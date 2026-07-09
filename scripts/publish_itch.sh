@@ -43,8 +43,12 @@ TARGET=$(python3 "$SPX" get publish.itch_target --game "$GAME_SLUG" 2>/dev/null)
 PRESETS=$(python3 "$SPX" get publish.itch_presets --default "macos-playtest,windows-playtest" --game "$GAME_SLUG" 2>/dev/null)
 [ -f "$GAME_DIR/export_presets.cfg" ] || { echo "publish_itch: no export_presets.cfg in $GAME_DIR"; exit 2; }
 
-# Not logged in? Fail with the exact fix (skipped on --dry-run, which never pushes).
-if [ -z "$dry" ] && ! "$BUTLER" whoami >/dev/null 2>&1 </dev/null; then
+# Not logged in? Fail with the exact fix (skipped on --dry-run, which never
+# pushes). butler saves its API key here on `butler login`; there is no
+# non-interactive whoami in v15, so the creds file IS the auth check.
+CREDS="$HOME/Library/Application Support/itch/butler_creds"
+[ -s "$CREDS" ] || CREDS="$HOME/.config/itch/butler_creds"
+if [ -z "$dry" ] && [ ! -s "$CREDS" ] && [ -z "${BUTLER_API_KEY:-}" ]; then
   echo "publish_itch: butler is not logged in — CEO one-time step: run \`butler login\`" >&2
   exit 2
 fi
