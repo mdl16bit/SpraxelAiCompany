@@ -64,7 +64,12 @@ Replace the `TODO:` markers using the interview answers:
 - **INSPIRATIONS.md** — optional; fill from the interview or leave the blank template.
 - **Game.md / CLAUDE.md** — seed what's known (controls, engine setup, conventions);
   leave `TODO:` for the rest. Keep CLAUDE.md accurate — agents read it every run.
-- **WORK.md** — leave the fresh 3-section skeleton (Step 6 can seed `## Todo`).
+- **WORK.md** — leave the fresh skeleton (2026-07 layout: `## Up-and-coming
+  work` / `## Finished since last release` / `## Next work` / archive footer;
+  Step 6 can seed the up-and-coming section via `workmd.py append --section todo`).
+- **Jam mode**: for a delegate-all game-jam launch (fully autonomous, no CEO
+  gates), follow `~/SpraxelAiCompany/docs/JAM_RUNBOOK.md` — it pre-answers
+  the interview with jam-appropriate config and spend caps.
 
 ### Step 4 — Register in the games registry (you confirm; I'll apply)
 This is the step that makes the project live. Edit `~/SpraxelAiCompany/COMPANY_CONFIG.yaml`

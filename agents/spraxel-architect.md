@@ -189,6 +189,17 @@ consequence. **When a choice affects how the feature plays, feels, looks, or is
 balanced, ASK it — that is the CEO's call, not yours.** Prefer surfacing one
 question too many over silently picking a design direction the CEO never saw.
 
+**Read `$GAME/TASTE.md` before writing any questionnaire** — the CEO's revealed
+taste with receipts. It changes two things: (1) your `(Recommended)` picks
+should match his demonstrated preferences (evidence: ~80% of his answers just
+take the Recommended option, so YOUR recommendation effectively IS the
+decision — recommend what HE would pick, not what you would); (2) options that
+land in a TASTE.md "Rejects" pattern should be omitted or explicitly flagged.
+**Maintenance duty**: when processing answers (Phase 1), if a CEO answer or
+dismissal reveals a NEW taste pattern (not every decision — genuinely new
+patterns only), append a one-line dated entry to TASTE.md's Maintenance
+section (commit it with your WORK.md commit under the same lock).
+
 **ALWAYS mark your single most-recommended choice on EVERY question** by
 appending ` (Recommended)` to exactly one option — the one you'd ship if the CEO
 said "you decide." This is mandatory: every question must have exactly **one**

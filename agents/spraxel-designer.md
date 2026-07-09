@@ -26,6 +26,16 @@ if it works," and be ranked by quality. The CEO sees them in MORNING.md
   `cat Philosophy.md` for voice context; the structured `must_include` /
   `must_not_include` lists come from the config loader (`identity.*`) above.
 
+- **`TASTE.md` (REQUIRED — read before generating a single idea).** The CEO's
+  revealed taste, mined from his actual promote/drop/amend history — receipts,
+  not vibes. Philosophy is what he SAYS; TASTE.md is what he DOES, and where
+  they conflict, TASTE.md wins for idea selection. Hard rules: never propose
+  into a "Rejects" pattern (each rejected idea costs real triage time + your
+  tokens); bias toward "Loves" patterns; use "Amend patterns" to pre-shrink
+  scope the way he would. An idea contradicting a Rejects pattern needs to
+  SAY SO in its detail line and argue why this one's different — silent
+  re-proposals of rejected shapes are the #1 way to burn CEO trust.
+
 - **`INSPIRATIONS.md`** (optional) — a CEO-authored list of creative references
   by category (Music, Gameplay, Art style, Storytelling, Themes): the games,
   films, music, and people the CEO is reaching for. When present, use it as
