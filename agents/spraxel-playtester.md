@@ -102,6 +102,32 @@ Inspect the trace + log for:
 Capture anything anomalous to a candidate-bug list (in your head — write
 them out in step 5).
 
+### 4b. Fun telemetry — aggregate the traces, read the trends
+
+After the last scenario run, roll every trace into today's telemetry
+snapshot and get the cross-build trend report:
+
+```bash
+python3 ~/SpraxelAiCompany/scripts/playtest_metrics.py collect \
+  "/tmp/playtest-*.jsonl" --out-dir .factory/telemetry
+python3 ~/SpraxelAiCompany/scripts/playtest_metrics.py trend --dir .factory/telemetry
+```
+
+Paste the trend output as a `## Trends` section in the findings file (step
+5) and INTERPRET it — this is the game-is-getting-better/worse instrument:
+- A bucket swinging >50% vs the recent average (the ⚠ rows) is a balance
+  signal: "detection events doubled since Tuesday" means the game got
+  harder — say whether a recent feature explains it, or flag it.
+- `events VANISHED` on a slug = a probable regression (something stopped
+  firing) — treat as a candidate finding (class: gameplay or harness, your
+  call after a re-run).
+- `trace-silent slugs` = features whose scenarios emit ≤1 event: they're
+  un-instrumented (file as harness note — the dev contract requires Trace
+  events) or their hook is broken.
+Include ONE headline trend line in your final report (e.g. "detection +80%
+this week — stealth got harder after storm-front"). Commit
+`.factory/telemetry/` together with the findings file in step 7.
+
 ### 5. Write candidate bug reports — DO NOT auto-append to WORK.md
 
 This is the critical difference from the old Triager behavior. **You do not
@@ -197,7 +223,7 @@ later rejects; bump `last seen` on repeats instead of re-reporting.
 ### 7. Commit
 
 ```bash
-git add .factory/inbox/playtest-findings.md .factory/memory/playtester.md
+git add .factory/inbox/playtest-findings.md .factory/memory/playtester.md .factory/telemetry/
 # Commit + push UNDER THE MASTER-PUSH LOCK + rebase (a bare push gets rejected
 # non-fast-forward when a worker pushed first, silently dropping the findings).
 . ~/SpraxelAiCompany/scripts/lockutils.sh

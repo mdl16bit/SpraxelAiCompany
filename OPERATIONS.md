@@ -1423,6 +1423,19 @@ morning, mid-day, whenever you want a quick "is anything broken?" view.
 
 ---
 
+## Fun telemetry — is the game getting better?
+
+Every playtester run rolls its Tracer JSONL traces into a dated snapshot
+(`<game>/.factory/telemetry/<date>.json`, committed with the findings) via
+`scripts/playtest_metrics.py collect`, then reads `playtest_metrics.py
+trend` — cross-build deltas in four signal buckets (detection / combat /
+failure / success), per-feature duration swings, vanished events
+(regression tell), and trace-silent features (un-instrumented). The
+playtester interprets the table in its findings' `## Trends` section and
+puts one headline trend in its report ("detection +80% this week — stealth
+got harder"), which the briefer surfaces in 📰 News. Check by hand anytime:
+`python3 ~/SpraxelAiCompany/scripts/playtest_metrics.py trend --dir ~/GameProjects/<game>/.factory/telemetry`
+
 # Part V — Extending it
 
 Adding a game, teaching the crew your taste, commissioning real art,
