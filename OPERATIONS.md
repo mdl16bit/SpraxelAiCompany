@@ -1311,6 +1311,22 @@ Slept-through slots are NOT lost — the wake-gap detector fires
 `catch_up.sh`, replaying every slot due today — and the Architect's cron
 slots are backstops to its ~60s reactive `[untriaged]` trigger.
 
+**Make the Mac wake itself for the band (recommended, one sudo command).**
+`pmset` schedules are LOCAL time, so the command differs by where the
+machine lives (both target 5 minutes before the 03:00 PT band opens):
+```bash
+# While in Japan (machine on JST; 18:55 JST = 02:55 PT):
+sudo pmset repeat wakeorpoweron MTWRFSU 18:55:00
+# At home in the US (machine on PT):
+sudo pmset repeat wakeorpoweron MTWRFSU 02:55:00
+# Verify (look for "Repeating power events"):
+pmset -g sched
+# Remove:
+sudo pmset repeat cancel
+```
+Re-run the matching variant whenever the machine changes timezone. With
+this set, `catch_up` becomes the fallback instead of the primary path.
+
 **Defense in depth:** some agents also read a cadence self-check through the
 config loader (e.g. the game's `GAME_CONFIG.yaml` → `cadence.blogger`) and
 exit cleanly if today isn't their day. Where a `cadence.<agent>` entry
