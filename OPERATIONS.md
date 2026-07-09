@@ -1751,13 +1751,17 @@ Architect to shape.
 Every PM release cut exports the game headlessly and pushes builds to
 itch.io (`scripts/publish_itch.sh`, release-cut step 7). Infiltrators
 pushes to **spraxel/infiltrators**, channels `macos` (universal .zip) +
-`windows` (single .exe, embedded pack). The page is auto-created as a
-HIDDEN DRAFT on the first push.
+`windows` (single .exe, embedded pack). The itch PROJECT PAGE MUST
+EXIST FIRST (https://itch.io/game/new — the URL slug must match
+`publish.itch_target`; leave Visibility as Draft): butler push does NOT
+auto-create it (returns `400: invalid game`).
 
 **One-time CEO setup (in order):**
 ```bash
 butler login          # opens a browser; authorize once, cached forever
-# then push the current release by hand to create the draft page:
+# create the project page at https://itch.io/game/new (slug must match
+# the target; Draft visibility; set the AI disclosure while you're there),
+# then push the current release by hand:
 bash ~/SpraxelAiCompany/scripts/publish_itch.sh --game infiltrators --version v0.2
 ```
 Then on https://itch.io/dashboard → the new project: set **Visibility →
