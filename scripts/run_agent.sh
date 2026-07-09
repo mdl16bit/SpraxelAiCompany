@@ -437,6 +437,7 @@ reports_before=$(count_reports)
 # rc=143 kills (every dev build dying ~2-5 min with no output). Restored the
 # original FOREGROUND invocation. Hang protection now comes from the lock reaper
 # (reap_hung_agents.sh, run each tick) instead of an in-run_agent watchdog.
+RUN_START_EPOCH=$(date +%s)   # freshness bar for the post-run compliance check
 attempt=1
 while :; do
   echo "run_agent: $agent ($model_id) attempt $attempt/$max_attempts → $log" >&2
@@ -481,6 +482,38 @@ while :; do
     # (attempt" line only goes to the wrapper's stderr).
     mkdir -p "$CACHE_DIR/agent-last-ok"
     : > "$CACHE_DIR/agent-last-ok/$agent_slug.ts"
+    # ── Post-run compliance verification ──────────────────────────────
+    # 2026-07 incident: the blogger's logs claimed "memory updated at
+    # .factory/memory/blogger.md" for weeks while that file never existed.
+    # Verify the spec's required artifact was actually TOUCHED this run
+    # (mtime >= run start, checked in $WORK_DIR — the agent's real cwd).
+    # A miss stays exit-0 (re-running LLM non-compliance doesn't help) but
+    # writes a loud ⚠ report the Briefer surfaces in 📰 News.
+    if ! grep -qiE 'not scheduled today|run_mode=dryrun' "$log"; then
+      _expected=""
+      case "$agent" in
+        blogger)          _expected=".factory/memory/blogger.md" ;;
+        playtester)       _expected=".factory/memory/playtester.md" ;;
+        demo_creator)     _expected=".factory/memory/demo-creator.md" ;;
+        pm)               _expected=".factory/memory/pm.md" ;;
+        designer)         _expected=".factory/memory/designer.md" ;;
+        triager)          _expected=".factory/memory/triager.md" ;;
+        morning_briefer)  _expected=".factory/local/MORNING.md" ;;
+      esac
+      _missed=""
+      for _e in $_expected; do
+        _f="$WORK_DIR/$_e"
+        if [ ! -f "$_f" ] || [ "$(stat -f %m "$_f" 2>/dev/null || echo 0)" -lt "$RUN_START_EPOCH" ]; then
+          _missed="$_missed $_e"
+        fi
+      done
+      if [ -n "$_missed" ]; then
+        echo "run_agent: ⚠ compliance — $agent succeeded but did not touch:$_missed" >&2
+        printf '%s\n' \
+          "- ⚠ compliance: $agent claimed success but its required artifact(s) went untouched this run:$_missed — treat the run's claims skeptically (log: $log)." \
+          | bash "$REPO_DIR/scripts/report.sh" "$agent" >/dev/null 2>&1 || true
+      fi
+    fi
     if [ "$self_reports" -eq 1 ] && [ "$(count_reports)" = "$reports_before" ]; then
       tailmsg=$( { grep -vE '^[[:space:]]*$' "$log" 2>/dev/null || true; } | tail -1 | cut -c1-160)
       printf '%s\n' \

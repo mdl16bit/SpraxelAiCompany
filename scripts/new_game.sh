@@ -106,35 +106,34 @@ for f in paths:
         print(f"  templated {f.relative_to(target)}")
 PY
 
-# Note: this game becomes the active game for the Spraxel daemon only if you
-# update ~/SpraxelAiCompany/schedule.yaml `game_dir:` to point here.
-echo ""
-echo "ℹ️  To make this game the active target for the Spraxel daemon, edit:"
-echo "      ~/SpraxelAiCompany/schedule.yaml"
-echo "    and set: game_dir: $TARGET"
-echo "    (only one game can be the active target at a time.)"
-
 cat <<EOF
 
-done. next steps to wire this game into the offline Spraxel system:
+done. next steps to wire this game into the multi-game Spraxel system
+(the /spraxel-launch skill walks all of this interactively — preferred):
 
   1. Edit $TARGET/GAME_CONFIG.yaml
      - Fill in identity.pitch, identity.must_include, identity.must_not_include.
      - Set dev.godot_binary to the absolute path of your Godot binary.
      - (run_mode lives in ~/SpraxelAiCompany/COMPANY_CONFIG.yaml as policy.run_mode;
-       set it to "dryrun" there to pause all agents, or override per-game here.)
+       a game may override any COMPANY_CONFIG key here — it deep-merges on top.)
      Then edit $TARGET/Philosophy.md — prose-only design narrative (no config).
 
-  2. Edit $TARGET/Game.md with current features + controls.
+  2. Edit $TARGET/Game.md — it is an INDEX; feature blocks live one-per-file
+     in $TARGET/docs/features/<slug>.md (see the contract inside Game.md).
 
-  3. Edit $TARGET/WORK.md with the roadmap (3 sections, 2 dashed lines).
+  3. Edit $TARGET/WORK.md with the roadmap (2026-07 layout: Up-and-coming work /
+     Finished since last release / Next work / archive footer).
      Format spec: ~/SpraxelAiCompany/docs/WORK_MD_FORMAT.md
 
-  4. Point the Spraxel daemon at this game:
-       \$EDITOR ~/SpraxelAiCompany/schedule.yaml
-       # change: game_dir: $TARGET
+  4. REGISTER the game in the multi-game registry (games run CONCURRENTLY —
+     you are adding, not replacing):
+       \$EDITOR ~/SpraxelAiCompany/COMPANY_CONFIG.yaml
+       # under games:, add:
+       #   <slug>:
+       #     dir: $TARGET
+       #     enabled: true
 
-  5. Install the daemon (idempotent — safe to re-run):
+  5. Install the daemon if this machine doesn't run it yet (idempotent):
        bash ~/SpraxelAiCompany/scripts/install_daemon.sh
 
   6. Install the GUT test framework into THIS repo (the templated test runner
@@ -146,14 +145,14 @@ done. next steps to wire this game into the offline Spraxel system:
        # Git LFS — .gitattributes excludes it on purpose (LFS-tracked GUT fonts
        # wedge worktree checkouts). See docs/WORKER_OPERATIONS.md §1.
 
-  7. Install the local-tests cron in THIS repo:
-       cd $TARGET && bash scripts/install_local_tests.sh
-
-  8. Verify both are loaded:
+  7. Verify the daemon sees it:
        launchctl list | grep com.spraxel
+       python3 ~/SpraxelAiCompany/scripts/spx_config.py games
 
-  9. (Optional) Open MORNING.md by running the morning-briefer once:
-       bash ~/SpraxelAiCompany/scripts/run_agent.sh morning-briefer
+  8. (Optional) Generate a first MORNING.md:
+       bash ~/SpraxelAiCompany/scripts/run_agent.sh morning-briefer --game <slug>
 
-For day-to-day operation, see ~/SpraxelAiCompany/OPERATIONS.md.
+For a fully-autonomous jam launch: ~/SpraxelAiCompany/docs/JAM_RUNBOOK.md.
+For day-to-day operation: ~/SpraxelAiCompany/OPERATIONS.md (Part II covers
+zero-to-running; Part V covers adding games).
 EOF
