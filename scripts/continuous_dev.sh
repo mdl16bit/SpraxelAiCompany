@@ -362,6 +362,8 @@ clean_slate() {
 # Returns 0 on successful ship, 1 on failure, 2 on clarify-only (don't count).
 ship_one_item() {
   local LOG_DIR="$GAME_LOGS_DIR/continuous/$(date +%Y-%m-%d)"
+  local _item_start_epoch
+  _item_start_epoch=$(date +%s)   # cost-attribution window start (ship_report)
   mkdir -p "$LOG_DIR"
   cd "$WORK_DIR" || return 1
   # Pass our worktree path to any child run_agent.sh calls — the dev +
@@ -1195,7 +1197,7 @@ print(t)
       # stays tidy.
       git push --quiet origin --delete "$branch" 2>/dev/null || true
       # Ship report → MORNING.md news digest (shared with interactive mode).
-      ship_report "$short_title"
+      ship_report "$short_title" "$_item_start_epoch" "worker-$WORKER_ID"
       outcome=ok
       break
     else

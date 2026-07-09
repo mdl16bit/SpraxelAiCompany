@@ -105,6 +105,10 @@ _derive_subject() {
 
 # ── claim-one ──────────────────────────────────────────────────────────────
 cmd_claim_one() {
+  # Cost-attribution window start for this item (read by finish-one's
+  # ship_report; items are serial in interactive mode, so claim→ship spans
+  # exactly one item's work).
+  date +%s > "$CACHE_DIR/item-start-w0.ts" 2>/dev/null || true
   # Regenerate escalations.md (idempotent), like the headless loop.
   python3 "$WORKMD" sync-escalations "$GAME_DIR/WORK.md" \
     --escalations "$GAME_DIR/.factory/escalations.md" >/dev/null 2>&1 || true
@@ -273,7 +277,7 @@ cmd_finish_one() {
   git -C "$WORKTREE" checkout --detach origin/master --quiet 2>/dev/null || true
   git -C "$GAME_DIR" branch -d "$branch" --quiet 2>/dev/null || true
   git -C "$GAME_DIR" push --quiet origin --delete "$branch" 2>/dev/null || true
-  ship_report "$short_title"
+  ship_report "$short_title" "$(cat "$CACHE_DIR/item-start-w0.ts" 2>/dev/null)" ""
   echo "SHIPPED: $short_title"
   return 0
 }

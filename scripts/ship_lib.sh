@@ -101,10 +101,38 @@ PY
   return 1
 }
 
+# ── Per-item cost estimate ─────────────────────────────────────────────────
+# Token cost of the work window via item_cost.py (parses the local Claude
+# transcript ledger; zero tokens spent). dir_filter narrows attribution:
+# "worker-<id>" for a headless worker's own worktree transcripts, "" for the
+# interactive mode (items run serially; window ≈ item). Prints "$X.XX" or
+# nothing on any failure — cost is decoration, never a gate.
+ship_item_cost() {   # <start_epoch> [dir_filter]
+  local since="$1" filt="${2:-}"
+  [ -n "$since" ] || return 0
+  python3 "$REPO_DIR/scripts/item_cost.py" --since "$since" \
+      ${filt:+--dir-filter "$filt"} --json 2>/dev/null \
+    | python3 -c 'import json, sys
+try:
+    print("$%.2f" % json.load(sys.stdin)["usd"])
+except Exception:
+    pass' 2>/dev/null || true
+}
+
 # ── Per-ship report line ───────────────────────────────────────────────────
 # One line per shipped item → MORNING.md 📰 News (Developer+Reviewer don't
 # self-report; the loop driver reports for them). Identical for both modes.
-ship_report() {   # <short_title>
-  printf '%s\n' "- Shipped: $1" \
+# With a start epoch, appends the item's estimated token cost AND logs it to
+# state/<slug>/cache/item-costs.tsv (ts, cost, title) for trend analysis.
+ship_report() {   # <short_title> [start_epoch] [dir_filter]
+  local title="$1" cost=""
+  if [ -n "${2:-}" ]; then
+    cost=$(ship_item_cost "$2" "${3:-}")
+    if [ -n "$cost" ] && [ -n "${CACHE_DIR:-}" ]; then
+      printf '%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "$cost" "$title" \
+        >> "$CACHE_DIR/item-costs.tsv" 2>/dev/null || true
+    fi
+  fi
+  printf '%s\n' "- Shipped: $title${cost:+ (~$cost tokens)}" \
     | bash "$REPO_DIR/scripts/report.sh" continuous >/dev/null 2>&1 || true
 }

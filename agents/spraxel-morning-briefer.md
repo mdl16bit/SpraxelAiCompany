@@ -60,6 +60,12 @@ commands, and zero-case lines** (plus the short per-section rules in its
    `touch .factory/local/reports/.briefed.ts` so the same reports aren't
    re-summarized tomorrow.
 
+   **Cost roll-up**: ship report lines may carry a per-item token cost
+   (`- Shipped: <title> (~$0.84 tokens)` — written by ship_lib). When any do,
+   append one line to the News section: `💸 Batch cost: ~$<sum> across <N>
+   priced ships (ledger: state/<slug>/cache/item-costs.tsv)`. Don't invent
+   costs for unpriced lines; sum only what's stamped.
+
 2c. **Crew-health line (REQUIRED, one line at the TOP of 📰 News).** tick.sh
    maintains `~/SpraxelAiCompany/state/<slug>/cache/crew-health.txt` — one line
    per crew agent whose last successful run is older than 2× its cron cadence.
