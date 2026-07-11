@@ -182,6 +182,10 @@ def compute(now=None):
     }
     # pools[pool][model] -> token bundle; de-dup assistant msgs by requestId
     pools = {"subscription": {}, "api_credit": {}}
+    # Separate today-only api_credit bundle: feeds est_usd_today, which tick.sh's
+    # daily_usd_cap brake compares against (the run-count cap can't see dollars).
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    api_today = {}
     seen = set()
 
     for d in transcript_dirs():
@@ -214,11 +218,14 @@ def compute(now=None):
                         if ts is None or ts < since:
                             continue
                         model = msg.get("model") or "unknown"
-                        b = pools[pool].setdefault(model, blank())
-                        b["input"] += u.get("input_tokens", 0) or 0
-                        b["output"] += u.get("output_tokens", 0) or 0
-                        b["cache_write"] += u.get("cache_creation_input_tokens", 0) or 0
-                        b["cache_read"] += u.get("cache_read_input_tokens", 0) or 0
+                        targets = [pools[pool].setdefault(model, blank())]
+                        if pool == "api_credit" and ts >= today_start:
+                            targets.append(api_today.setdefault(model, blank()))
+                        for b in targets:
+                            b["input"] += u.get("input_tokens", 0) or 0
+                            b["output"] += u.get("output_tokens", 0) or 0
+                            b["cache_write"] += u.get("cache_creation_input_tokens", 0) or 0
+                            b["cache_read"] += u.get("cache_read_input_tokens", 0) or 0
             except OSError:
                 continue
 
@@ -255,6 +262,7 @@ def compute(now=None):
     sub, _ = pool_summary("subscription", "week")
     api, api_models = pool_summary("api_credit", "month")
     api["est_usd"] = usd(api_models)
+    api["est_usd_today"] = usd(api_today)
     try:
         api["cap_usd"] = float(cfg_get("policy.budgets.monthly_usd_hard_cap", 0) or 0)
     except (TypeError, ValueError):

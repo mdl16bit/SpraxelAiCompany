@@ -50,9 +50,10 @@ done
 
 # ── Token-usage refresh (GLOBAL — zero Claude tokens, pure local JSONL parse) ──
 # Recompute the subscription-pool vs API-credit-pool split for the dashboard at
-# most once every ~12h; self-heals across wake-gaps. Backgrounded + exit-0.
+# most once every ~1h (was 12h; hourly gives the daily_usd_cap brake below its
+# granularity — still pure local CPU); self-heals across wake-gaps. Backgrounded.
 _tu_cache="$GLOBAL_CACHE/token-usage.json"
-if [ ! -f "$_tu_cache" ] || [ -z "$(find "$_tu_cache" -mmin -720 2>/dev/null)" ]; then
+if [ ! -f "$_tu_cache" ] || [ -z "$(find "$_tu_cache" -mmin -60 2>/dev/null)" ]; then
   _tu_log="$REPO_DIR/logs/token_usage"; mkdir -p "$_tu_log"
   nohup python3 "$REPO_DIR/scripts/token_usage.py" \
     >>"$_tu_log/$(date +%Y-%m-%d).log" 2>&1 &
@@ -76,6 +77,22 @@ PY
 
 # Bail if paused (wall stamp already refreshed → unpausing won't fake a wake-gap).
 if [ -e "$PAUSED_FLAG" ]; then
+  # Pause-age self-alert: a paused system is silently idle — nothing else
+  # escalates "you've been paused N days" (2026-07: 3 days dark, zero signal).
+  # Once .paused is older than policy.pause_alert_hours (default 24, 0 = off),
+  # ping the CEO at most once per 24h via notify.sh.
+  _alert_h=$(python3 "$SPX" get policy.pause_alert_hours --default 24 2>/dev/null); _alert_h=${_alert_h:-24}
+  if [ "$_alert_h" -gt 0 ] 2>/dev/null; then
+    _page_h=$(( ( $(date +%s) - $(stat -f %m "$PAUSED_FLAG" 2>/dev/null || date +%s) ) / 3600 ))
+    _pstamp="$GLOBAL_CACHE/pause-alert.last"
+    if [ "$_page_h" -ge "$_alert_h" ] \
+       && { [ ! -f "$_pstamp" ] || [ -z "$(find "$_pstamp" -mmin -1440 2>/dev/null)" ]; }; then
+      touch "$_pstamp"
+      bash "$REPO_DIR/scripts/notify.sh" "Spraxel paused ${_page_h}h" \
+        "The whole crew is idle (paused $((_page_h / 24))d $((_page_h % 24))h). rm ~/SpraxelAiCompany/.paused to resume." || true
+      echo "$now  paused ${_page_h}h — CEO notified" >> "$log"
+    fi
+  fi
   echo "$now  paused" >> "$log"
   exit 0
 fi
@@ -93,8 +110,27 @@ if [ "${_run_cap:-0}" -gt 0 ] 2>/dev/null; then
     printf 'daily_run_cap reached: %s agent runs on %s (cap %s). System auto-paused — investigate the spend, then `rm %s` to resume.\n' \
       "$_runs_today" "$(date +%Y-%m-%d)" "$_run_cap" "$PAUSED_FLAG" > "$PAUSED_FLAG"
     echo "$now  HALTED — daily_run_cap reached ($_runs_today/$_run_cap)" >> "$log"
+    bash "$REPO_DIR/scripts/notify.sh" "Spraxel HALTED" \
+      "daily_run_cap reached ($_runs_today/$_run_cap runs today) — auto-paused. Investigate, then rm .paused." || true
     exit 0
   fi
+fi
+
+# ── Dollar brake — GLOBAL daily_usd_cap (policy.budgets.daily_usd_cap) ────────
+# Complements daily_run_cap (which counts RUNS, not dollars): halts the system
+# once today's ESTIMATED metered spend (api_credit pool, est_usd_today from
+# token_usage.py's cache) crosses the cap. Granularity = the token-usage refresh
+# cadence (hourly), so treat it as a backstop, not a throttle. 0 = disabled.
+_usd_cap=$(python3 "$SPX" get policy.budgets.daily_usd_cap --default 0 2>/dev/null); _usd_cap=${_usd_cap:-0}
+_usd_today=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['api_credit'].get('est_usd_today',0))" "$_tu_cache" 2>/dev/null || echo 0)
+_usd_hit=$(python3 -c "import sys;print(1 if 0 < float(sys.argv[1]) <= float(sys.argv[2]) else 0)" "$_usd_cap" "$_usd_today" 2>/dev/null || echo 0)
+if [ "$_usd_hit" = "1" ]; then
+  printf 'daily_usd_cap reached: ~$%s estimated metered spend on %s (cap $%s). System auto-paused — investigate the spend, then `rm %s` to resume.\n' \
+    "$_usd_today" "$(date +%Y-%m-%d)" "$_usd_cap" "$PAUSED_FLAG" > "$PAUSED_FLAG"
+  echo "$now  HALTED — daily_usd_cap reached (\$$_usd_today/\$$_usd_cap)" >> "$log"
+  bash "$REPO_DIR/scripts/notify.sh" "Spraxel HALTED" \
+    "daily_usd_cap reached (~\$$_usd_today metered today, cap \$$_usd_cap) — auto-paused. rm .paused after investigating." || true
+  exit 0
 fi
 
 # Bail if claude CLI is missing or broken.
@@ -215,6 +251,7 @@ PY
       printf '%s\n' \
         "- ⚠ CREW-HEALTH: **$_an** looks dead — $_why. Check logs/$GAME_SLUG/$_an/ (tail the newest .log)." \
         | bash "$REPO_DIR/scripts/report.sh" crew_health --game "$GAME_SLUG" >/dev/null 2>&1 || true
+      bash "$REPO_DIR/scripts/notify.sh" "Spraxel crew-health ($GAME_SLUG)" "$_an looks dead — $_why" || true
       echo "$now  crew-health: $_an STALE ($_why)" >> "$log"
     done <<EOF_STALE
 $_stale
@@ -268,6 +305,24 @@ PY
     [ -z "$name" ] && continue
     if { [ -x "$CRON_DUE" ] && python3 "$CRON_DUE" "$name" "$cron" --stamp "$AGENT_FIRE_STAMP" >/dev/null 2>&1; } \
        || { [ ! -x "$CRON_DUE" ] && "$CRON_MATCH" "$cron" >/dev/null 2>&1; }; then
+      # Designer backlog gate: scheduled designer runs only fire when the
+      # buildable queue is actually hungry — with N+ buildable items already
+      # waiting, more ideas just deepen an unshaped pile (2026-07 audit: 214
+      # open items, 175 raw [manual]). The dry-queue REACTIVE designer below
+      # is unaffected. 0 disables the gate. policy.designer_backlog_gate.
+      if [ "$name" = "designer" ] && [ -f "$work_md" ]; then
+        _dgate=$(python3 "$SPX" get policy.designer_backlog_gate --default 10 --game "$GAME_SLUG" 2>/dev/null); _dgate=${_dgate:-10}
+        if [ "$_dgate" -gt 0 ] 2>/dev/null; then
+          _buildable=$(python3 "$REPO_DIR/scripts/workmd.py" top "$work_md" -n "$_dgate" 2>/dev/null \
+            | python3 -c 'import sys,json
+try: print(len(json.load(sys.stdin)))
+except Exception: print(0)' 2>/dev/null || echo 0)
+          if [ "${_buildable:-0}" -ge "$_dgate" ]; then
+            echo "$now  $GAME_SLUG/designer skipped — backlog gate ($_buildable buildable >= $_dgate)" >> "$log"
+            continue
+          fi
+        fi
+      fi
       if [ -x "$RUN_AGENT" ]; then
         dlog="$GAME_LOGS_DIR/$name"; mkdir -p "$dlog"
         nohup bash "$RUN_AGENT" "$name" --game "$GAME_SLUG" >>"$dlog/dispatch-$(date +%Y-%m-%d).log" 2>&1 &

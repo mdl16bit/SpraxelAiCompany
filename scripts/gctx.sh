@@ -11,8 +11,8 @@
 #   GLOBAL_CACHE  PAUSED_FLAG                            (framework-global, shared by all games)
 #   SPRAXEL_GAME  (re-exported so child processes inherit the resolved slug)
 #
-# PHASE 1 layout = LEGACY FLAT (nothing moves yet). Phase 3 flips the per-game
-# vars to state/<slug>/… , logs/<slug>/… , .worktrees/<slug>/… — callers don't change.
+# Layout is fully NAMESPACED per game: state/<slug>/{locks,cache}, logs/<slug>/,
+# .worktrees/<slug>/ (the phased flat→namespaced migration completed 2026-06-15).
 
 # Resolve framework repo root from this file's location (works when sourced).
 _GCTX_SELF="${BASH_SOURCE[0]}"

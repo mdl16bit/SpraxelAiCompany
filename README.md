@@ -14,8 +14,11 @@ You don't keep a Claude Code window open. **Everything runs locally**:
 - A single **launchd daemon** (`com.spraxel.tick`) ticks every 60 seconds.
 - The tick script reads `schedule.yaml` and dispatches whichever crew agents
   are due, and keeps the continuous Developer loop alive.
-- Each agent fires as **`claude -p` headless** on your Claude Max plan
-  (flat-fee, no marginal cost per run).
+- Each crew agent fires as **`claude -p` headless** — **metered API-credit
+  spend since 2026-06-15** (kept cheap: Haiku-heavy roles + byte-capped
+  prompts + the daily run/$ caps). Development itself runs subscription-side
+  via the interactive `/spraxel-develop` loop when
+  `continuous.force_interactive_developers` is on.
 - The agents read and write **`WORK.md`** (the single source of truth) — no
   GitHub Issues, no GitHub Actions, no Anthropic `/schedule` routines.
 - Code commits push to GitHub (free, unlimited) for backup and visibility.
@@ -48,21 +51,22 @@ TRIGGERED  test_runner.sh     — devs run NO tests; this runs the WHOLE
                                named test as its merge gate. (Replaces the old
                                com.spraxel.localtests 30-min daemon.)
 
-─ Daily crew agents (all times America/Los_Angeles) ────────────
-04:00      playtester        — actively plays the game; writes bug
+─ Daily crew agents (times America/Los_Angeles — the live dial is
+  COMPANY_CONFIG.yaml `agents:`; these can drift, that file can't) ─
+03:00      playtester        — actively plays the game; writes bug
                                candidates to .factory/inbox/playtest-findings.md
-05:00      triager           — consolidates playtest + test failures into
+04:00      triager           — consolidates playtest + test failures into
                                [bug] items in WORK.md
-06:00      morning-briefer   — writes .factory/local/MORNING.md (gitignored;
+05:00      morning-briefer   — writes .factory/local/MORNING.md (gitignored;
                                CEO-only file — the morning routine entry). Leads
                                with a 📰 News digest distilled from every agent's
                                dated report since the last briefing.
-06:30      demo-creator      — writes .factory/demos/<date>/recipe.md
+05:30      demo-creator      — writes .factory/demos/<date>/recipe.md
                                (always) + best-effort Godot --write-movie
                                capture (when Mac is awake)
-07:00      pm                — reorders top of ## Todo; biweekly Monday
+06:00      pm                — reorders top of ## Todo; biweekly Monday
                                release-cut (auto-tags v0.N, generates notes)
-09:00,     architect         — shapes [untriaged] feature work into buildable
+06:30,     architect         — shapes [untriaged] feature work into buildable
 21:00 +                        specs: fast-pass concrete items, or write a
 reactive                       /plan-style questionnaire to .factory/local/
                                TRIAGE.md; on your answers, finalize the spec OR
@@ -78,10 +82,11 @@ Tue+Fri 04:30  designer      — drops 4-6 [idea] items + 0-3 [concern] items;
                                issues — feature bloat, philosophical drift).
                                ALSO auto-runs on other days when the
                                buildable queue is dry (devs out of work).
-Sat 10:00      blogger       — drafts blog/content/posts/draft-<date>-<slug>.md
-                               from the week's feat: commits; pushes
+Tue+Fri 06:45  blogger       — release-gated devlog: drafts blog/content/posts/
+                               draft-<date>-<slug>.md when a release was cut (or
+                               14d + 3 player-facing commits); pushes
                                blog/<date> branch for CEO humanization
-Sun 02:00      janitor       — cold-archives stale Todo items, prunes
+Sun 01:00      janitor       — cold-archives stale Todo items, prunes
                                merged branches + 60+-day logs, sweeps
                                orphan escalated branches
 1st of month   asset-librarian — scans assets/ for orphans + license gaps
@@ -93,6 +98,9 @@ Sun 02:00      janitor       — cold-archives stale Todo items, prunes
                     but always appends as CEO requested — advisory only)
 /spraxel-report   — immediate status snapshot: now / last 24 h / last
                     week / next 20 scheduled events
+/spraxel-develop  — interactive dev loop (subscription-side): claim →
+                    build → review → squash-merge → ship, item by item
+/spraxel-launch   — onboard a NEW game into the games: registry
 
 ─ Always-on dashboard (optional, no tokens) ────────────────────
 python3 ~/SpraxelAiCompany/scripts/dashboard.py
@@ -110,7 +118,7 @@ python3 ~/SpraxelAiCompany/scripts/dashboard.py
 
 Developers never build a vague one-liner. Every new feature item enters the queue
 tagged **`[untriaged]`** and is invisible to the loop until the **Architect** agent
-(Sonnet) turns it into a concrete spec — like Claude `/plan` mode, but file-based:
+(Opus) turns it into a concrete spec — like Claude `/plan` mode, but file-based:
 
 1. **Intake.** The Architect reads each `[untriaged]` item. If it's already clear it
    **fast-passes** it (tag removed → buildable). If it's ambiguous it writes a short
@@ -186,9 +194,11 @@ SpraxelAiCompany/
 │                              triager, playtester, morning-briefer,
 │                              demo-creator, blogger, janitor, asset-librarian,
 │                              producer
-├── skills/                  ← CEO slash-commands
-│   │                          (also hardlinked to ~/.claude/skills/)
+├── skills/                  ← CEO slash-commands (symlinked into
+│   │                          ~/.claude/skills/ by scripts/install_skills.sh)
+│   ├── spraxel-develop/     ← /spraxel-develop — interactive dev loop
 │   ├── spraxel-inbox/       ← /inbox — morning routine
+│   ├── spraxel-launch/      ← /spraxel-launch — onboard a new game
 │   ├── spraxel-producer/    ← /producer — dictation → WORK.md
 │   └── spraxel-report/      ← /report — immediate status snapshot
 ├── docs/
@@ -211,10 +221,12 @@ SpraxelAiCompany/
 
 ## Design principles
 
-- **Token efficiency over headcount**. Haiku for cheap roles (PM, Triager,
-  Reviewer, Janitor, Morning Briefer, Asset Librarian); Sonnet only where
-  reasoning matters (Developer, Designer, Blogger, Playtester, Demo Creator,
-  Producer). Crew agents read scoped slices of WORK.md, not the whole file.
+- **Token efficiency over headcount**. Haiku for cheap, well-scaffolded roles
+  (Reviewer, Triager, Janitor, Asset Librarian); Sonnet where reasoning
+  matters (Developer, Designer, PM, Morning Briefer, Blogger, Playtester,
+  Demo Creator, Producer); Opus only for the Architect. The live assignment
+  is `COMPANY_CONFIG.models` — that file wins over this prose. Crew agents
+  read scoped slices of WORK.md, not the whole file.
 - **WORK.md is the contract.** Agents read/write only via `scripts/workmd.py`.
   No agent owns the file's structure.
 - **Tags are the language.** `[bug]`/`[feature]`/`[game-feature]`/`[chore]`

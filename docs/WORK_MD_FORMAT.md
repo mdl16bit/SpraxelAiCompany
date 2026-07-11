@@ -6,26 +6,37 @@ or move items via `scripts/workmd.py`.
 
 ## Sections
 
-Three sections separated by exactly two dividers (a line of 10+ dashes `-` or
-10+ equals signs `=`):
+Four sections (the 2026-07 reformat), separated by dividers (a line of 10+
+dashes `-` or 10+ equals signs `=`):
 
 ```
 # <game-name> — work tracking
 <optional prose, ignored by the parser>
 
-## Shipped (previous releases)
-<items, often with v0.N — prefix>
-----------
-## Shipped since last release
+## Up-and-coming work
+<active/near-term Todo — the top of this section is what the ship loop builds next>
+==========
+## Finished since last release
 <items, chronological completion order — newest at the bottom>
 ==========
-## Todo
-<items, top of the section is what the overnight Developer loop ships next>
+## Next work
+<deferred backlog — [future]/[cold]/[manual] parked items>
+==========
+## Shipped (previous releases)
+<historical archive footer; release cuts move bulk history to WORK_v0.N.md>
 ```
 
-The overnight loop pulls the top N from `## Todo`. As features merge, they
-get appended to `## Shipped since last release`. On a release cut, items
-there roll into `## Shipped (previous releases)` with a `v0.N —` prefix.
+The ship loop pulls the top of `## Up-and-coming work`. As features merge,
+they get appended to `## Finished since last release`. On a release cut
+(`workmd.py release-cut`), that section's items are archived to a
+`WORK_v0.N.md` sidecar file (keeping the live file small — the 2026-07
+432KB prompt-bloat outage is why), leaving a one-line pointer in
+`## Shipped (previous releases)`.
+
+The parser (`workmd.py`) also recognizes the legacy 3-section headings
+(`## Shipped since last release` → finished, `## Todo` → up-and-coming), so
+older game repos keep working — but new files use the 4-section layout above
+(see `template/WORK.md`).
 
 ## Items
 
@@ -71,7 +82,7 @@ Example:
 
 - H1 (`# Game-Name — ...`) is the file's main heading; it and the prose
   beneath it stay in the file header and are not parsed as items.
-- H2 (`## ...`) marks the three section boundaries.
+- H2 (`## ...`) marks the section boundaries.
 - H3+ inside a section is ignored.
 
 ## Concurrent edits

@@ -16,6 +16,10 @@ Scripts live in `~/SpraxelAiCompany/scripts/` (abbreviated below): `interactive_
 (the helper — lock/merge/ship), `spx_config.py`, `sonnet_cap.py`, `workmd.py`. Specs:
 `agents/spraxel-developer.md`, `agents/spraxel-reviewer.md`. Heartbeat + sweep + all per-game state are handled by `interactive_dev_step.sh` subcommands (namespaced via gctx) — never hardcode `.cache/` paths.
 
+**DRIFT GUARD**: this skill and the dormant headless loop (`continuous_dev.sh`) must stay
+behavior-identical. Ship-pipeline changes belong in `ship_lib.sh` / `interactive_dev_step.sh`
+(shared); if a change can only land in one path, mirror it into the other in the same commit.
+
 ## 0. Preflight
 1. **Pick the project** (multi-game). `SLUG=$(spx_config.py current --game "<named>")`
    if the CEO named one, else `SLUG=$(spx_config.py current)`. Priority: explicit >

@@ -471,6 +471,7 @@ while :; do
     printf '%s\n' \
       "- ⚠ $agent run FAILED fatally: \"$fatal_msg\" — needs CEO/operator attention (see $log)." \
       | bash "$REPO_DIR/scripts/report.sh" "$agent" >/dev/null 2>&1 || true
+    bash "$REPO_DIR/scripts/notify.sh" "Spraxel: $agent FATAL" "$fatal_msg" || true
     exit 1
   fi
   if [ "$rc" -eq 0 ] && [ -s "$log" ]; then
@@ -512,6 +513,7 @@ while :; do
         printf '%s\n' \
           "- ⚠ compliance: $agent claimed success but its required artifact(s) went untouched this run:$_missed — treat the run's claims skeptically (log: $log)." \
           | bash "$REPO_DIR/scripts/report.sh" "$agent" >/dev/null 2>&1 || true
+        bash "$REPO_DIR/scripts/notify.sh" "Spraxel: $agent compliance miss" "untouched:$_missed" || true
       fi
     fi
     if [ "$self_reports" -eq 1 ] && [ "$(count_reports)" = "$reports_before" ]; then

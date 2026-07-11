@@ -96,13 +96,11 @@ done
 trap 'rmdir "$TEST_LOCK" 2>/dev/null' EXIT INT TERM
 [ "$QUIET" -eq 0 ] && echo "[local-tests] acquired lock after ${waited:-0}s"
 
-# Find Godot binary (read from Philosophy.dev.godot_binary)
+# Find Godot binary (read from GAME_CONFIG.yaml dev.godot_binary)
 GODOT=$(python3 -c "
-import yaml, re
-text = open('Philosophy.md').read()
-fm = re.search(r'^---\n(.*?)\n---', text, re.DOTALL).group(1)
-data = yaml.safe_load(fm)
-print(data.get('dev', {}).get('godot_binary', ''))
+import yaml
+data = yaml.safe_load(open('GAME_CONFIG.yaml'))
+print((data.get('dev') or {}).get('godot_binary', ''))
 ")
 if [ -z "$GODOT" ] || [ ! -x "$GODOT" ]; then
   echo "[local-tests] ERROR: Godot binary not found at '$GODOT'"

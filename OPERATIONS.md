@@ -144,7 +144,7 @@ runs in interactive-developer mode.
 |----------|------|
 | Interactive sessions (`/spraxel-develop` dev+review subagents, your CEO sessions) | Flat — included in the Claude subscription. This is where the heavy Sonnet work lives. |
 | Headless `claude -p` invocations (scheduled crew agents) | **Metered** — API-credit spend per token since 2026-06-15. The dashboard shows an estimated daily $ via `token_usage.py` + `policy.pricing`. Kept cheap by Haiku-heavy crew assignments + byte-capped prompts. |
-| Runaway-day protection | `policy.budgets.daily_run_cap: 250` — `tick.sh` auto-touches `.paused` past that many runs/day. |
+| Runaway-day protection | `policy.budgets.daily_run_cap: 250` (run count) **and** `policy.budgets.daily_usd_cap: 20` (estimated metered $ today, from `token_usage.py`'s hourly refresh) — `tick.sh` auto-touches `.paused` past either, and `notify.sh` pings the CEO. |
 | GitHub commits + pushes | $0 — unlimited on free private repos. |
 | GitHub Actions | $0 — we don't use them anymore. |
 | Anthropic `/schedule` routines | $0 — we don't use them anymore. |
@@ -1067,6 +1067,13 @@ Both modes share the same pipeline semantics (claim tags, Reviewer gate,
 the loop parks until you interact again. To switch modes, flip the config
 key; the next tick picks it up.
 
+**Drift guard (2026-07-11):** while Mode B is active, `continuous_dev.sh` is
+dormant but NOT deprecated — it's the fallback if the billing calculus flips
+back. To keep the two paths behavior-identical, ship-pipeline changes go in
+the shared `ship_lib.sh` / `interactive_dev_step.sh`; a change that can only
+live in one path must be mirrored into the other in the same commit (banner
+at the top of `continuous_dev.sh` + note in the skill say the same).
+
 ## Reviewer findings — `.factory/reviews/<slug>.md`
 
 Before the ship loop merges a feature, the **Reviewer** agent reads the
@@ -1392,7 +1399,14 @@ follow-ups tied to a concrete future date.
 
 ## Monitoring & crew health
 
-Three layers exist. **Compliance (per run):** after every successful crew
+Four layers exist. **Push (Notification Center):** `scripts/notify.sh`
+sends a macOS notification for the events that must not wait for the CEO
+to open a file — an agent tripping the fatal-response gate, a compliance
+miss, a newly-stale crew-health agent, either daily cap auto-pausing the
+system, and a `.paused` older than `policy.pause_alert_hours` (default
+24h, re-pinged at most once per 24h). Disable with
+`policy.notifications.enabled: false`. The files below stay the canonical
+record; the ping just says "look now". **Compliance (per run):** after every successful crew
 run, `run_agent.sh` verifies the agent's spec-required artifact was
 actually touched (mtime vs. run start — e.g. the blogger's memory file,
 the briefer's MORNING.md); a miss doesn't fail the run but writes a
@@ -2621,11 +2635,28 @@ fine to leave for now; revisit when the constraint actually hits.
 - ~~**Token-usage backpressure**~~ — **SHIPPED**: the `daily_run_cap`
   brake auto-pauses a runaway day, `sonnet_cap.py` handles the Sonnet cap,
   and the crew-health monitor surfaces silent failures.
-- **Push notifications**: no external alert when MORNING.md changes —
-  CEO has to open it. macOS Notification Center via `osascript -e
-  'display notification ...'` at 05:05 PT, or an iOS Shortcut watching
-  `MORNING.md` via iCloud Drive, are both plausible. Defer until the
-  routine feels under-attended.
+- ~~**Push notifications**~~ — **SHIPPED (2026-07-11)**: `scripts/notify.sh`
+  (macOS Notification Center) pings on fatal-gate failures, compliance
+  misses, crew-health staleness, daily-cap auto-pauses, and prolonged
+  `.paused` (see Monitoring & crew health). An iOS-visible channel (iCloud
+  Shortcut watching MORNING.md) remains unbuilt — revisit if away-from-Mac
+  alerting is ever needed.
+- **Prompt caching for headless crew runs**: `claude -p` re-reads each
+  agent's full prompt uncached every run. If/when headless prompt caching
+  is supported end-to-end, the stable prefix (spec + Philosophy) should be
+  cache-hinted — the crew's prompts were designed prompt-cache-stable for
+  exactly this.
+- **Files-of-interest hint**: embed a short "files you'll probably need"
+  list in the developer prompt (from the item's epic/spec or a cheap grep)
+  so devs stop re-discovering the same entry points every run.
+- **Soft token budget per run**: a per-agent advisory token target in the
+  prompt ("stay under ~N output tokens") + wrapper-side measurement, before
+  any hard enforcement.
+- **Spec-sweep**: periodic pass that diffs each agent spec against what its
+  runs actually do (drift detector for the specs themselves).
+- **Tick consolidation**: `tick.sh` spawns several `spx_config.py` python
+  processes per tick; batch the reads into one `dump` call if tick CPU ever
+  matters.
 
 ### Obsolete commands — DO NOT use
 

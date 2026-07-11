@@ -65,7 +65,9 @@ for f in Philosophy.md INSPIRATIONS.md GAME_CONFIG.yaml Game.md WORK.md .gitigno
 done
 
 # .factory/ structure
-for d in memory inbox inbox/dictation inbox/decisions inbox/playtest artifacts; do
+# (playtest findings are a FILE, inbox/playtest-findings.md, written by the
+#  playtester — not a directory; the old inbox/playtest dir was never used)
+for d in memory inbox inbox/dictation inbox/decisions inbox/processed artifacts; do
     mkdir -p "$TARGET/.factory/$d"
     [ -e "$TARGET/.factory/$d/.gitkeep" ] || touch "$TARGET/.factory/$d/.gitkeep"
 done

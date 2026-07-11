@@ -124,6 +124,16 @@ policy:
                                # interactive developer) fall back to Opus, then re-probe Sonnet
                                # after this many seconds (default 2h). If the cap message carries
                                # an explicit reset time, that is used instead. scripts/sonnet_cap.py.
+  notifications:
+    enabled: true              # macOS Notification Center pings (scripts/notify.sh) for the
+                               # push-based alerts: agent fatal-response gate, compliance misses,
+                               # crew-health stale, daily cap auto-pauses, prolonged pause. The
+                               # files (MORNING.md / escalations.md) stay the canonical record.
+  pause_alert_hours: 24        # while .paused exists and is older than this many hours, tick.sh
+                               # notifies the CEO once per 24h that the crew is idle. 0 = off.
+  designer_backlog_gate: 10    # scheduled designer runs are SKIPPED while this many buildable
+                               # items already sit in the queue (ideas would pile onto an unshaped
+                               # backlog). The queue-dry reactive designer is unaffected. 0 = off.
   budgets:
     monthly_usd_hard_cap: 250  # informational
     by_agent_percent:          # token_report.sh warns if actual share drifts >25%
@@ -146,6 +156,11 @@ policy:
                                # in a day — a guaranteed ceiling against a runaway day billing
                                # metered $$. CEO removes .paused to resume. Set ABOVE your normal
                                # daily volume (e.g. recent steady-state ~150/day → cap ~250).
+    daily_usd_cap: 20          # DOLLAR GUARDRAIL. 0 = off. If >0, tick.sh auto-pauses once
+                               # TODAY's estimated metered spend (api_credit est_usd_today from
+                               # token_usage.py, refreshed hourly) reaches this. Complements
+                               # daily_run_cap: that counts runs, this counts dollars. Backstop,
+                               # not a throttle — set well above a normal day (~$0.30-1/day).
 
   # Per-MTok model pricing (USD), used by scripts/token_usage.py to estimate the
   # API-credit-pool $ figure shown on the dashboard. Keyed by model-family prefix

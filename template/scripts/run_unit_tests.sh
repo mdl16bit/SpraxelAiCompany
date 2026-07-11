@@ -19,14 +19,12 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
 GODOT=$(python3 -c "
-import yaml, re
-text = open('Philosophy.md').read()
-fm = re.search(r'^---\n(.*?)\n---', text, re.DOTALL).group(1)
-data = yaml.safe_load(fm)
-print(data.get('dev', {}).get('godot_binary', ''))
+import yaml
+data = yaml.safe_load(open('GAME_CONFIG.yaml'))
+print((data.get('dev') or {}).get('godot_binary', ''))
 ")
 if [ -z "$GODOT" ] || [ ! -x "$GODOT" ]; then
-  echo "[unit-tests] ERROR: Godot binary not found at '$GODOT' (set dev.godot_binary in Philosophy.md)"
+  echo "[unit-tests] ERROR: Godot binary not found at '$GODOT' (set dev.godot_binary in GAME_CONFIG.yaml)"
   exit 2
 fi
 

@@ -20,6 +20,17 @@
 #
 # Pause:  touch ~/SpraxelAiCompany/.paused   → loop sleeps until .paused gone.
 # Force-checkin:  bash scripts/checkin.sh    → resets counter immediately.
+#
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ DORMANT while continuous.force_interactive_developers: true (the post-    ║
+# ║ 2026-06-15 billing posture) — tick.sh forces dev_concurrency to 0, so     ║
+# ║ this loop never spawns. The LIVE ship path is the /spraxel-develop skill  ║
+# ║ (skills/spraxel-develop/) + interactive_dev_step.sh, which must stay      ║
+# ║ behavior-identical to this loop's claim→build→review→merge→ship pipeline. ║
+# ║ DRIFT GUARD: put ship-pipeline changes in ship_lib.sh (shared by both     ║
+# ║ paths) or interactive_dev_step.sh — if a change can only live here,       ║
+# ║ mirror it into the skill in the SAME commit.                              ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
 
 set -o pipefail
 
