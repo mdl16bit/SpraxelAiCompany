@@ -1416,7 +1416,11 @@ updates to a file that never existed — for weeks). **Passive (automatic):** `t
 **crew-health monitor** per game — any agent whose last successful run is
 older than 2× its cron cadence lands in `state/<slug>/cache/crew-health.txt`,
 newly-stale agents get a one-time crew_health report, and MORNING.md's
-📰 News opens with a mandatory 🩺 crew-health line. **Active (on demand):**
+📰 News opens with a mandatory 🩺 crew-health line. After an **unpause**,
+report/notify is suppressed for `policy.crew_health_unpause_grace_hours`
+(26h) — stale stamps are expected when agents couldn't run; crew-health.txt
+still updates during grace, and a still-dead agent alerts once when grace
+expires. **Active (on demand):**
 `scripts/health_check.sh` scans today's per-agent logs for errors (unknown
 model, rate limits, session expiry, fatal traces, etc.) and produces a
 markdown block suitable for MORNING.md. The morning-briefer agent runs

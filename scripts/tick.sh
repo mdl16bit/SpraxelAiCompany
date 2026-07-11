@@ -93,6 +93,10 @@ if [ -e "$PAUSED_FLAG" ]; then
       echo "$now  paused ${_page_h}h — CEO notified" >> "$log"
     fi
   fi
+  # Record that we were paused this tick — the crew-health monitor uses this
+  # stamp's age to grant an unpause GRACE window (stale agent stamps are
+  # EXPECTED right after an unpause; agents can't run while paused).
+  : > "$GLOBAL_CACHE/last-paused.ts"
   echo "$now  paused" >> "$log"
   exit 0
 fi
@@ -241,6 +245,19 @@ for line in os.environ.get("AGENT_ENTRIES", "").splitlines():
         print(f"{name}|last success {age_h}h ago (cron: {cron})")
 PY
 )
+    # Unpause grace: agents CANNOT run while paused, so right after an unpause
+    # every stale stamp is expected — alerting then is pure noise (2026-07-11:
+    # 3 notifications fired the second the CEO unpaused). While the last paused
+    # tick is younger than policy.crew_health_unpause_grace_hours (default 26 —
+    # one full daily cycle so every agent gets a scheduled chance to run), keep
+    # writing crew-health.txt for the dashboard but skip the report/notify AND
+    # the stint state, so a still-dead agent alerts once when grace expires.
+    _grace_h=$(python3 "$SPX" get policy.crew_health_unpause_grace_hours --default 26 2>/dev/null); _grace_h=${_grace_h:-26}
+    _lp="$GLOBAL_CACHE/last-paused.ts"
+    if [ "$_grace_h" -gt 0 ] 2>/dev/null && [ -f "$_lp" ] \
+       && [ -n "$(find "$_lp" -mmin -$((_grace_h * 60)) 2>/dev/null)" ]; then
+      printf '%s\n' "$_stale" > "$CACHE_DIR/crew-health.txt"
+    else
     UNHEALTHY_STATE="$CACHE_DIR/crew-health.unhealthy"
     _prev=$(cat "$UNHEALTHY_STATE" 2>/dev/null || true)
     printf '%s\n' "$_stale" > "$CACHE_DIR/crew-health.txt"
@@ -256,6 +273,7 @@ PY
     done <<EOF_STALE
 $_stale
 EOF_STALE
+    fi
   fi
 
   # Per-game worker count. force_interactive_developers => no headless workers
