@@ -131,9 +131,11 @@ policy:
                                # files (MORNING.md / escalations.md) stay the canonical record.
   pause_alert_hours: 24        # while .paused exists and is older than this many hours, tick.sh
                                # notifies the CEO once per 24h that the crew is idle. 0 = off.
-  designer_backlog_gate: 10    # scheduled designer runs are SKIPPED while this many buildable
-                               # items already sit in the queue (ideas would pile onto an unshaped
-                               # backlog). The queue-dry reactive designer is unaffected. 0 = off.
+  designer_requires_new_ships: true  # scheduled designer runs are SKIPPED when NOTHING shipped
+                               # (feat:/fix: on the game's master) since the designer's last
+                               # successful run — fresh ideas want fresh material (CEO 2026-07-11;
+                               # replaced a short-lived queue-size gate). The queue-dry reactive
+                               # designer is unaffected. false = always run on schedule.
   crew_health_unpause_grace_hours: 26  # crew-health alerting is suppressed for this long after an
                                # unpause — stale stamps are EXPECTED then (agents can't run while
                                # paused); 26h = one full daily cycle so every agent gets one

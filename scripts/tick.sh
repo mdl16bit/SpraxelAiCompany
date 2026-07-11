@@ -323,20 +323,21 @@ PY
     [ -z "$name" ] && continue
     if { [ -x "$CRON_DUE" ] && python3 "$CRON_DUE" "$name" "$cron" --stamp "$AGENT_FIRE_STAMP" >/dev/null 2>&1; } \
        || { [ ! -x "$CRON_DUE" ] && "$CRON_MATCH" "$cron" >/dev/null 2>&1; }; then
-      # Designer backlog gate: scheduled designer runs only fire when the
-      # buildable queue is actually hungry — with N+ buildable items already
-      # waiting, more ideas just deepen an unshaped pile (2026-07 audit: 214
-      # open items, 175 raw [manual]). The dry-queue REACTIVE designer below
-      # is unaffected. 0 disables the gate. policy.designer_backlog_gate.
-      if [ "$name" = "designer" ] && [ -f "$work_md" ]; then
-        _dgate=$(python3 "$SPX" get policy.designer_backlog_gate --default 10 --game "$GAME_SLUG" 2>/dev/null); _dgate=${_dgate:-10}
-        if [ "$_dgate" -gt 0 ] 2>/dev/null; then
-          _buildable=$(python3 "$REPO_DIR/scripts/workmd.py" top "$work_md" -n "$_dgate" 2>/dev/null \
-            | python3 -c 'import sys,json
-try: print(len(json.load(sys.stdin)))
-except Exception: print(0)' 2>/dev/null || echo 0)
-          if [ "${_buildable:-0}" -ge "$_dgate" ]; then
-            echo "$now  $GAME_SLUG/designer skipped — backlog gate ($_buildable buildable >= $_dgate)" >> "$log"
+      # Designer freshness gate (CEO decision 2026-07-11, replacing the same-day
+      # backlog-size gate): the designer's ideas + curveballs are wanted
+      # continuously — but a run with NOTHING shipped since its last run just
+      # re-reads the same game state. Skip the scheduled run only when zero
+      # feat:/fix: commits landed on the game's master since the designer's
+      # last successful run. The dry-queue REACTIVE designer below is
+      # unaffected. policy.designer_requires_new_ships: false disables.
+      if [ "$name" = "designer" ]; then
+        _dgate=$(python3 "$SPX" get policy.designer_requires_new_ships --game "$GAME_SLUG" 2>/dev/null)
+        _dstamp="$CACHE_DIR/agent-last-ok/designer.ts"
+        if { [ "$_dgate" = "true" ] || [ "$_dgate" = "True" ]; } && [ -f "$_dstamp" ]; then
+          _since=$(date -r "$(stat -f %m "$_dstamp" 2>/dev/null || echo 0)" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)
+          _ships=$(git -C "$game_dir" log origin/master --oneline --since="$_since" -E --grep '^(feat|fix)[(:]' 2>/dev/null | wc -l | tr -d ' ')
+          if [ -n "$_since" ] && [ "${_ships:-0}" -eq 0 ]; then
+            echo "$now  $GAME_SLUG/designer skipped — nothing shipped since its last run ($_since)" >> "$log"
             continue
           fi
         fi
