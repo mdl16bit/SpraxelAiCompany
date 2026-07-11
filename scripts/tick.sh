@@ -259,7 +259,11 @@ PY
       printf '%s\n' "$_stale" > "$CACHE_DIR/crew-health.txt"
     else
     UNHEALTHY_STATE="$CACHE_DIR/crew-health.unhealthy"
-    _prev=$(cat "$UNHEALTHY_STATE" 2>/dev/null || true)
+    # tr: the state file is one agent per LINE, but the `case " $_prev " in
+    # *" $_an "*` dedup below matches on SPACE delimiters — without the
+    # normalization the pattern never matched and every stale agent re-alerted
+    # EVERY hourly check (2026-07-11: ~50 notifications in one evening).
+    _prev=$(cat "$UNHEALTHY_STATE" 2>/dev/null | tr '\n' ' ' || true)
     printf '%s\n' "$_stale" > "$CACHE_DIR/crew-health.txt"
     printf '%s\n' "$_stale" | awk -F'|' 'NF {print $1}' > "$UNHEALTHY_STATE"
     while IFS='|' read -r _an _why; do

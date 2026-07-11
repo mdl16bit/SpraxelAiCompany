@@ -18,12 +18,33 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # ceo-checkin.ts + continuous-state.json are per-game operational state — resolve
 # the game context (honors --game, else $SPRAXEL_GAME, else the sole enabled game).
 game_arg=""
+hook_mode=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --game) game_arg="${2:-}"; shift 2 ;;
+    --hook) hook_mode=1; shift ;;
     *) shift ;;
   esac
 done
+
+# --hook: invoked by the GLOBAL SessionStart hook, which fires for a Claude
+# session in ANY project on this Mac. Only sessions actually inside Spraxel
+# territory (the framework repo, a registered game dir, or their worktrees)
+# count as a CEO poke — 2026-07-11 a session in an unrelated project
+# (~/Rhythm) touched the stamp via gctx's last-game fallback and un-parked
+# the dev loop. Manual `checkin.sh` (no flag) still works from anywhere.
+if [ "$hook_mode" = "1" ]; then
+  case "$PWD/" in
+    "$REPO_DIR"/*) : ;;
+    *)
+      _ok=0
+      while IFS=$'\t' read -r _slug _gdir _en; do
+        [ -n "$_gdir" ] || continue
+        case "$PWD/" in "$_gdir"/*) _ok=1; break ;; esac
+      done < <(python3 "$REPO_DIR/scripts/spx_config.py" games 2>/dev/null)
+      [ "$_ok" = "1" ] || exit 0 ;;
+  esac
+fi
 if [ -n "$game_arg" ]; then
   . "$REPO_DIR/scripts/gctx.sh" --game "$game_arg"
 else
