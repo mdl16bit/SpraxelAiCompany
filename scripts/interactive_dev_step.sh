@@ -244,7 +244,17 @@ cmd_finish_one() {
       _implog=$(mktemp 2>/dev/null || echo /tmp/finish_import.$$)
       "$_gbin" --headless --import --path "$GAME_DIR" >"$_implog" 2>&1 || true
       if grep -qiE 'Parse Error|Compile Error|Failed to (load|parse) script|Compilation failed' "$_implog"; then
-        echo "MERGE_GATE: squash fails to parse/import — not landing on master:" >&2
+        # A POISONED .godot cache (stale uid_cache/import state, e.g. after an
+        # engine bump or scene moves) re-emits parse errors regardless of tree
+        # content — 2026-07-11 this false-rejected a clean squash 3× until the
+        # cache was wiped. .godot is fully regenerable: retry ONCE from scratch
+        # and only reject if the cold import still errors.
+        echo "MERGE_GATE: import errors — retrying once with a fresh .godot cache" >&2
+        rm -rf "$GAME_DIR/.godot"
+        "$_gbin" --headless --import --path "$GAME_DIR" >"$_implog" 2>&1 || true
+      fi
+      if grep -qiE 'Parse Error|Compile Error|Failed to (load|parse) script|Compilation failed' "$_implog"; then
+        echo "MERGE_GATE: squash fails to parse/import (fresh cache) — not landing on master:" >&2
         grep -iE 'Parse Error|Compile Error|Failed to (load|parse) script|Compilation failed' "$_implog" | head -5 >&2
         rm -f "$_implog"
         git reset --hard origin/master --quiet 2>/dev/null || true
